@@ -1,0 +1,14 @@
+node_modules/
+dist/
+dist-web/
+build/
+app.bundle.js
+.DS_Store
+.swiftpm/
+.build/
+xcuserdata/
+DerivedData/
+*.xcodeproj/project.xcworkspace/xcuserdata/
+*.xcodeproj/xcuserdata/
+.env
+.env.*

@@ -1,0 +1,6 @@
+{
+  "generatedAt": "2026-09-18T04:49:27.015Z",
+  "schemaSource": "src/dsl/schema.ts (AutomationPlanSchema, zod)",
+  "registrySource": "src/capability-registry/registry.ts (CAPABILITIES)",
+  "note": "Bu dosyalar gerçek zod şeması ile doğrulanmıştır. Swift Codable modelleri bu JSON'ları decode etmelidir; registry verisi Swift'te tekrar yazılmaz."
+}

@@ -1,0 +1,188 @@
+# Capability Matrix + Compiler Contract (Phase 1.5)
+
+Bu doküman, `src/capability-registry/` ve `src/compiler/contract.ts`
+içindeki makine-okunabilir matrisin insan tarafını açıklar. Matrisin
+kendisi koddadır; bu dosya **neden öyle olduğunu** anlatır.
+
+---
+
+## 1. İki düzeltme (önce bunlar okunmalı)
+
+### 1.1 Bluetooth hakkında verdiğim bilgi eksikti
+
+Phase 1'in sonunda "iOS, Bluetooth tetikleyicili otomasyonları asla
+sessizce çalıştırmaz" dedim ve buna dayanarak bir ürün kararı sordum.
+**Bu bilgi Apple'ın iOS 15 dokümanından geliyordu.**
+
+iOS 26 dokümanında liste değişmiş: Bluetooth artık *onaysız
+çalıştırılabilen* otomasyonlar arasında. iOS 26'da onaysız
+çalıştırılamayan **tek** tetikleyici "Before I Commute".
+
+| Tetikleyici | iOS 15 | iOS 26 |
+|---|---|---|
+| Bluetooth | onay zorunlu | onaysız çalışabilir |
+| Wi-Fi | onay zorunlu | onaysız çalışabilir |
+| Arrive / Leave | onay zorunlu | onaysız çalışabilir |
+| Mesaj / E-posta | onay zorunlu | onaysız çalışabilir |
+| CarPlay | onaysız çalışabilir | onaysız çalışabilir |
+| Time of Day | onaysız çalışabilir | onaysız çalışabilir |
+| Before I Commute | onay zorunlu | onay zorunlu |
+
+iOS 16, 17 ve 18 sürümlerini **doğrulamadım**. Registry bu yüzden
+iOS 15 davranışını 16–25 aralığı için geçerli kabul ediyor; yani
+muhafazakâr taraftan yanılıyor ("belki onay sorar" diyor). Bu aralığın
+doğrulanması `docs/capabilities.md` açık işlerinde.
+
+**Bunun ürün sonucu:** "iki onay" problemi iOS 26'da yok, eski
+sürümlerde olabilir. Yani senin üç seviyeli yaklaşımın hâlâ doğru ama
+gerekçesi değişti: Bluetooth'u CarPlay'e tercih etmemenin sebebi artık
+"onay zorunluluğu" değil, sadece kapsam genişliği.
+
+### 1.2 Asıl kısıt onay değil, kurulum
+
+Daha önemli bulgu: **üçüncü taraf bir uygulamanın kullanıcı adına tam
+bir kişisel otomasyon (tetikleyici + eylem) kurabildiğine dair bir kanıt
+bulamadım.** Apple geliştirici forumlarında geliştiriciler tam bunu
+soruyor ve programatik yol bulamadıklarını bildiriyor; önerilen yol
+App Intents ile eylem sunmak ve otomasyonu kullanıcının kendisinin
+kurması.
+
+Kanıt seviyesi: **ikincil** (geliştirici forumu, Apple dokümanı değil).
+Bu yüzden registry `possible: "unverified"` diyor — ama sözleşme, tersini
+varsaymayı yasaklıyor.
+
+**Bunun ürün sonucu:** Phase 1 UX'indeki "native otomatik kurulum"
+ekranı (docs/ux.md §3.6.a — "Harika! Otomasyon telefonuna kuruluyor")
+büyük olasılıkla **hiçbir capability için gerçekleşemez.** Gerçekçi en
+iyi senaryo: uygulama otomasyonu hazırlar, kullanıcı tek dokunuşla içe
+alır/onaylar (`user_assisted_import`).
+
+Bu bir ürün kararı gerektiriyor ve UX'i tek taraflı değiştirmedim:
+ya §3.6.a ekranını "hazırladım, şunu onayla" şekline çeviririz, ya da
+Phase 3'te bu kısıt resmi olarak doğrulanana kadar iki ekranı da
+koruyup `automatic`'i asla üretmeyiz (şu anki durum: kod
+`automatic` üretemiyor, sözleşme testi engelliyor).
+
+---
+
+## 2. Matrisin alanları
+
+Her capability için sorulan sorular ve karşılık gelen alanlar:
+
+| Soru | Alan |
+|---|---|
+| Native destekliyor mu? | `nativeSupport` |
+| Shortcuts'ta var mı? | `availableInShortcuts` |
+| Bizim App Intent'imizle yapılabilir mi? | `appIntentCapable` |
+| Otomatik çalışıyor mu / iOS onay istiyor mu? | `behaviors[].canRunWithoutAsking` (sürüm sürüm) |
+| Hangi izin gerekiyor? | `permissions[]` |
+| Kurulum nasıl yapılıyor? | `installMethod` |
+| Kullanıcı manuel adım yapmak zorunda mı? | `requiresUserSetupStep`, `fallbackSteps[]` |
+| Kullanıcıya önceden ne söylenmeli? | `userDisclosures[]` |
+| Ne kadar güveniyoruz? | `evidence` + `source` + `verifiedAt` |
+
+### Üç değerli mantık
+
+`Tristate = true | false | "unverified"`. Bilmediğimizi `false` diye
+kaydetmek yasak — çünkü `false`, "Apple bunu desteklemiyor" demek;
+`"unverified"` ise "biz bakmadık" demek. İkisi çok farklı ürün kararına
+yol açar. Örnek: Focus tetikleyicisi Apple'ın iki listesinin de hiçbirinde
+geçmiyor, bu yüzden `"unverified"`.
+
+### Kanıt seviyeleri
+
+- `apple_docs` — Apple'ın kendi dokümanı
+- `vendor_docs` — üretici (Tesla) resmi kaynağı
+- `secondary` — haber/forum, teyit bekliyor
+- `unverified` — hiç doğrulanmadı
+
+Ürün kararları yalnızca `apple_docs` / `vendor_docs` satırlarına
+dayanmalı. `secondary` satırlar Phase 3'te teyit edilmeli.
+
+---
+
+## 3. Capability resolver (üç seviyeli araç yaklaşımı)
+
+```
+Kullanıcı niyeti: "arabadan inince"
+        ↓
+triggerGroup: "vehicle_departure"
+        ↓
+CarPlay mevcut? ──Evet──▶ ios.carplay.disconnected   (priority 1)
+        │
+       Hayır
+        ↓
+ios.bluetooth.disconnected                            (priority 2)
+        ↓ (kullanıcı açıkça isterse)
+ios.location.leave                                    (priority 3)
+```
+
+Öncelik kodda değil registry'de (`priority` alanı). Apple yeni bir
+tetikleyici sunduğunda UX'e veya AI'a dokunmadan sadece yeni satır
+eklenip priority'si ayarlanır.
+
+Konum tabanlı alternatif **bilinçli olarak eşdeğer sayılmıyor**: farklı
+izin (`location_always`) ister, aracı değil telefonu takip eder ve
+yalnızca kullanıcı açıkça seçerse devreye girer
+(`prefersLocationTrigger`). Bu, resolver testlerinde sabitlenmiş.
+
+### Disclosure üretimi
+
+`disclosuresFor(capability, deviceContext)` kullanıcıya kurulumdan önce
+söylenecekleri üretir. iOS'un ek onay soracağı bir durumda şu satır
+otomatik ekleniyor:
+
+> "Bu otomasyon her çalıştığında iPhone sana ayrıca onay soracak; bu
+> iOS'un kendi davranışı ve kapatılamıyor."
+
+Yani "iki onay çıkması sürpriz olmasın" kuralı bir UI metni değil,
+registry'den türetilen bir çıktı. Cihaz iOS 26 ise bu satır hiç
+üretilmiyor — gereksiz korkutma yapılmıyor.
+
+---
+
+## 4. Compiler Contract
+
+`src/compiler/contract.ts` compiler'ı implemente etmez; **ne üretmek
+zorunda olduğunu** tanımlar:
+
+- Çıktı: `ShortcutsAutomationArtifact` (tetikleyici + eylemler +
+  `askBeforeRunning` durumu) veya `GuidedManualArtifact` (neden + adımlar)
+- `installMethod`: `automatic | user_assisted_import | guided_manual |
+  app_intent_exposure`
+- `claimsInstalled: false` — **compiler asla "kuruldu" diyemez.** Kurulum
+  sonucu ayrı bir kanaldan bildirilir (MASTER_SPEC §18).
+
+### Sözleşme testleri registry'yi denetliyor
+
+`checkRegistryContract()` şu kuralları zorluyor:
+
+1. `nativeSupport: false` olan her satır `guided_manual` + dolu
+   `fallbackSteps` taşımak zorunda
+2. Programatik kurulum doğrulanmadıkça hiçbir satır `automatic` olamaz
+3. Her satır kaynak + `YYYY-MM-DD` formatında doğrulama tarihi taşımalı
+4. Native destekli her satır en az bir `OSBehavior` taşımalı
+5. `behaviors` artan sürüm sırasında ve kaynaklı olmalı
+6. Doğrulanmamış davranış bir `note` ile açıklanmalı
+7. iOS'un onay soracağı tetikleyiciler disclosure taşımalı
+8. Aynı grupta priority çakışamaz
+
+Bu testleri yazarken kendi registry'imde 3 ihlal çıktı (Wi-Fi'da eksik
+disclosure, iki Tesla eyleminde açıklanmamış belirsizlik) ve düzeltildi.
+Sözleşmenin işe yaradığının kanıtı bu.
+
+---
+
+## 5. Açık işler
+
+1. **iOS 16/17/18 doğrulaması** — Bluetooth/Wi-Fi/Mesaj davranışının hangi
+   sürümde değiştiği bilinmiyor. Şu an muhafazakâr varsayım yapılıyor.
+2. **Programatik kurulum** (§1.2) — resmi Apple dokümanıyla teyit
+   edilmeli. Ürünün kurulum UX'i buna bağlı.
+3. **Focus tetikleyicisi** — Apple'ın hiçbir listesinde geçmiyor.
+4. **Tesla eylemlerinin "otomatik çalıştır" desteği** — Tesla'nın
+   eylemleri `Ask Before Running` kapalıyken çalışıyor mu, doğrulanmadı.
+5. **Tesla kaynağı ikincil** — resmi Tesla dokümanı/release notu bulunup
+   `evidence: "vendor_docs"` satırları sağlamlaştırılmalı.
+6. **WhatsApp** — MASTER_SPEC §22'de geçiyor ama Shortcuts'ta böyle bir
+   tetikleyici doğrulanmadı; matrise hiç eklenmedi (tahmin yapmamak için).

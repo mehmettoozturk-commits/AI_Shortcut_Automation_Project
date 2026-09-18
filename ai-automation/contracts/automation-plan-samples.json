@@ -1,0 +1,56 @@
+{
+  "vehicleSentry": {
+    "name": "Tesla Sentry Mode",
+    "trigger": {
+      "type": "ios.bluetooth.disconnected",
+      "device": "Tesla Model Y"
+    },
+    "steps": [
+      {
+        "type": "ask_confirmation",
+        "message": "Sentry Mode'u açmak ister misin?"
+      },
+      {
+        "type": "conditional",
+        "condition": "answer == yes",
+        "then": [
+          {
+            "type": "tesla.sentry_mode.toggle"
+          }
+        ],
+        "else": []
+      }
+    ]
+  },
+  "dailyReminder": {
+    "name": "İlaç hatırlatması",
+    "trigger": {
+      "type": "ios.time_of_day.daily",
+      "params": {
+        "time": "21:00"
+      }
+    },
+    "steps": [
+      {
+        "type": "ios.notification.show",
+        "params": {
+          "message": "Aspirin al"
+        }
+      }
+    ]
+  },
+  "batteryAlert": {
+    "name": "Pil uyarısı",
+    "trigger": {
+      "type": "ios.battery.falls_below",
+      "params": {
+        "level": 20
+      }
+    },
+    "steps": [
+      {
+        "type": "ios.notification.show"
+      }
+    ]
+  }
+}
