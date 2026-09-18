@@ -224,9 +224,20 @@ Sözleşmenin işe yaradığının kanıtı bu.
    (iCloud linki) çalışıyor. Kalan iş: bu ayrımı `InstallMethod`
    enum'ına ve `docs/ux.md`'ye işlemek (ürün kararı, henüz yapılmadı).
 3. **Focus tetikleyicisi** — Apple'ın hiçbir listesinde geçmiyor.
-4. **Tesla eylemlerinin "otomatik çalıştır" desteği** — Tesla'nın
-   eylemleri `Ask Before Running` kapalıyken çalışıyor mu, doğrulanmadı.
-5. **Tesla kaynağı ikincil** — resmi Tesla dokümanı/release notu bulunup
-   `evidence: "vendor_docs"` satırları sağlamlaştırılmalı.
+4. **Tesla eylemlerinin "otomatik çalıştır" desteği** — 2026-09-19'da
+   gerçek Tesla + iPhone 16 Pro ile teyit edildi (Phase 3B Test 5):
+   "Nöbetçi Modu" (Sentry Mode) eylemi, parametresi sabit bir değere
+   ayarlandığında hem tek başına hem de bir Bluetooth-disconnect
+   otomasyonu içinde **onay istemeden** çalıştı ve aracı gerçekten
+   etkiledi (Tesla uygulamasından doğrulandı). **Yeni bulunan kısıt:**
+   eylemin parametresi "Her Seferinde Sor" bırakılırsa (sabitlenmezse),
+   otomasyon içinde bile interaktif olarak sorar — yani AI/compiler'ın
+   ürettiği her parametreli eylem somut bir değerle bağlanmak zorunda.
+   Bu, `src/compiler/contract.ts`'ye eklenecek yeni bir sözleşme kuralı
+   adayı (henüz kodlanmadı).
+5. **Tesla kaynağı** — 2026-09-19'da `secondary`'den gerçek cihaz
+   kanıtına yükseltildi (yukarıdaki madde). Resmi Tesla dokümanı/release
+   notu hâlâ bulunmadı; `evidence: "vendor_docs"` için bu ayrıca gerekli
+   olabilir ama artık ürün kararları için gerçek cihaz kanıtı yeterli.
 6. **WhatsApp** — MASTER_SPEC §22'de geçiyor ama Shortcuts'ta böyle bir
    tetikleyici doğrulanmadı; matrise hiç eklenmedi (tahmin yapmamak için).

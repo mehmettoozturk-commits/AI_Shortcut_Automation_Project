@@ -297,6 +297,47 @@ alınabiliyor.
 **Not:** docs/capabilities.md'de bu satır `evidence: "secondary"`
 olarak işaretliydi — bu test geçerse `vendor_docs`'a yükseltilir.
 
+### Test 5 SONUÇ (2026-09-18/19, gerçek Tesla + iPhone 16 Pro) — GEÇTİ
+
+**Yöntem ve gözlem, sırayla:**
+
+1. Tesla uygulaması telefonda kurulu (`com.teslamotors.TeslaApp`,
+   v4.60.5, `devicectl` ile doğrulandı) ve hesaba giriş yapılmış.
+2. Shortcuts'ta eylem aramasında "tesla" yazınca resmi eylem çıktı:
+   **"Nöbetçi Modu"** (Sentry Mode'un Türkçe yerelleştirmesi).
+3. İlk çalıştırmada eylem bir **Enable/Disable** parametresi sordu —
+   bunun nedeni parametrenin sabitlenmemiş olmasıydı (OS düzeyinde bir
+   onay değil, eylemin kendi yapılandırma sorusu). Parametre "Enable"
+   olarak **sabitlendiğinde** bu soru bir daha çıkmadı.
+4. Tek başına (Shortcuts editöründen) çalıştırıldığında Tesla
+   uygulamasından bakılıp **Sentry Mode'un araçta gerçekten açıldığı**
+   doğrulandı.
+5. **Kritik adım — otomasyon içinde:** Test 3'teki Bluetooth-disconnect
+   otomasyonunun eylemi, bildirim yerine bu sabit-parametreli "Nöbetçi
+   Modu (Enable)" eylemiyle değiştirildi. Bluetooth cihazının bağlantısı
+   gerçekten kesildiğinde, otomasyon **hiçbir onay istemeden** çalıştı
+   ve Sentry Mode gerçekten devreye girdi.
+
+**Sonuç:** Tam GEÇTİ — hem "eylem gerçekten çalışıyor mu" hem de "onaysız
+çalışabiliyor mu" soruları, hem tek başına hem de gerçek bir otomasyon
+tetikleyicisi içinde doğrulandı.
+
+**Önemli, plandan bağımsız bir bulgu:** Sessiz çalışmanın koşulu,
+eylemin parametresinin **sabit bir değere ayarlanmış olması** —
+"Her Seferinde Sor" bırakılırsa (parametre boşsa) eylem otomasyon
+içinde bile interaktif bir soru sorar. **Bu, AI'ın üreteceği/seçeceği
+her Tesla eylemi için parametrelerin binding zamanında sabitlenmesi
+gerektiği anlamına geliyor** — registry/compiler tarafında bir
+kısıt/kontrol olarak not edilmeli (§"Sonuç etkisi").
+
+**Sonuç etkisi:** `docs/capabilities.md`'de Tesla Sentry Mode satırının
+kanıt seviyesi `secondary`'den gerçek cihaz kanıtına yükseltiliyor.
+Ayrıca compiler contract'a (`src/compiler/contract.ts`) yeni bir kural
+adayı çıktı: parametreli eylemler için `WFWorkflowActionParameters`
+içindeki her parametrenin AI/compiler tarafından somut bir değerle
+doldurulması zorunlu olmalı, "Ask Each Time"/boş parametre üretilmemeli
+— bu, kod tarafında henüz uygulanmadı.
+
 ---
 
 ### Test 6 — Kullanıcı onayı (Apple'ın kendi ekranı) (P1)
