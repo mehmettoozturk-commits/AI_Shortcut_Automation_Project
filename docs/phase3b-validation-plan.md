@@ -100,6 +100,61 @@ zaten buna hazır, bkz. §"Sonuç matrisi").
 
 ---
 
+### Test 1b SONUÇ (2026-09-18, aynı cihaz, aynı oturum) — açık soruyu kapattı
+
+**GEÇTİ.**
+
+**Yöntem:** Telefonda Shortcuts uygulamasında elle, tek eylemli ("Show
+Notification", metin "Phase 3B Test 1 PASS") bir kestirme oluşturuldu,
+paylaş menüsünden **iCloud Bağlantısını Kopyala** ile
+`https://www.icloud.com/shortcuts/<id>` linki alındı.
+
+**İlk deneme (yanlış yöntem, YANLIŞ POZİTİF-olmayan ama yanıltıcı bir
+hata üretti):** iCloud linki, Test 1'deki gibi
+`shortcuts://import-shortcut?url=<icloud-link>&name=...` içine
+sarılıp `devicectl --payload-url` ile Shortcuts'a doğrudan verildi.
+Sonuç: **"The file isn't in the correct format."** Bu, imza reddi
+DEĞİL — `icloud.com/shortcuts/<id>` bir HTML önizleme sayfasıdır, ham
+`.shortcut` kaynağı değil; `import-shortcut`'ın `url` parametresi
+doğrudan bir dosya kaynağı bekliyor, iCloud'un kendi paylaşım
+sayfasını değil. Bu adım metodolojik bir hataydı, sinyal değil.
+
+**Düzeltilmiş yöntem:** Aynı iCloud linki, `shortcuts://import-shortcut`
+sarmalayıcısı OLMADAN, doğrudan Safari'ye (`com.apple.mobilesafari`)
+payload URL olarak verildi — yani gerçek kullanıcı davranışının
+birebir aynısı (bir linke tıklamak). iOS'un Universal Links mekanizması
+bunu otomatik olarak Shortcuts uygulamasına yönlendirdi.
+
+**Gözlem (kullanıcının tam onayı):**
+1. Shortcuts açıldı, içe aktarma ekranı geldi.
+2. "Ekle" (Add Shortcut) başarıyla çalıştı.
+3. Kestirme "Kestirmelerim"de göründü.
+4. Çalıştırıldığında bildirim doğru metni gösterdi: **"Phase 3B Test 1
+   PASS"**.
+
+**Sonuç:** `user_assisted_import` **tamamen çöpe gitmiyor** — ama
+kapsamı Test 1'in kanıtladığı kısıtla daralıyor:
+
+> AI, çalışma zamanında özgün/rastgele bir `.shortcut` dosyası
+> **üretip doğrudan veremez** (imzasız içerik kesin red). Ama
+> **önceden Shortcuts uygulamasında elle hazırlanmış ve Apple/iCloud
+> tarafından imzalanmış bir şablon**, `shortcuts://import-shortcut`
+> yerine düz bir iCloud paylaşım linkiyle (Universal Link) kullanıcıya
+> verildiğinde içe aktarılabiliyor, kütüphaneye ekleniyor ve
+> çalıştırılabiliyor.
+
+**Sonuç etkisi:** Kurulum yöntemi ikiye ayrılmalı — `automatic`
+(hâlâ kanıtlanmadı, hâlâ yasak) ile `guided_manual` arasında üçüncü,
+daha spesifik bir orta yol var: **önceden yazılmış, imzalanmış şablon
+kütüphanesinden seçip iCloud linkiyle içe aktarma.** Bu,
+`docs/capabilities.md` §1.2 ve registry'nin `InstallMethod` enum'ı
+(şu an `automatic | user_assisted_import | guided_manual |
+app_intent_exposure`) için isimlendirme/kapsam kararını gerektiriyor —
+kod tarafına dokunmadan önce ürün kararı olarak konuşulmalı (bkz. o
+dosyadaki not).
+
+---
+
 ### Test 2 — Personal Automation'a programatik bağlama (P0)
 
 **Sorulan soru:** Test 1 başarılıysa, içe aktarılan shortcut bir

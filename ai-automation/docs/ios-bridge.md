@@ -176,7 +176,7 @@ Kullanıcıya tek dokunuşluk bir kurulum vaat edip gerçekte olmayan bir
 
 | # | İddia | Durum | Kanıt |
 |---|---|---|---|
-| A | `shortcuts://import-shortcut?url=...` bir `.shortcut` eylem dizisini içe aktarır | **kısmen REDDEDİLDİ (gerçek cihaz, 2026-09-18)** | Mekanizmanın kendisi çalışıyor (URL tanınıyor, işleniyor) AMA imzasız içerik kategorik olarak reddediliyor: "Importing unsigned shortcut files is not supported." Bkz. `docs/phase3b-validation-plan.md` Test 1 SONUÇ. Apple-imzalı (iCloud) bir şablonla aynı yol henüz test edilmedi — açık soru. |
+| A | `shortcuts://import-shortcut?url=...` (veya düz bir iCloud paylaşım linki) bir `.shortcut` eylem dizisini içe aktarır | **KISMEN DOĞRULANDI, KISMEN REDDEDİLDİ (gerçek cihaz, 2026-09-18)** | İki alt-sonuç: (1) **imzasız/AI-üretimi içerik → RED** — "Importing unsigned shortcut files is not supported" (Test 1). (2) **Apple/iCloud imzalı, önceden elle hazırlanmış şablon → KABUL** — düz iCloud paylaşım linki (`shortcuts://import-shortcut` sarmalayıcısı olmadan, Universal Link ile) Safari üzerinden açıldığında içe aktarma, ekleme ve çalıştırma başarılı (Test 1b). Bkz. `docs/phase3b-validation-plan.md` Test 1 / Test 1b SONUÇ. |
 | B | İçe aktarılan bir shortcut, programatik olarak bir Personal Automation tetikleyicisine (Bluetooth/CarPlay) bağlanabilir | **candidate, muhtemelen HAYIR** | hiçbir kaynakta böyle bir mekanizma bulunamadı |
 | C | Bluetooth/CarPlay tetikleyicisi kullanıcı müdahalesi olmadan kurulabilir | **candidate, muhtemelen HAYIR** | Personal Automation kurulumu tarihsel olarak yalnızca Shortcuts uygulamasının kendi arayüzünden yapılabiliyor |
 

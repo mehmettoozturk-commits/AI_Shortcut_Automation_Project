@@ -64,11 +64,27 @@ bir eksiklik değil, iOS'un platform seviyesinde bir kısıtı.
 
 Not: Bu sonuç `shortcuts://import-shortcut` mekanizmasının kendisini
 geçersiz kılmıyor (URL tanınıyor, işleniyor) — yalnızca *imzasız*
-içeriği reddediyor. Apple'ın kendi imzaladığı, önceden Shortcuts
-uygulamasında elle hazırlanmış bir şablonun (iCloud bağlantısıyla) aynı
-yoldan geçip geçemeyeceği henüz test edilmedi; bu, `user_assisted_import`
-kurulum yönteminin herhangi bir biçimde hayatta kalıp kalamayacağını
-belirleyecek açık soru.
+içeriği reddediyor.
+
+**Açık soru kapatıldı (Test 1b, aynı gün):** Apple'ın kendi imzaladığı,
+önceden Shortcuts uygulamasında elle hazırlanmış bir şablon, düz bir
+iCloud paylaşım linki (Universal Link, Safari üzerinden) açıldığında
+**başarıyla içe aktarıldı, kütüphaneye eklendi ve çalıştırıldı.**
+Yani `user_assisted_import` tamamen elenmiyor, ama kapsamı daralıyor:
+
+> AI çalışma zamanında özgün/rastgele bir `.shortcut` dosyası
+> **üretip doğrudan veremez.** Ama **önceden Shortcuts uygulamasında
+> elle hazırlanmış ve Apple/iCloud tarafından imzalanmış bir şablon
+> kütüphanesinden** seçip iCloud linkiyle kullanıcıya sunabilir; AI'ın
+> rolü bu şablonlardan hangisinin uygun olduğunu seçmek ve (mümkünse)
+> parametrelerini kullanıcı niyetine göre önceden doldurmak olur, sıfırdan
+> eylem dizisi üretmek değil.
+
+Bu, `InstallMethod` enum'ında (`src/capability-registry/types.ts`)
+`automatic` ile `guided_manual` arasında üçüncü, daha spesifik bir
+kategori gerektirip gerektirmediği sorusunu açıyor (örn.
+`user_assisted_import_template`) — bu bir isimlendirme/kapsam kararı,
+henüz koda işlenmedi.
 
 **Bunun ürün sonucu:** Phase 1 UX'indeki "native otomatik kurulum"
 ekranı (docs/ux.md §3.6.a — "Harika! Otomasyon telefonuna kuruluyor")
@@ -196,12 +212,11 @@ Sözleşmenin işe yaradığının kanıtı bu.
 
 1. **iOS 16/17/18 doğrulaması** — Bluetooth/Wi-Fi/Mesaj davranışının hangi
    sürümde değiştiği bilinmiyor. Şu an muhafazakâr varsayım yapılıyor.
-2. **Programatik kurulum** (§1.2) — 2026-09-18'de gerçek cihazda kısmen
-   teyit edildi: sıfırdan/imzasız shortcut üretimi kesin olarak
-   çalışmıyor. Kalan açık soru: Apple-imzalı (iCloud) önceden hazırlanmış
-   bir şablonun `shortcuts://import-shortcut` ile içe aktarılıp
-   aktarılamayacağı (Phase 3B Test 1b, henüz yapılmadı). Ürünün kurulum
-   UX'i bu son soruya bağlı.
+2. **Programatik kurulum** (§1.2) — 2026-09-18'de gerçek cihazda
+   tamamen teyit edildi (Test 1 + Test 1b): sıfırdan/imzasız shortcut
+   üretimi çalışmıyor, Apple-imzalı önceden hazırlanmış şablon
+   (iCloud linki) çalışıyor. Kalan iş: bu ayrımı `InstallMethod`
+   enum'ına ve `docs/ux.md`'ye işlemek (ürün kararı, henüz yapılmadı).
 3. **Focus tetikleyicisi** — Apple'ın hiçbir listesinde geçmiyor.
 4. **Tesla eylemlerinin "otomatik çalıştır" desteği** — Tesla'nın
    eylemleri `Ask Before Running` kapalıyken çalışıyor mu, doğrulanmadı.
