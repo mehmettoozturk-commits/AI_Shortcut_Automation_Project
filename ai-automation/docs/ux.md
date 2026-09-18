@@ -396,13 +396,16 @@ deep link **yok** (Test 2'de aranmadı, bilinen bir mekanizma değil).
 — `waiting_for_user` ile aynı prensip, aynı sebep (MASTER_SPEC §18).
 "Bağlayamadım" → `setup_failed`.
 
-**Kod tarafı — henüz yapılmadı:** Bu, `BuilderStep` union'ına (TS:
-`src/builder/types.ts`, Swift: `BuilderStep.swift`) yeni bir
-`linking_trigger` durumu eklenmesini ve `installed`'a girme koşulunun
-("Ekledim" yeterliydi) artık "Ekledim" **VE** "Bağladım" ikisini de
-gerektirecek şekilde genişletilmesini gerektiriyor. State machine
-mimarisi buna hazır (bkz. `docs/ios-bridge.md` §5) ama implementasyon
-henüz yapılmadı — bu bir sonraki, ayrı bir karar/iş.
+**Kod tarafı — YAPILDI (2026-09-19):** `BuilderStep` union'ına (TS:
+`src/builder/types.ts`, Swift: `BuilderStep.swift`) `linking_trigger`
+(Swift: `linkingTrigger`) durumu eklendi. "Ekledim" butonu artık
+`confirmShortcutAdded()`'ı çağırıyor (installed'a DEĞİL, doğrudan bu
+ekrana geçiyor); "Bağladım" butonu yeni `confirmTriggerLinked()`'ı
+çağırıyor — otomasyonu kaydedip `installed`'a geçen TEK yol bu.
+`guided_manual` akışı ayrı kaldı: tek onay (`confirmGuidedSetupDone()`),
+çünkü kullanıcı otomasyonun tamamını (tetikleyici dahil) zaten elle
+kurmuş oluyor. TS: 185/185 test PASS. Swift: 20/20 test PASS (macOS
+host + gerçek iPhone hedefinde derleme, bkz. `docs/ios-bridge.md` §0).
 
 #### 3.6.e `setup_failed`
 
@@ -429,13 +432,13 @@ Artık bunu telefonunun otomasyonlarından kullanabilirsin.
 ```
 
 `installed`, otomasyonun `installStatus: "installed"` ile kaydedildiği
-andır. **Güncellendi (Phase 3B Test 2, 2026-09-18):** buraya girmenin
-tek yolu artık yalnızca "Ekledim" değil — kullanıcının hem "Ekledim"
-(§3.6.c) hem de "Bağladım" (§3.6.d, yeni `linking_trigger` adımı)
-demesidir. Kod tarafında bu henüz uygulanmadı (bkz. §3.6.d'nin "Kod
-tarafı" notu); bu satır, kodun hedef davranışını tarif ediyor.
-`success` ise sadece kutlama/kapanış ekranı; `installed` dışından
-erişilemez.
+andır. **Güncellendi (Phase 3B Test 2, kod: 2026-09-19):** `userAssistedImport`
+akışında buraya girmenin tek yolu artık yalnızca "Ekledim" değil —
+kullanıcının hem "Ekledim" (§3.6.c, `confirmShortcutAdded()`) hem de
+"Bağladım" (§3.6.d, `confirmTriggerLinked()`) demesidir; ikincisi
+otomasyonu kaydeden ve `installed`'a geçen adımdır. `guided_manual`
+akışında tek onay yeterli (`confirmGuidedSetupDone()`). `success` ise
+sadece kutlama/kapanış ekranı; `installed` dışından erişilemez.
 
 **Domain karşılığı:** `Automation.installStatus` üç değer alır:
 `pending_user | installed | failed`. Bu ayrım Activity/Execution tarafı

@@ -54,6 +54,34 @@ kablosuz eşleştirme, `devicectl` ile "available (paired)") ağdayken:
   platform-spesifik davranışların yalnızca macOS'a özgü bir yanılsama
   olmadığını gösterir.
 
+**Phase 3B implementation round (2026-09-19):** P0 testleri (1, 1b, 2,
+3, 5 — bkz. `docs/phase3b-validation-plan.md`) tamamlandıktan sonra
+bulgular hem TS hem Swift koduna işlendi:
+
+1. `BuilderStep`'e yeni bir `linkingTrigger` durumu eklendi (Test 2'nin
+   kanıtladığı gerçek: otomasyon tetikleyicisi programatik bağlanamıyor,
+   kullanıcı Otomasyon sekmesinde elle bağlamalı).
+2. `installed`'a giren TEK yol artık iki ayrı onay:
+   `confirmShortcutAdded()` ("Ekledim") + `confirmTriggerLinked()`
+   ("Bağladım") — `userAssistedImport` akışında. `guided_manual`
+   akışı ayrı kaldı: tek onay (`confirmGuidedSetupDone()`), çünkü
+   kullanıcı zaten otomasyonun tamamını elle kuruyor.
+3. `Capability`'ye `triggerLinkingSteps` eklendi — Test 2'de kaydedilen
+   gerçek Bluetooth Otomasyon-sekmesi akışı buradan okunur, uydurulmaz.
+4. `EvidenceLevel`'e `device_verified` eklendi (Apple dokümanından
+   güçlü — gerçekten test edildiğini kanıtlar); `ios.bluetooth.disconnected`
+   (Test 3) ve `tesla.sentry_mode.toggle` (Test 5) bu seviyeye
+   yükseltildi; `PROGRAMMATIC_AUTOMATION_INSTALL.possible` artık
+   `"unverified"` değil, gerçek cihaz kanıtıyla `false`.
+5. TS: 185/185 test PASS (177 + 8 yeni). Swift: 20/20 test PASS
+   (16 + 4 yeni), hem macOS host'ta hem gerçek iPhone hedefinde
+   (`arm64-apple-ios16.0`) derleme PASS.
+
+Bu değişiklikler `docs/ux.md` §3.6.d'nin tasarımını (2026-09-18'de
+yazılmıştı) birebir koda döktü — isimlendirme (`confirmShortcutAdded`/
+`confirmTriggerLinked`/`confirmGuidedSetupDone`) implementasyon
+sırasında netleşti, ux.md güncellendi.
+
 ## 1. Neden iki fazlı (3A / 3B)
 
 Faz 1.5 ve Faz 2'de kurduğumuz disiplin — bir şeyi doğrulamadan
@@ -113,18 +141,24 @@ Bu iki önemli şeyi kanıtlıyor:
    Phase 1.5'in "tek doğruluk kaynağı" ilkesini bozardı.
 
 `DSLContractTests.swift` bu fixture'ları decode edip TS tarafındaki
-şekille eşleştiğini iddia ediyor — ama **bu test Xcode'da
-çalıştırılmadı**, yalnızca yazıldı.
+şekille eşleştiğini iddia ediyor — **2026-09-18'de Mac'te `swift test`
+ile gerçekten çalıştırıldı ve PASS oldu** (bkz. §0).
 
 ## 4. Builder state machine portu — neye dikkat edildi
 
 `BuilderMachine.swift`, `machine.ts`'in birebir çevirisidir. Özellikle
 korunan değişmezler:
 
-- `installed`/`success`'e girmenin tek yolu `confirmInstalledByUser()`.
-  `create()`, `prepareHandoff()`, `handOffToShortcuts()` — hiçbiri
-  otomasyonu kaydetmez.
-- `waitingForUser`'dan otomatik ilerleme yok (zamanlayıcı/varsayım yok).
+- **Güncellendi (Phase 3B Test 2, 2026-09-19):** `installed`/`success`'e
+  girmenin tek yolu artık TEK bir onay değil — `userAssistedImport`
+  akışında iki ayrı gerçek kullanıcı onayı gerekir: `confirmShortcutAdded()`
+  ("Ekledim") ve ardından `confirmTriggerLinked()` ("Bağladım").
+  `guided_manual` akışında ayrı bir trigger-linking adımı yok, tek onay
+  (`confirmGuidedSetupDone()`) yeterli — çünkü kullanıcı otomasyonun
+  TAMAMINI zaten elle kurmuş oluyor. `create()`, `prepareHandoff()`,
+  `handOffToShortcuts()` — hiçbiri otomasyonu kaydetmez.
+- `waitingForUser`'dan VE yeni `linkingTrigger`'dan otomatik ilerleme
+  yok (zamanlayıcı/varsayım yok, ikisinde de).
 - Kurulum yöntemi (`resolveSetupKind`) yalnızca registry'den okunur;
   `automatic` hiçbir yerde üretilmez — zaten `CapabilityRegistry.init`
   böyle bir satırı bulursa fırlatır (`assertNoUnprovenAutomaticInstall`).
@@ -132,8 +166,10 @@ korunan değişmezler:
   CarPlay → Bluetooth → Konum sırasını TS resolver'ıyla aynı şekilde
   uyguluyor.
 
-`BuilderMachineTests.swift` bu değişmezleri XCTest olarak ifade ediyor
-(yine: **çalıştırılmadı**).
+`BuilderMachineTests.swift` bu değişmezleri XCTest olarak ifade ediyor —
+Mac'te `swift test` ile çalıştırıldı, PASS. Phase 3B Test 2'den sonra
+eklenen `linkingTrigger`/Ekledim+Bağladım invariant'ları için yeni
+testler de dahil (2026-09-19), toplam 20/20 PASS (bkz. §0).
 
 ## 5. App Intent / Shortcuts — doğrulanan ve doğrulanmayan
 
