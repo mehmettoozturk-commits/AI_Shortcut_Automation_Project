@@ -265,6 +265,17 @@ etkilenmez, sadece CarPlay doğrulaması gecikir).
 
 **Geçti/Kaldı kriteri:** Test 3 ile aynı.
 
+### Test 4 SONUÇ (2026-09-18) — ERTELENDİ (donanım yok)
+
+**Hardware unavailable.** Kullanıcının Tesla'sı Apple CarPlay
+desteklemiyor (Tesla kendi bilgi-eğlence sistemini kullanıyor, CarPlay
+entegrasyonu yok) ve ayrı bir CarPlay'i olan araç/cihaz erişimi de yok.
+Plan §"Test 4"ün öngördüğü gibi: bu test ertelendi, ürün kararı geçici
+olarak yalnızca Bluetooth fallback'ine dayanıyor
+(`docs/capabilities.md` §3'teki CarPlay → Bluetooth → Konum öncelik
+sırası etkilenmiyor, sadece CarPlay satırının gerçek cihaz kanıtı
+gecikiyor — hâlâ `apple_docs` seviyesinde kalıyor).
+
 ---
 
 ### Test 5 — Tesla Sentry Mode eylemi (P0)
