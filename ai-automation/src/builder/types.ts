@@ -104,7 +104,24 @@ export type BuilderStep =
    * gerçekleşmediğini BİLMİYOR — bu yüzden buradan otomatik ilerleme YOK.
    */
   | { kind: "waiting_for_user"; draft: DraftAutomationPlan; setup: SetupKind }
-  /** Kullanıcı kurulumu doğruladı; otomasyon kaydedildi */
+  /**
+   * Kullanıcı "Ekledim" dedi (kestirme Shortcuts kütüphanesinde). Ama
+   * Personal Automation tetikleyicisi HENÜZ bağlanmadı — Phase 3B Test 2
+   * (gerçek cihaz) bunun programatik yapılamadığını kanıtladı:
+   * kullanıcı Shortcuts'ın Otomasyon sekmesinde elle bağlamalı. `steps`,
+   * registry'den türeyen (uydurulmamış) adım adım talimattır. Bu ekran
+   * da hem talimatı hem kendi kendine "Bağladım" onayını taşır
+   * (docs/ux.md §3.6.d) — buradan da otomatik ilerleme YOKTUR
+   * (`waiting_for_user` ile aynı prensip).
+   */
+  | { kind: "linking_trigger"; draft: DraftAutomationPlan; setup: SetupKind; steps: string[] }
+  /**
+   * Kullanıcı kurulumu doğruladı; otomasyon kaydedildi. `user_assisted_import`
+   * akışında buraya girmenin TEK yolu hem "Ekledim" (waiting_for_user)
+   * hem "Bağladım" (linking_trigger) demesidir — Phase 3B sonrası
+   * güncellenen değişmez (bkz. `confirmTriggerLinked`). `guided_manual`
+   * akışında tek onay yeterlidir (bkz. `confirmGuidedSetupDone`).
+   */
   | { kind: "installed"; automation: Automation }
   | { kind: "success"; automation: Automation }
   | { kind: "setup_failed"; draft: DraftAutomationPlan; setup: SetupKind; reason: string };

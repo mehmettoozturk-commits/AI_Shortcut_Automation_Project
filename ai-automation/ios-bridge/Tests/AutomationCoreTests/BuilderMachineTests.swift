@@ -70,7 +70,17 @@ final class BuilderMachineTests: XCTestCase {
         let beforeConfirm = await repo.list()
         XCTAssertEqual(beforeConfirm.count, 0, "kullanıcı doğrulamadan HİÇBİR ŞEY kaydedilmemeli")
 
-        await machine.confirmInstalledByUser()
+        // "Ekledim" — Phase 3B Test 2: bu HENÜZ installed'a götürmez.
+        machine.confirmShortcutAdded()
+        guard case .linkingTrigger(_, _, let steps) = machine.step else {
+            return XCTFail("linkingTrigger bekleniyordu")
+        }
+        XCTAssertFalse(steps.isEmpty)
+        let beforeTriggerLink = await repo.list()
+        XCTAssertEqual(beforeTriggerLink.count, 0, "tetikleyici bağlanmadan HİÇBİR ŞEY kaydedilmemeli")
+
+        // "Bağladım" — installed'a giden TEK yol.
+        await machine.confirmTriggerLinked()
         guard case .installed(let automation) = machine.step else { return XCTFail("installed bekleniyordu") }
         XCTAssertEqual(automation.installStatus, .installed)
 
@@ -112,6 +122,91 @@ final class BuilderMachineTests: XCTestCase {
         guard case .waitingForUser = machine.step else {
             return XCTFail("showSuccess() waitingForUser'dan doğrudan atlayabilmemeli")
         }
+    }
+
+    /// Phase 3B Test 2 invariant'ı: "Ekledim" tek başına installed'a
+    /// GÖTÜRMEZ; "Bağladım" da ayrıca gerekir.
+    func testShortcutAddedWithoutTriggerLinked_cannotReachInstalled() async throws {
+        let registry = try makeRegistry()
+        let (machine, repo) = makeMachine(registry: registry)
+        machine.open()
+        machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
+        await machine.submit()
+        await machine.confirmUnderstanding()
+        await machine.create()
+        await machine.prepareHandoff()
+        machine.handOffToShortcuts()
+        machine.confirmShortcutAdded() // "Ekledim"
+        guard case .linkingTrigger = machine.step else { return XCTFail("linkingTrigger bekleniyordu") }
+        let saved = await repo.list()
+        XCTAssertEqual(saved.count, 0)
+        machine.showSuccess() // installed değil, yok sayılmalı
+        guard case .linkingTrigger = machine.step else {
+            return XCTFail("showSuccess() linkingTrigger'dan doğrudan atlayabilmemeli")
+        }
+    }
+
+    /// Ters durum: "Bağladım" (confirmTriggerLinked) yanlış state'den
+    /// (henüz "Ekledim" denmemişken) çağrılırsa YOK SAYILMALI.
+    func testTriggerLinkedWithoutShortcutAdded_isNoOp() async throws {
+        let registry = try makeRegistry()
+        let (machine, repo) = makeMachine(registry: registry)
+        machine.open()
+        machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
+        await machine.submit()
+        await machine.confirmUnderstanding()
+        await machine.create()
+        await machine.prepareHandoff()
+        machine.handOffToShortcuts()
+        guard case .waitingForUser = machine.step else { return XCTFail("waitingForUser bekleniyordu") }
+        await machine.confirmTriggerLinked() // yanlış state, no-op olmalı
+        guard case .waitingForUser = machine.step else {
+            return XCTFail("confirmTriggerLinked() yanlış state'den geçiş yapmamalı")
+        }
+        let saved = await repo.list()
+        XCTAssertEqual(saved.count, 0)
+    }
+
+    func testLinkingTrigger_noAutomaticProgression() async throws {
+        let registry = try makeRegistry()
+        let (machine, repo) = makeMachine(registry: registry)
+        machine.open()
+        machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
+        await machine.submit()
+        await machine.confirmUnderstanding()
+        await machine.create()
+        await machine.prepareHandoff()
+        machine.handOffToShortcuts()
+        machine.confirmShortcutAdded()
+
+        try await Task.sleep(nanoseconds: 30_000_000)
+
+        guard case .linkingTrigger = machine.step else {
+            return XCTFail("30ms sonra hâlâ linkingTrigger olmalı — otomatik ilerleme YOK")
+        }
+        let saved = await repo.list()
+        XCTAssertEqual(saved.count, 0)
+    }
+
+    /// "Bağlayamadım" — Ekleyemedim ile aynı sahte-başarı yasağı.
+    func testReportInstallFailed_fromLinkingTrigger() async throws {
+        let registry = try makeRegistry()
+        let (machine, repo) = makeMachine(registry: registry)
+        machine.open()
+        machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
+        await machine.submit()
+        await machine.confirmUnderstanding()
+        await machine.create()
+        await machine.prepareHandoff()
+        machine.handOffToShortcuts()
+        machine.confirmShortcutAdded()
+        machine.reportInstallFailed(reason: "Otomasyon tetikleyicisi bağlanamadı.")
+        guard case .setupFailed(_, _, let reason) = machine.step else {
+            return XCTFail("setupFailed bekleniyordu")
+        }
+        XCTAssertEqual(reason, "Otomasyon tetikleyicisi bağlanamadı.")
+        let saved = await repo.list()
+        XCTAssertEqual(saved.count, 0)
     }
 
     func testCameraRequestBecomesUnsupportedWithAlternatives() async throws {

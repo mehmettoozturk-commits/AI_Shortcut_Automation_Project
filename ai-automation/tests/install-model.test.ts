@@ -101,7 +101,7 @@ describe("Kurulum modeli: installed'a giden tek yol kullanıcı doğrulaması", 
     expect(await repository.list()).toHaveLength(0);
   });
 
-  it("yalnızca confirmInstalledByUser() installStatus'u 'installed' yapar", async () => {
+  it("confirmShortcutAdded() tek başına otomasyonu kaydetmez (Phase 3B Test 2: trigger bağlama ayrı adım)", async () => {
     const { machine, repository } = makeMachine();
     machine.open();
     machine.setText("Arabadan inince Tesla Model Y'nin Sentry Mode'unu aç");
@@ -110,7 +110,22 @@ describe("Kurulum modeli: installed'a giden tek yol kullanıcı doğrulaması", 
     await machine.create();
     await machine.prepareHandoff();
     machine.handOffToShortcuts();
-    await machine.confirmInstalledByUser();
+    machine.confirmShortcutAdded();
+    expect(machine.step.kind).toBe("linking_trigger");
+    expect(await repository.list()).toHaveLength(0);
+  });
+
+  it("yalnızca confirmTriggerLinked() (Ekledim + Bağladım'dan sonra) installStatus'u 'installed' yapar", async () => {
+    const { machine, repository } = makeMachine();
+    machine.open();
+    machine.setText("Arabadan inince Tesla Model Y'nin Sentry Mode'unu aç");
+    await machine.submit();
+    await machine.confirmUnderstanding();
+    await machine.create();
+    await machine.prepareHandoff();
+    machine.handOffToShortcuts();
+    machine.confirmShortcutAdded();
+    await machine.confirmTriggerLinked();
     const saved = await repository.list();
     expect(saved[0]!.installStatus).toBe("installed");
   });

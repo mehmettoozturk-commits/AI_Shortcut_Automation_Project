@@ -42,7 +42,8 @@ async function runToInstalled(machine: BuilderMachine, text = SENTRY) {
   await machine.create();            // -> setup
   await machine.prepareHandoff();    // -> user_assisted_import
   machine.handOffToShortcuts();      // -> waiting_for_user
-  await machine.confirmInstalledByUser(); // -> installed
+  machine.confirmShortcutAdded();    // -> linking_trigger ("Ekledim")
+  await machine.confirmTriggerLinked(); // -> installed ("Bağladım")
 }
 
 describe("BuilderMachine — temel geçişler (docs/ux.md §1.2)", () => {
@@ -123,7 +124,7 @@ describe("BuilderMachine — temel geçişler (docs/ux.md §1.2)", () => {
     }
   });
 
-  it("tam kurulum akışı: setup -> user_assisted_import -> waiting_for_user -> installed", async () => {
+  it("tam kurulum akışı: setup -> user_assisted_import -> waiting_for_user -> linking_trigger -> installed", async () => {
     const { machine: m, repository } = makeMachine();
     await runToPreview(m);
     await m.create();
@@ -133,7 +134,17 @@ describe("BuilderMachine — temel geçişler (docs/ux.md §1.2)", () => {
     m.handOffToShortcuts();
     expect(m.step.kind).toBe("waiting_for_user");
     expect(await repository.list()).toHaveLength(0); // henüz kaydedilmedi
-    await m.confirmInstalledByUser();
+
+    // "Ekledim" — Phase 3B Test 2: bu HENÜZ installed'a götürmez.
+    m.confirmShortcutAdded();
+    expect(m.step.kind).toBe("linking_trigger");
+    if (m.step.kind === "linking_trigger") {
+      expect(m.step.steps.length).toBeGreaterThan(0);
+    }
+    expect(await repository.list()).toHaveLength(0); // hâlâ kaydedilmedi
+
+    // "Bağladım" — installed'a giden TEK yol.
+    await m.confirmTriggerLinked();
     expect(m.step.kind).toBe("installed");
     const saved = await repository.list();
     expect(saved).toHaveLength(1);
@@ -189,6 +200,70 @@ describe("BuilderMachine — kurulum modeli değişmezleri", () => {
     expect(machine.step.kind).toBe("waiting_for_user");
   });
 
+  it("Ekledim ama Bağlamadım: installed OLAMAZ (Phase 3B Test 2 invariant'ı)", async () => {
+    const { machine, repository } = makeMachine();
+    await runToPreview(machine);
+    await machine.create();
+    await machine.prepareHandoff();
+    machine.handOffToShortcuts();
+    machine.confirmShortcutAdded(); // "Ekledim"
+    expect(machine.step.kind).toBe("linking_trigger");
+    expect(await repository.list()).toHaveLength(0);
+    machine.showSuccess(); // installed değil, yok sayılmalı
+    expect(machine.step.kind).toBe("linking_trigger");
+  });
+
+  it("Bağladım ama Ekledim yok: confirmTriggerLinked() yanlış state'den YOK SAYILIR", async () => {
+    const { machine, repository } = makeMachine();
+    await runToPreview(machine);
+    await machine.create();
+    await machine.prepareHandoff();
+    machine.handOffToShortcuts();
+    expect(machine.step.kind).toBe("waiting_for_user"); // henüz "Ekledim" denmedi
+    await machine.confirmTriggerLinked(); // yanlış state, no-op olmalı
+    expect(machine.step.kind).toBe("waiting_for_user");
+    expect(await repository.list()).toHaveLength(0);
+  });
+
+  it("linking_trigger'dan OTOMATİK ilerleme yoktur", async () => {
+    const { machine, repository } = makeMachine();
+    await runToPreview(machine);
+    await machine.create();
+    await machine.prepareHandoff();
+    machine.handOffToShortcuts();
+    machine.confirmShortcutAdded();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(machine.step.kind).toBe("linking_trigger");
+    expect(await repository.list()).toHaveLength(0);
+  });
+
+  it("Bağlayamadım: linking_trigger -> setup_failed, kaydedilmez", async () => {
+    const { machine, repository } = makeMachine();
+    await runToPreview(machine);
+    await machine.create();
+    await machine.prepareHandoff();
+    machine.handOffToShortcuts();
+    machine.confirmShortcutAdded();
+    machine.reportInstallFailed("Otomasyon tetikleyicisi bağlanamadı.");
+    expect(machine.step.kind).toBe("setup_failed");
+    if (machine.step.kind === "setup_failed") {
+      expect(machine.step.reason).toBe("Otomasyon tetikleyicisi bağlanamadı.");
+    }
+    expect(await repository.list()).toHaveLength(0);
+  });
+
+  it("Ekledim + Bağladım: installed'a ulaşır ve kaydedilir", async () => {
+    const { machine, repository } = makeMachine();
+    await runToPreview(machine);
+    await machine.create();
+    await machine.prepareHandoff();
+    machine.handOffToShortcuts();
+    machine.confirmShortcutAdded();
+    await machine.confirmTriggerLinked();
+    expect(machine.step.kind).toBe("installed");
+    expect(await repository.list()).toHaveLength(1);
+  });
+
   it("kullanıcı kurulamadığını bildirirse setup_failed olur, kaydedilmez", async () => {
     const { machine, repository } = makeMachine();
     await runToPreview(machine);
@@ -217,6 +292,29 @@ describe("BuilderMachine — kurulum modeli değişmezleri", () => {
     await machine.create();
     await machine.prepareHandoff();
     expect(machine.step.kind).toBe("setup_failed");
+    expect(await repository.list()).toHaveLength(0);
+  });
+
+  it("confirmGuidedSetupDone(): yanlış state'den (guided_manual olmayan setup) çağrılırsa YOK SAYILIR", async () => {
+    const { machine, repository } = makeMachine();
+    await runToPreview(machine);
+    await machine.create();
+    expect(machine.step.kind).toBe("setup"); // Sentry -> user_assisted_import, guided_manual DEĞİL
+    await machine.confirmGuidedSetupDone();
+    expect(machine.step.kind).toBe("setup"); // hiçbir şey olmadı
+    expect(await repository.list()).toHaveLength(0);
+  });
+
+  it("confirmTriggerLinked() setup/preview_confirm gibi yanlış state'lerden çağrılırsa YOK SAYILIR", async () => {
+    const { machine, repository } = makeMachine();
+    await runToPreview(machine);
+    expect(machine.step.kind).toBe("preview_confirm");
+    await machine.confirmTriggerLinked();
+    expect(machine.step.kind).toBe("preview_confirm"); // hiçbir şey olmadı
+    await machine.create();
+    expect(machine.step.kind).toBe("setup");
+    await machine.confirmTriggerLinked();
+    expect(machine.step.kind).toBe("setup"); // hâlâ hiçbir şey olmadı
     expect(await repository.list()).toHaveLength(0);
   });
 
@@ -279,7 +377,8 @@ describe("BuilderMachine — desteklenmeyen eylem ve alternatifler (docs/ux.md �
     await machine.create();
     await machine.prepareHandoff();
     machine.handOffToShortcuts();
-    await machine.confirmInstalledByUser();
+    machine.confirmShortcutAdded();
+    await machine.confirmTriggerLinked();
     expect(machine.step.kind).toBe("installed");
     expect((await repository.list())[0]!.installStatus).toBe("installed");
   });

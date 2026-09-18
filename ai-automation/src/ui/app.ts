@@ -319,7 +319,7 @@ function renderBuilderBody(step: BuilderStep): string {
             <p>${S.setup.guidedWhy}</p>
             <ol class="guided-steps">${steps}</ol>
           </div>
-          <button class="btn btn-primary" data-action="confirm-installed">${S.setup.guidedAck}</button>`;
+          <button class="btn btn-primary" data-action="confirm-guided-done">${S.setup.guidedAck}</button>`;
       }
       return `
         <h2>${S.setup.preparingTitle}</h2>
@@ -346,8 +346,23 @@ function renderBuilderBody(step: BuilderStep): string {
       return `
         <h2>${S.setup.waitingTitle}</h2>
         <p class="sub">${S.setup.waitingNote}</p>
-        <button class="btn btn-primary" data-action="confirm-installed">${S.setup.waitingConfirm}</button>
+        <button class="btn btn-primary" data-action="confirm-shortcut-added">${S.setup.waitingConfirm}</button>
         <button class="btn btn-secondary" data-action="report-failed">${S.setup.waitingFailed}</button>`;
+
+    case "linking_trigger": {
+      const stepsList = step.steps
+        .map((x, i) => `<li><span class="step-num">${i + 1}</span> ${esc(x)}</li>`)
+        .join("");
+      return `
+        <h2>${S.setup.linkingTitle}</h2>
+        <div class="guided-card">
+          <p>${S.setup.linkingWhy}</p>
+          <ol class="guided-steps">${stepsList}</ol>
+        </div>
+        <button class="btn btn-secondary" data-action="open-shortcuts-app">${S.setup.linkingOpenApp}</button>
+        <button class="btn btn-primary" data-action="confirm-trigger-linked">${S.setup.linkingConfirm}</button>
+        <button class="btn btn-secondary" data-action="report-trigger-link-failed">${S.setup.linkingFailed}</button>`;
+    }
 
     case "installed":
       return `
@@ -378,7 +393,7 @@ function renderBuilderBody(step: BuilderStep): string {
 function stepIndex(step: BuilderStep): number {
   const map: Record<string, number> = {
     capturing: 0, understanding: 1, unsupported: 1, missing_info: 2, preview_confirm: 3,
-    setup: 4, user_assisted_import: 4, waiting_for_user: 4, setup_failed: 4, installed: 4, success: 4,
+    setup: 4, user_assisted_import: 4, waiting_for_user: 4, linking_trigger: 4, setup_failed: 4, installed: 4, success: 4,
   };
   return map[step.kind] ?? 0;
 }
@@ -465,8 +480,16 @@ async function handleAction(action: string, el: HTMLElement, target: EventTarget
       }
       break;
     case "handoff": m.handOffToShortcuts(); break;
-    case "confirm-installed": await m.confirmInstalledByUser(); break;
+    case "confirm-shortcut-added": m.confirmShortcutAdded(); break;
     case "report-failed": m.reportInstallFailed(); break;
+    case "open-shortcuts-app":
+      // Prototip: gerçek uygulamada UIApplication.shared.open(URL(string: "shortcuts://"))
+      // çağrısına karşılık gelir (bkz. docs/ios-bridge.md §5, x-callback-url doğrulanan).
+      vm.showToast(S.setup.linkingOpenApp + "… (prototipte simülasyon)");
+      break;
+    case "confirm-trigger-linked": await m.confirmTriggerLinked(); break;
+    case "report-trigger-link-failed": m.reportInstallFailed("Otomasyon tetikleyicisi bağlanamadı."); break;
+    case "confirm-guided-done": await m.confirmGuidedSetupDone(); break;
     case "retry-setup":
       m.retrySetup();
       if (m.step.kind === "setup" && m.step.setup.kind === "user_assisted_import") {

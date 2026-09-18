@@ -91,6 +91,12 @@ export const S = {
       "Apple'ın ekranında onayladıktan sonra buraya dön. Kurulumun gerçekleştiğini ben göremiyorum, o yüzden sana sormam gerekiyor.",
     waitingConfirm: "Ekledim",
     waitingFailed: "Ekleyemedim",
+    linkingTitle: "Son bir adım kaldı",
+    linkingWhy:
+      "Kestirmen eklendi. Şimdi iPhone'un otomasyon sekmesinde tetikleyiciyi sen bağlamalısın — bunu iPhone güvenlik nedeniyle biz senin yerine yapamıyoruz.",
+    linkingOpenApp: "Kestirmeler'i Aç",
+    linkingConfirm: "Bağladım",
+    linkingFailed: "Bağlayamadım",
     guidedTitle: "Bunu elle kurman gerekiyor",
     guidedWhy: "Bu işlemin Shortcuts karşılığı yok, ama adımları göstereyim.",
     guidedAck: "Anladım, otomasyonu kaydet",

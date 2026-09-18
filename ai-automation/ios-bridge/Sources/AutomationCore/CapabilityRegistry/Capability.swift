@@ -23,6 +23,10 @@ public enum EvidenceLevel: String, Codable, Sendable {
     case vendorDocs = "vendor_docs"
     case secondary
     case unverified
+    /// Phase 3B: gerçek cihazda bizzat test edilip gözlemlendi.
+    /// `appleDocs`'tan güçlü — doküman VAR OLDUĞUNU söyler, bu ise
+    /// gerçekten ÇALIŞTIĞINI kanıtlar (bkz. docs/capabilities.md §1.2).
+    case deviceVerified = "device_verified"
 }
 
 /// TS tarafındaki `Tristate` (true | false | "unverified") — Swift'te
@@ -94,6 +98,11 @@ public struct Capability: Codable, Sendable, Identifiable, Equatable {
     public var requiresUserSetupStep: Bool
     public var fallbackSteps: [String]?
     public var fallbackMethod: String?
+    /// Yalnızca `kind: .trigger` için anlamlı. Phase 3B Test 2 (gerçek
+    /// cihaz): Personal Automation tetikleyicisi programatik olarak
+    /// BAĞLANAMIYOR — kullanıcı bunu Otomasyon sekmesinde elle yapmalı.
+    /// Yalnızca gerçek cihazda doğrulanmış tetikleyiciler için doldurulur.
+    public var triggerLinkingSteps: [String]?
 
     public var triggerGroup: String?
     public var priority: Int?

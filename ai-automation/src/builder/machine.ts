@@ -256,24 +256,53 @@ export class BuilderMachine {
   }
 
   /**
-   * Kullanıcı "kuruldu" dedi. Bu, `installed` durumuna geçmenin TEK
-   * yoludur — `PROGRAMMATIC_AUTOMATION_INSTALL.possible !== true` olduğu
-   * sürece uygulama bunu kendi başına iddia edemez.
+   * Kullanıcı "Ekledim" dedi — kestirme Shortcuts kütüphanesinde.
+   * Phase 3B Test 2 (gerçek cihaz): bu, otomasyon tetikleyicisinin
+   * BAĞLANDIĞI anlamına GELMEZ — o programatik değil. Bu yüzden
+   * `installed`'a değil `linking_trigger`'a geçilir.
    */
-  async confirmInstalledByUser(): Promise<void> {
-    // guided_manual akışında kullanıcı adımları kendisi yaptığı için
-    // doğrulama doğrudan `setup` durumundan gelebilir.
-    const fromGuided = this._step.kind === "setup" && this._step.setup.kind === "guided_manual";
-    if (this._step.kind !== "waiting_for_user" && !fromGuided) return;
-    const { draft, setup } = this._step as { draft: DraftAutomationPlan; setup: SetupKind };
+  confirmShortcutAdded(): void {
+    if (this._step.kind !== "waiting_for_user") return;
+    const { draft, setup } = this._step;
+    this.transition({ kind: "linking_trigger", draft, setup, steps: this.triggerLinkingSteps(draft) });
+  }
+
+  /**
+   * Kullanıcı "Bağladım" dedi — otomasyon tetikleyicisini Shortcuts'ın
+   * Otomasyon sekmesinde elle bağladığını doğruladı. `user_assisted_import`
+   * akışında `installed`'a girmenin TEK yolu budur (bkz.
+   * `confirmGuidedSetupDone` — guided_manual için ayrı, tek adımlı yol).
+   * MASTER_SPEC §18: sahte başarı üretilmez.
+   */
+  async confirmTriggerLinked(): Promise<void> {
+    if (this._step.kind !== "linking_trigger") return;
+    const { draft, setup } = this._step;
     const automation = this.buildAutomation(draft, setup, "installed");
     await this.deps.repository.save(automation);
     this.transition({ kind: "installed", automation });
   }
 
-  /** Kullanıcı kurulamadığını bildirdi. Sahte başarı üretilmez. */
+  /**
+   * guided_manual akışı: Shortcuts'ta native karşılığı yok, kullanıcı
+   * otomasyonun TAMAMINI (tetikleyici dahil) zaten elle kurdu — ayrı bir
+   * `linking_trigger` adımına gerek yok, tek onay yeterli.
+   */
+  async confirmGuidedSetupDone(): Promise<void> {
+    if (this._step.kind !== "setup" || this._step.setup.kind !== "guided_manual") return;
+    const { draft, setup } = this._step;
+    const automation = this.buildAutomation(draft, setup, "installed");
+    await this.deps.repository.save(automation);
+    this.transition({ kind: "installed", automation });
+  }
+
+  /** Kullanıcı kurulamadığını/bağlayamadığını bildirdi. Sahte başarı üretilmez. */
   reportInstallFailed(reason = "Kestirme kurulamadı."): void {
-    if (this._step.kind !== "waiting_for_user" && this._step.kind !== "user_assisted_import") return;
+    if (
+      this._step.kind !== "waiting_for_user" &&
+      this._step.kind !== "user_assisted_import" &&
+      this._step.kind !== "linking_trigger"
+    )
+      return;
     this.transition({ kind: "setup_failed", draft: this._step.draft, setup: this._step.setup, reason });
   }
 
@@ -353,6 +382,24 @@ export class BuilderMachine {
       return { kind: "guided_manual", steps: cap?.fallbackSteps ?? [cap?.fallbackMethod ?? ""] };
     }
     return { kind: "user_assisted_import" };
+  }
+
+  /**
+   * Otomasyon tetikleyicisini Shortcuts'ın Otomasyon sekmesinde elle
+   * bağlamak için adımlar. Registry'den (Phase 3B'de gerçek cihazda
+   * kaydedilen akış) türetilir. Registry'de bu tetikleyici için
+   * doğrulanmış adım yoksa, genel/doğrulanmamış bir patern kullanılır —
+   * tek doğrulanmış örnek şu an `ios.bluetooth.disconnected` (Test 2).
+   */
+  private triggerLinkingSteps(draft: DraftAutomationPlan): string[] {
+    const cap = findCapability(draft.trigger.type);
+    return (
+      cap?.triggerLinkingSteps ?? [
+        "Kestirmeler uygulamasını aç, Otomasyon sekmesine geç",
+        "Sağ üstten + ile yeni otomasyon oluştur, uygun tetikleyiciyi seç",
+        "Eylem olarak az önce eklediğin kestirmeyi seç (yeniden kurmana gerek yok)",
+      ]
+    );
   }
 
   /** Registry'de var, ama Shortcuts'ta karşılığı olmayan eylem. */

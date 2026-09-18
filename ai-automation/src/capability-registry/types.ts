@@ -23,7 +23,14 @@ export type EvidenceLevel =
   /** İkincil kaynak (haber, geliştirici forumu) — teyit bekliyor */
   | "secondary"
   /** Hiç doğrulanmadı — varsayım yapmak yasak */
-  | "unverified";
+  | "unverified"
+  /**
+   * Phase 3B: gerçek cihazda bizzat test edilip gözlemlendi (Apple
+   * dokümanına dayanmıyor). `apple_docs`'tan güçlü — doküman bir
+   * capability'nin VAR OLDUĞUNU söyler, bu ise onu gerçekten
+   * ÇALIŞTIRDIĞIMIZI kanıtlar (bkz. docs/capabilities.md §1.2).
+   */
+  | "device_verified";
 
 /** Üçlü mantık: bilmediğimizi "false" diye kaydetmemek için. */
 export type Tristate = true | false | "unverified";
@@ -82,6 +89,15 @@ export interface Capability {
   requiresUserSetupStep: boolean;
   fallbackSteps?: string[];
   fallbackMethod?: string;
+  /**
+   * Yalnızca `kind: "trigger"` için anlamlı. Phase 3B Test 2 (gerçek
+   * cihaz), bir Personal Automation tetikleyicisinin programatik olarak
+   * BAĞLANAMADIĞINI kanıtladı — kullanıcı bunu Shortcuts'ın Otomasyon
+   * sekmesinde elle yapmalı. Bu, o adımın gerçek (uydurulmamış) adım
+   * metni; yalnızca gerçek cihazda doğrulanmış tetikleyiciler için
+   * doldurulur. Yoksa builder genel/doğrulanmamış bir patern kullanır.
+   */
+  triggerLinkingSteps?: string[];
 
   // --- çözümleme ---
   /** Aynı kullanıcı niyetini karşılayan capability'lerin grubu */

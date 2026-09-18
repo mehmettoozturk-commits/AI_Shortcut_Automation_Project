@@ -1,14 +1,17 @@
 // Builder Flow state machine — src/builder/machine.ts'in Swift portu.
 //
-// TS tarafındaki 101 testin karşılığı burada da geçerli olmalı;
-// AutomationCoreTests/BuilderMachineTests.swift bu davranışları
-// XCTest ile ifade eder (Xcode'da ÇALIŞTIRILMADI, bkz. Package.swift
-// üst notu). Kritik değişmez aynen korunmuştur:
+// TS tarafındaki testlerin karşılığı burada da geçerli olmalı;
+// AutomationCoreTests/BuilderMachineTests.swift bu davranışları XCTest
+// ile ifade eder (Mac'te swift build/swift test ile doğrulandı, bkz.
+// docs/ios-bridge.md §0). Kritik değişmez (Phase 3B Test 2 sonrası
+// güncellendi, 2026-09-19):
 //
-//   installed/success durumlarına yalnızca GERÇEK kullanıcı
-//   doğrulamasıyla (confirmInstalledByUser) girilebilir; hiçbir ara
-//   adım (create/prepareHandoff/handOffToShortcuts) otomasyonu
-//   kendiliğinden kaydetmez.
+//   `userAssistedImport` akışında installed/success durumlarına
+//   yalnızca İKİ GERÇEK kullanıcı doğrulamasıyla girilebilir —
+//   confirmShortcutAdded() ("Ekledim") VE confirmTriggerLinked()
+//   ("Bağladım"), bu sırayla. Hiçbir ara adım (create/prepareHandoff/
+//   handOffToShortcuts) otomasyonu kendiliğinden kaydetmez.
+//   `guided_manual` akışında tek onay yeterlidir (confirmGuidedSetupDone).
 
 import Foundation
 import Combine
@@ -206,15 +209,32 @@ public final class BuilderMachine: ObservableObject {
         step = .waitingForUser(draft: draft, setup: setupKind)
     }
 
-    /// Kullanıcı "kuruldu" dedi. `installed`'a girmenin TEK yolu budur.
-    public func confirmInstalledByUser() async {
-        let draft: DraftAutomationPlan
-        let setupKind: SetupKind
-        switch step {
-        case .waitingForUser(let d, let s): draft = d; setupKind = s
-        case .setup(let d, let s) where isGuidedManual(s): draft = d; setupKind = s
-        default: return
-        }
+    /// Kullanıcı "Ekledim" dedi — kestirme Shortcuts kütüphanesinde.
+    /// Phase 3B Test 2 (gerçek cihaz): bu, otomasyon tetikleyicisinin
+    /// BAĞLANDIĞI anlamına GELMEZ — o programatik değil. Bu yüzden
+    /// `installed`'a değil `linkingTrigger`'a geçilir.
+    public func confirmShortcutAdded() {
+        guard case .waitingForUser(let draft, let setupKind) = step else { return }
+        step = .linkingTrigger(draft: draft, setup: setupKind, steps: triggerLinkingSteps(draft))
+    }
+
+    /// Kullanıcı "Bağladım" dedi — otomasyon tetikleyicisini Shortcuts'ın
+    /// Otomasyon sekmesinde elle bağladığını doğruladı.
+    /// `userAssistedImport` akışında `installed`'a girmenin TEK yolu
+    /// budur (bkz. `confirmGuidedSetupDone` — guided_manual için ayrı,
+    /// tek adımlı yol).
+    public func confirmTriggerLinked() async {
+        guard case .linkingTrigger(let draft, let setupKind, _) = step else { return }
+        let automation = buildAutomation(draft, setup: setupKind, installStatus: .installed)
+        await repository.save(automation)
+        step = .installed(automation: automation)
+    }
+
+    /// guided_manual akışı: Shortcuts'ta native karşılığı yok, kullanıcı
+    /// otomasyonun TAMAMINI (tetikleyici dahil) zaten elle kurdu — ayrı
+    /// bir `linkingTrigger` adımına gerek yok, tek onay yeterli.
+    public func confirmGuidedSetupDone() async {
+        guard case .setup(let draft, let setupKind) = step, isGuidedManual(setupKind) else { return }
         let automation = buildAutomation(draft, setup: setupKind, installStatus: .installed)
         await repository.save(automation)
         step = .installed(automation: automation)
@@ -223,6 +243,8 @@ public final class BuilderMachine: ObservableObject {
     public func reportInstallFailed(reason: String = "Kestirme kurulamadı.") {
         switch step {
         case .waitingForUser(let d, let s), .userAssistedImport(let d, let s):
+            step = .setupFailed(draft: d, setup: s, reason: reason)
+        case .linkingTrigger(let d, let s, _):
             step = .setupFailed(draft: d, setup: s, reason: reason)
         default: break
         }
@@ -335,6 +357,19 @@ public final class BuilderMachine: ObservableObject {
             }
         }
         return .userAssistedImport
+    }
+
+    /// Otomasyon tetikleyicisini Shortcuts'ın Otomasyon sekmesinde elle
+    /// bağlamak için adımlar. Registry'den (Phase 3B'de gerçek cihazda
+    /// kaydedilen akış) türetilir. Doğrulanmış adım yoksa genel/
+    /// doğrulanmamış bir patern kullanılır — tek doğrulanmış örnek şu an
+    /// `ios.bluetooth.disconnected` (Test 2).
+    private func triggerLinkingSteps(_ draft: DraftAutomationPlan) -> [String] {
+        registry.find(draft.trigger.type)?.triggerLinkingSteps ?? [
+            "Kestirmeler uygulamasını aç, Otomasyon sekmesine geç",
+            "Sağ üstten + ile yeni otomasyon oluştur, uygun tetikleyiciyi seç",
+            "Eylem olarak az önce eklediğin kestirmeyi seç (yeniden kurmana gerek yok)",
+        ]
     }
 
     private func buildAutomation(_ draft: DraftAutomationPlan, setup: SetupKind, installStatus: InstallStatus) -> Automation {

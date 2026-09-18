@@ -61,9 +61,12 @@ public struct UnsupportedAlternative: Sendable, Equatable, Identifiable {
 }
 
 /// Builder Flow state machine — docs/ux.md §1.2 ve kurulum modeli.
-/// Yeni kurulum akışı (Phase 1.5 sonrası ürün kararı):
-///   setup -> userAssistedImport -> waitingForUser -> installed -> success
-///   her adımdan setupFailed'a düşebilir.
+/// Kurulum akışı (Phase 3B Test 2 sonrası güncellendi, 2026-09-19):
+///   setup -> userAssistedImport -> waitingForUser ("Ekledim")
+///          -> linkingTrigger ("Bağladım") -> installed -> success
+///   guided_manual akışı ayrıdır: setup -> installed (tek onay, bkz.
+///   BuilderMachine.confirmGuidedSetupDone). Her adımdan setupFailed'a
+///   düşebilir.
 public indirect enum BuilderStep: Sendable {
     case idle
     case capturing(text: String, draft: DraftAutomationPlan?, notUnderstood: Bool)
@@ -81,6 +84,11 @@ public indirect enum BuilderStep: Sendable {
     /// Kullanıcı Kestirmeler'e aktarıldı. BURADAN OTOMATİK İLERLEME YOK
     /// — uygulama kurulumun gerçekleştiğini bilemez.
     case waitingForUser(draft: DraftAutomationPlan, setup: SetupKind)
+    /// Kullanıcı "Ekledim" dedi. Phase 3B Test 2 (gerçek cihaz): Personal
+    /// Automation tetikleyicisi HENÜZ bağlanmadı — bu programatik değil,
+    /// kullanıcı Otomasyon sekmesinde elle bağlamalı. `steps` registry'den
+    /// türer (uydurulmaz). BURADAN DA OTOMATİK İLERLEME YOK.
+    case linkingTrigger(draft: DraftAutomationPlan, setup: SetupKind, steps: [String])
     case installed(automation: Automation)
     case success(automation: Automation)
     case setupFailed(draft: DraftAutomationPlan, setup: SetupKind, reason: String)
@@ -95,7 +103,7 @@ extension BuilderStep {
         case .understanding, .unsupported: return 1
         case .missingInfo: return 2
         case .previewConfirm: return 3
-        case .setup, .userAssistedImport, .waitingForUser, .setupFailed, .installed, .success: return 4
+        case .setup, .userAssistedImport, .waitingForUser, .linkingTrigger, .setupFailed, .installed, .success: return 4
         }
     }
 }
