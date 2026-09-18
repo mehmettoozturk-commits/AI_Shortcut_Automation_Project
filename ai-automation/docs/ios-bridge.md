@@ -29,6 +29,31 @@ derlenmemişti; kod yalnızca elle ve bir Python scriptiyle parantez
 dengesi açısından kontrol edilmişti — tip kontrolü veya isim
 çözümlemesi doğrulanmamıştı. Bu artık geçerli değil.
 
+**Ek doğrulama (2026-09-18, aynı gün, gerçek cihaz — bir Phase 3B testi
+DEĞİL, altyapı kontrolü):** Telefon (`ByTurco iPhone`, iPhone 16 Pro,
+kablosuz eşleştirme, `devicectl` ile "available (paired)") ağdayken:
+
+- `xcodebuild build -destination 'id=<gerçek cihaz>'` → **BUILD
+  SUCCEEDED**, `arm64-apple-ios16.0` hedefiyle, iPhoneOS 26.5 SDK'sıyla.
+  Yani kod yalnızca macOS host'ta değil, gerçek iOS mimarisi için de
+  temiz derleniyor.
+- `xcodebuild test -destination 'id=<gerçek cihaz>'` → **BAŞARISIZ**,
+  ama kod hatası değil, Apple kısıtı: *"Cannot test target
+  'AutomationCoreTests' on 'ByTurco iPhone': Tool-hosted testing is
+  unavailable on device destinations. Select a host application for
+  the test target, or use a simulator destination instead."* Çıplak bir
+  SwiftPM test target'ı (host app'siz), fiziksel cihazda XCTest
+  çalıştıramıyor — bunun için gerçek bir Xcode app hedefi (host
+  application) gerekir. Bu, Phase 3B'de bir uygulama kabuğu
+  yazıldığında otomatik çözülecek; şimdilik bilinçli olarak ele
+  alınmadı.
+- Bunun yerine `xcodebuild test -destination 'id=<iPhone 17 Simulator>'`
+  → **TEST SUCCEEDED**, 16/16 test, gerçek iOS runtime'ında (macOS host
+  değil). Simülatör olduğu için Bluetooth/CarPlay/Tesla'yı doğrulamaz
+  (bkz. Phase 3B ön koşulları), ama Combine/Sendable/Bundle.module gibi
+  platform-spesifik davranışların yalnızca macOS'a özgü bir yanılsama
+  olmadığını gösterir.
+
 ## 1. Neden iki fazlı (3A / 3B)
 
 Faz 1.5 ve Faz 2'de kurduğumuz disiplin — bir şeyi doğrulamadan
