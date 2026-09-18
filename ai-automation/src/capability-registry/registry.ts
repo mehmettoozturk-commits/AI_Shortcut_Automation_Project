@@ -31,13 +31,29 @@ const TESLA_SHORTCUTS = "https://www.iphoneincanada.ca/2023/08/20/tesla-apple-si
 const VERIFIED = "2026-09-17";
 
 /**
- * Üçüncü taraf uygulamaların kişisel otomasyon kurmasına dair bulgular:
- * Apple geliştirici forumlarında geliştiriciler programatik olarak
- * shortcut/automation oluşturmanın yolunu bulamadıklarını bildiriyor ve
- * Apple'ın önerdiği yol App Intents ile eylem sunmak + kullanıcının
- * kendisinin otomasyon kurması. Bu İKİNCİL kanıt seviyesindedir ve
- * Phase 3'te resmi dokümanla teyit edilmelidir — ama tersini varsaymak
- * (yani "otomatik kurabiliriz") kesinlikle yasak.
+ * Phase 3B gerçek cihaz testleri (docs/phase3b-validation-plan.md).
+ * Cihaz: iPhone 16 Pro, iOS 26. Bu satırlar Apple dokümanına DEĞİL,
+ * bizzat gözlemlenen davranışa dayanır — `evidence: "device_verified"`.
+ */
+const PHASE3B_TEST3_BLUETOOTH_DEVICE = "docs/phase3b-validation-plan.md Test 3 SONUÇ (gerçek iPhone 16 Pro, iOS 26)";
+const PHASE3B_TEST5_TESLA_DEVICE = "docs/phase3b-validation-plan.md Test 5 SONUÇ (gerçek Tesla + iPhone 16 Pro, iOS 26)";
+const PHASE3B_TEST2_TRIGGER_LINKING = "docs/phase3b-validation-plan.md Test 2 SONUÇ (gerçek iPhone 16 Pro, iOS 26)";
+const VERIFIED_PHASE3B = "2026-09-19";
+
+/**
+ * Üçüncü taraf uygulamaların kişisel otomasyon kurmasına dair bulgular.
+ *
+ * Phase 1.5'te bu İKİNCİL kanıta (geliştirici forumu) dayanıyordu.
+ * Phase 3B'de (2026-09-18/19) gerçek cihazda doğrudan test edildi:
+ *  - Test 1: sıfırdan/imzasız üretilmiş bir `.shortcut` dosyası HİÇBİR
+ *    yoldan içe aktarılamadı ("Importing unsigned shortcut files is
+ *    not supported").
+ *  - Test 2: Apple-imzalı bir şablon içe aktarılabildi, ama Personal
+ *    Automation tetikleyicisine bağlanması PROGRAMATİK değildi —
+ *    kullanıcı bunu Otomasyon sekmesinde elle yapmak zorunda kaldı.
+ * Bu artık "belki mümkündür ama doğrulanmadı" değil, gerçek cihazda
+ * gözlemlenmiş bir "hayır" — `possible: false`, `evidence:
+ * "device_verified"`.
  */
 export const PROGRAMMATIC_AUTOMATION_INSTALL: {
   possible: Tristate;
@@ -46,11 +62,12 @@ export const PROGRAMMATIC_AUTOMATION_INSTALL: {
   source: string;
   verifiedAt: string;
 } = {
-  possible: "unverified",
-  assumption: "Kurulum en iyi durumda kullanıcı onaylı içe alma (user_assisted_import) kabul edilir.",
-  evidence: "secondary",
-  source: "https://developer.apple.com/forums/thread/773521 + https://developer.apple.com/forums/topics/app-and-system-services/automation-and-scripting",
-  verifiedAt: VERIFIED,
+  possible: false,
+  assumption:
+    "Kurulum iki elle-onay adımı gerektirir: içe aktarma (user_assisted_import) ve otomasyon tetikleyicisini bağlama (linking_trigger). İkisi de programatik değildir.",
+  evidence: "device_verified",
+  source: `${PHASE3B_TEST2_TRIGGER_LINKING}; ayrıca docs/phase3b-validation-plan.md Test 1/1b`,
+  verifiedAt: VERIFIED_PHASE3B,
 };
 
 export const CAPABILITIES: Capability[] = [
@@ -106,15 +123,27 @@ export const CAPABILITIES: Capability[] = [
       {
         minOSVersion: 26,
         canRunWithoutAsking: true,
-        source: APPLE_AUTORUN_26,
-        verifiedAt: VERIFIED,
-        evidence: "apple_docs",
-        note: "iOS 26: Bluetooth artık onaysız çalışabilenler listesinde. iOS 16/17/18 doğrulanmadı.",
+        source: PHASE3B_TEST3_BLUETOOTH_DEVICE,
+        verifiedAt: VERIFIED_PHASE3B,
+        evidence: "device_verified",
+        note: "Gerçek iPhone 16 Pro'da (iOS 26) elle kurulan bir Bluetooth-disconnect otomasyonu, bağlantı gerçekten kesildiğinde onay istemeden çalıştı (Phase 3B Test 3). iOS 16/17/18 hâlâ doğrulanmadı.",
       },
     ],
     permissions: ["bluetooth"],
     installMethod: "user_assisted_import",
     requiresUserSetupStep: true,
+    /**
+     * Phase 3B Test 2'de kaydedilen GERÇEK Shortcuts akışı (uydurulmadı):
+     * kullanıcı bu otomasyonu Otomasyon sekmesinde elle kurdu, ama var
+     * olan kestirmeyi eylem olarak seçmek tek dokunuştu.
+     */
+    triggerLinkingSteps: [
+      "Kestirmeler uygulamasını aç → Otomasyon sekmesine geç",
+      "Sağ üstten + ile yeni otomasyon oluştur",
+      "Tetikleyici olarak Bluetooth → bağlantı kesildiğinde'yi seç, aracının Bluetooth'unu seç",
+      "Eylem olarak az önce eklediğin kestirmeyi seç — yeniden kurmana gerek yok, tek dokunuşla eklenir",
+      "Bitir",
+    ],
     triggerGroup: "vehicle_departure",
     priority: 2,
     userDisclosures: [
@@ -123,9 +152,9 @@ export const CAPABILITIES: Capability[] = [
     semantic: "vehicle_departure",
     nluKeywords: ["arabadan in", "arabadan çık", "araçtan in", "arabadan ayrıl", "araçtan ayrıl", "arabadan uzaklaş", "bluetooth"],
     riskLevel: "low",
-    evidence: "apple_docs",
-    source: APPLE_SETTING_TRIGGERS,
-    verifiedAt: VERIFIED,
+    evidence: "device_verified",
+    source: PHASE3B_TEST3_BLUETOOTH_DEVICE,
+    verifiedAt: VERIFIED_PHASE3B,
   },
   {
     id: "ios.location.leave",
@@ -386,6 +415,14 @@ export const CAPABILITIES: Capability[] = [
         evidence: "secondary",
         note: "Tesla'nın kendi eyleminin 'otomatik çalıştır' ayarını desteklediği doğrulanmadı.",
       },
+      {
+        minOSVersion: 26,
+        canRunWithoutAsking: true,
+        source: PHASE3B_TEST5_TESLA_DEVICE,
+        verifiedAt: VERIFIED_PHASE3B,
+        evidence: "device_verified",
+        note: "Gerçek Tesla + iPhone 16 Pro'da (iOS 26) doğrulandı: eylem hem tek başına hem de bir Bluetooth-disconnect otomasyonu içinde onay istemeden çalıştı VE aracı gerçekten etkiledi (Tesla uygulamasından teyit edildi). ÖNEMLİ KOŞUL: bu yalnızca eylemin parametresi (Enable/Disable) SABİT bir değere ayarlandığında geçerli — 'Her Seferinde Sor' bırakılırsa otomasyon içinde bile interaktif soru çıkar. AI/compiler'ın ürettiği her çağrı bu parametreyi somut bir değerle doldurmalı.",
+      },
     ],
     permissions: ["tesla_account"],
     installMethod: "user_assisted_import",
@@ -393,9 +430,9 @@ export const CAPABILITIES: Capability[] = [
     semantic: "vehicle_sentry_mode",
     nluKeywords: ["sentry", "gözcü"],
     riskLevel: "medium",
-    evidence: "vendor_docs",
-    source: TESLA_SHORTCUTS,
-    verifiedAt: VERIFIED,
+    evidence: "device_verified",
+    source: PHASE3B_TEST5_TESLA_DEVICE,
+    verifiedAt: VERIFIED_PHASE3B,
   },
   {
     id: "tesla.climate.start",

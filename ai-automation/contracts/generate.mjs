@@ -7,8 +7,10 @@
  * gereken TEK doğruluk kaynağıdır — Swift'te capability verisi
  * yeniden yazılmaz, bu JSON'dan okunur.
  *
- * ÇALIŞTIRILDI ve DOĞRULANDI (bu script gerçekten çalışır, Node ile):
- *   node contracts/generate.mjs
+ * ÇALIŞTIRILDI ve DOĞRULANDI (2026-09-19, gerçek Mac'te): plain `node`
+ * .ts dosyalarını import edemiyor (ERR_UNKNOWN_FILE_EXTENSION) — çalışan
+ * gerçek komut:
+ *   npx tsx contracts/generate.mjs
  */
 
 import { AutomationPlanSchema } from "../src/dsl/schema.ts";

@@ -54,10 +54,10 @@
       {
         "minOSVersion": 26,
         "canRunWithoutAsking": true,
-        "source": "https://support.apple.com/en-kg/guide/shortcuts/apd602971e63/9.0/ios/26",
-        "verifiedAt": "2026-09-17",
-        "evidence": "apple_docs",
-        "note": "iOS 26: Bluetooth artık onaysız çalışabilenler listesinde. iOS 16/17/18 doğrulanmadı."
+        "source": "docs/phase3b-validation-plan.md Test 3 SONUÇ (gerçek iPhone 16 Pro, iOS 26)",
+        "verifiedAt": "2026-09-19",
+        "evidence": "device_verified",
+        "note": "Gerçek iPhone 16 Pro'da (iOS 26) elle kurulan bir Bluetooth-disconnect otomasyonu, bağlantı gerçekten kesildiğinde onay istemeden çalıştı (Phase 3B Test 3). iOS 16/17/18 hâlâ doğrulanmadı."
       }
     ],
     "permissions": [
@@ -65,6 +65,13 @@
     ],
     "installMethod": "user_assisted_import",
     "requiresUserSetupStep": true,
+    "triggerLinkingSteps": [
+      "Kestirmeler uygulamasını aç → Otomasyon sekmesine geç",
+      "Sağ üstten + ile yeni otomasyon oluştur",
+      "Tetikleyici olarak Bluetooth → bağlantı kesildiğinde'yi seç, aracının Bluetooth'unu seç",
+      "Eylem olarak az önce eklediğin kestirmeyi seç — yeniden kurmana gerek yok, tek dokunuşla eklenir",
+      "Bitir"
+    ],
     "triggerGroup": "vehicle_departure",
     "priority": 2,
     "userDisclosures": [
@@ -81,9 +88,9 @@
       "bluetooth"
     ],
     "riskLevel": "low",
-    "evidence": "apple_docs",
-    "source": "https://support.apple.com/guide/shortcuts/apde31e9638b/ios",
-    "verifiedAt": "2026-09-17"
+    "evidence": "device_verified",
+    "source": "docs/phase3b-validation-plan.md Test 3 SONUÇ (gerçek iPhone 16 Pro, iOS 26)",
+    "verifiedAt": "2026-09-19"
   },
   {
     "id": "ios.location.leave",
@@ -427,6 +434,14 @@
         "verifiedAt": "2026-09-17",
         "evidence": "secondary",
         "note": "Tesla'nın kendi eyleminin 'otomatik çalıştır' ayarını desteklediği doğrulanmadı."
+      },
+      {
+        "minOSVersion": 26,
+        "canRunWithoutAsking": true,
+        "source": "docs/phase3b-validation-plan.md Test 5 SONUÇ (gerçek Tesla + iPhone 16 Pro, iOS 26)",
+        "verifiedAt": "2026-09-19",
+        "evidence": "device_verified",
+        "note": "Gerçek Tesla + iPhone 16 Pro'da (iOS 26) doğrulandı: eylem hem tek başına hem de bir Bluetooth-disconnect otomasyonu içinde onay istemeden çalıştı VE aracı gerçekten etkiledi (Tesla uygulamasından teyit edildi). ÖNEMLİ KOŞUL: bu yalnızca eylemin parametresi (Enable/Disable) SABİT bir değere ayarlandığında geçerli — 'Her Seferinde Sor' bırakılırsa otomasyon içinde bile interaktif soru çıkar. AI/compiler'ın ürettiği her çağrı bu parametreyi somut bir değerle doldurmalı."
       }
     ],
     "permissions": [
@@ -440,9 +455,9 @@
       "gözcü"
     ],
     "riskLevel": "medium",
-    "evidence": "vendor_docs",
-    "source": "https://www.iphoneincanada.ca/2023/08/20/tesla-apple-siri-shortcuts/",
-    "verifiedAt": "2026-09-17"
+    "evidence": "device_verified",
+    "source": "docs/phase3b-validation-plan.md Test 5 SONUÇ (gerçek Tesla + iPhone 16 Pro, iOS 26)",
+    "verifiedAt": "2026-09-19"
   },
   {
     "id": "tesla.climate.start",
