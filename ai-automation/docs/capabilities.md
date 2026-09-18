@@ -33,6 +33,12 @@ iOS 15 davranışını 16–25 aralığı için geçerli kabul ediyor; yani
 muhafazakâr taraftan yanılıyor ("belki onay sorar" diyor). Bu aralığın
 doğrulanması `docs/capabilities.md` açık işlerinde.
 
+**Güncelleme (2026-09-18, gerçek iPhone 16 Pro, iOS 26 — Phase 3B
+Test 3):** iOS 26 satırındaki Bluetooth davranışı artık `apple_docs`
+değil, **gerçek cihaz kanıtı**: elle kurulan bir Bluetooth-disconnect
+otomasyonu, cihazın Bluetooth bağlantısı gerçekten kesildiğinde onay
+istemeden çalıştı. iOS 16/17/18 boşluğu hâlâ açık.
+
 **Bunun ürün sonucu:** "iki onay" problemi iOS 26'da yok, eski
 sürümlerde olabilir. Yani senin üç seviyeli yaklaşımın hâlâ doğru ama
 gerekçesi değişti: Bluetooth'u CarPlay'e tercih etmemenin sebebi artık

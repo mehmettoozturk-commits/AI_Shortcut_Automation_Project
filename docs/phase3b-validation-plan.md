@@ -182,6 +182,39 @@ Kestirmelere Ekle → Otomasyon Tetikleyicisini Bağla**, ve üçüncü adımın
 ekranları (adım adım, Test 2'de kaydedilen gerçek Shortcuts akışına göre)
 tasarlanır.
 
+### Test 2 SONUÇ (2026-09-18, aynı cihaz — Test 1b'nin şablonuyla)
+
+**GEÇTİ (gerçekçi sonuç — planın öngördüğü, en olası sonuç).**
+
+**Yöntem:** Test 1b'de eklenen "AI Test Kestirmesi" kullanılarak,
+Shortcuts'ın Otomasyon sekmesinde elle bir otomasyon kuruldu (Bluetooth
+tetikleyici + var olan şablonu eylem olarak seçme).
+
+**Gözlem (kullanıcının raporu):**
+1. **Tetikleyici bağlama elle yapıldı** — programatik/otomatik bir
+   bağlanma olmadı, import sırasında da sorulmadı. Kullanıcı bilinçli
+   olarak Otomasyon sekmesine gidip kurdu.
+2. **Düşük sürtünme:** var olan "AI Test Kestirmesi" şablonu, eylem
+   seçim ekranında **tek dokunuşla** seçildi — yeniden inşa etmeye
+   gerek kalmadı (adım adım eylem eklemek yerine, hazır kestirmeyi
+   doğrudan bir eylem olarak referans alabiliyorsunuz).
+3. Bluetooth bağlantısı gerçekten kesildiğinde bildirim **otomatik
+   geldi** — "Ask Before Running" onayı çıkmadı (bu aynı zamanda
+   Test 3'ü de doğruluyor, bkz. altta).
+
+**Sonuç:** Tam olarak planın öngördüğü "gerçekçi" dal doğrulandı:
+tetikleyici bağlama, `user_assisted_import`'ın **ayrı, elle yapılan
+bir adımı** — ama önceden hazırlanmış bir şablonu tekrar inşa etmeden,
+tek dokunuşla mevcut otomasyona eylem olarak eklemek mümkün. Bu, üç
+adımlı akışı (Kestirmeyi Hazırla → Kestirmelere Ekle → Otomasyon
+Tetikleyicisini Bağla) makul bir UX yapıyor — üçüncü adım "15 ekranlık
+bir kurulum" değil, "bir kez Otomasyon sekmesine git, tetikleyiciyi
+seç, hazır kestirmeyi tek dokunuşla eylem olarak seç" kadar kısa.
+
+**Sonuç etkisi:** `docs/ux.md` §3.6.b'nin üç adımlı akışa genişletilmesi
+gerekiyor (henüz yapılmadı — bir sonraki adım). Registry/`InstallMethod`
+tarafında Test 1b'nin açtığı soruyla birleşik ele alınmalı.
+
 ---
 
 ### Test 3 — Bluetooth disconnect tetikleyicisi (P0)
@@ -206,6 +239,20 @@ otomasyon gerçekten çalışıyor mu? iOS 26'da onaysız çalışabildiği iddi
 **Not:** Bu test, cihazın gerçek iOS sürümünü `docs/capabilities.md`
 §1.1'deki tabloya ekler — iOS 16/17/18 boşluğu bu testle kısmen
 kapanabilir.
+
+### Test 3 SONUÇ (2026-09-18, Test 2'nin yan ürünü olarak doğrulandı)
+
+**GEÇTİ.**
+
+Test 2'yi kurarken (Bluetooth disconnect tetikleyicisi + "AI Test
+Kestirmesi" eylemi) aynı zamanda Test 3'ün sorusu da fiilen test
+edilmiş oldu: kullanıcı eşleştirilmiş cihazın Bluetooth bağlantısını
+gerçekten kesti, bildirim **onay istemeden, otomatik geldi.**
+
+Bu, `docs/capabilities.md` §1.1'deki iOS 26 satırını ("Bluetooth:
+onaysız çalışabilir") **`apple_docs`'tan gerçek cihaz kanıtına**
+yükseltiyor — cihaz: iPhone 16 Pro, iOS 26. iOS 16/17/18 boşluğu hâlâ
+kapanmadı (yalnızca bu tek cihaz/sürüm test edildi).
 
 ---
 
