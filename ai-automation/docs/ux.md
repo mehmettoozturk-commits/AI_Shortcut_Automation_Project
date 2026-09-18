@@ -297,6 +297,14 @@ kişisel otomasyon kurabildiğine dair kanıt bulunamadı (bkz.
 kaldırıldı. Ama **"otomatik kurulum yok" ≠ "kullanıcı 15 adım yapacak"**:
 hedef tek dokunuş + Apple'ın kendi onay ekranı.
 
+**Güncelleme (Phase 3B Test 1b/2, 2026-09-18, gerçek cihaz):** Gerçek
+test, akışın iki ayrı elle-onay adımına ayrıldığını doğruladı: içe
+aktarma (§3.6.b/c) ve otomasyon tetikleyicisini bağlama (§3.6.d, yeni).
+"Tek dokunuş" hedefi kısmen tutuyor — her adımın KENDİSİ tek dokunuş
+(şablonu seçmek, otomasyona eklemek), ama toplamda iki ayrı elle-onay
+adımı var, tek değil. Bu, planın kendi "gerçekçi sonuç" öngörüsüyle
+birebir örtüşüyor (`docs/phase3b-validation-plan.md` §"Sonuç matrisi").
+
 #### 3.6.a `setup` — hazırlık
 
 ```
@@ -345,7 +353,58 @@ Zamanlayıcı, tahmin veya iyimser varsayım yok. Uygulama kurulumun
 gerçekleştiğini bilemez; bu yüzden sorar. Bu, testlerle sabitlenmiş bir
 değişmez (`tests/install-model.test.ts`).
 
-#### 3.6.d `setup_failed`
+#### 3.6.d `linking_trigger` — Otomasyon Tetikleyicisini Bağla (Phase 3B Test 2 sonucuna göre eklendi, 2026-09-18)
+
+**Neden bu ekran var:** Phase 3B Test 2 (`docs/phase3b-validation-plan.md`),
+gerçek cihazda, içe aktarılan bir kestirmenin bir Personal Automation
+tetikleyicisine (Bluetooth/CarPlay) **programatik olarak
+bağlanamadığını** kanıtladı — kullanıcı bunu Shortcuts'ın kendi
+Otomasyon sekmesinde elle yapmak zorunda. Ama aynı test, bunun düşük
+sürtünmeli olduğunu da gösterdi: az önce eklenen kestirme, otomasyonun
+eylemi olarak **tek dokunuşla** seçilebiliyor (yeniden kurulmuyor).
+
+```
+Son bir adım kaldı
+
+Kestirmen eklendi. Şimdi iPhone'un otomasyon sekmesinde tetikleyiciyi
+sen bağlamalısın — bunu iPhone güvenlik nedeniyle biz senin yerine
+yapamıyoruz.
+
+1. Kestirmeler'i aç → Otomasyon sekmesi → sağ üstten "+"
+2. Tetikleyici olarak Bluetooth (bağlantı kesildiğinde) seç,
+   aracını seç → İleri
+3. Eylem olarak az önce eklediğin "Arabadan İnince Sentry Mode"
+   kestirmesini seç — yeniden kurmana gerek yok, listeden tek
+   dokunuşla eklenir
+4. Bitir
+
+[ Kestirmeler'i Aç ]
+
+Bağladıktan sonra buraya dön:
+
+[ Bağladım ]  [ Bağlayamadım ]
+```
+
+Adım adım metin (1-4), registry'deki capability'nin tetikleyici tipine
+göre türetilir (Bluetooth/CarPlay/konum farklı adım metni üretir) —
+Test 2'de kaydedilen gerçek Shortcuts akışı temel alınır, uydurulmaz.
+"Kestirmeler'i Aç" düz `shortcuts://` (parametresiz) ile uygulamayı açan
+bir kolaylık butonu; otomasyon oluşturma ekranına doğrudan atlayan bir
+deep link **yok** (Test 2'de aranmadı, bilinen bir mekanizma değil).
+
+**Bu ekran de aynı değişmeze uyar: buradan da otomatik ilerleme yoktur**
+— `waiting_for_user` ile aynı prensip, aynı sebep (MASTER_SPEC §18).
+"Bağlayamadım" → `setup_failed`.
+
+**Kod tarafı — henüz yapılmadı:** Bu, `BuilderStep` union'ına (TS:
+`src/builder/types.ts`, Swift: `BuilderStep.swift`) yeni bir
+`linking_trigger` durumu eklenmesini ve `installed`'a girme koşulunun
+("Ekledim" yeterliydi) artık "Ekledim" **VE** "Bağladım" ikisini de
+gerektirecek şekilde genişletilmesini gerektiriyor. State machine
+mimarisi buna hazır (bkz. `docs/ios-bridge.md` §5) ama implementasyon
+henüz yapılmadı — bu bir sonraki, ayrı bir karar/iş.
+
+#### 3.6.e `setup_failed`
 
 ```
 Kurulum tamamlanamadı
@@ -353,7 +412,10 @@ Kurulum tamamlanamadı
 [ Tekrar dene ]  [ Sonra devam ederim ]
 ```
 
-Otomasyon **kaydedilmez**. "Tekrar dene" `setup`'a döner.
+Otomasyon **kaydedilmez**. "Tekrar dene" `setup`'a döner. Artık iki
+farklı başarısızlık kaynağı olabilir: içe aktarma ("Ekleyemedim") veya
+tetikleyici bağlama ("Bağlayamadım") — `reason` alanı hangisi olduğunu
+ayırt eder.
 
 ### 3.7 `installed` → `success`
 
@@ -367,7 +429,11 @@ Artık bunu telefonunun otomasyonlarından kullanabilirsin.
 ```
 
 `installed`, otomasyonun `installStatus: "installed"` ile kaydedildiği
-andır — ve buraya girmenin **tek yolu** kullanıcının "Ekledim" demesidir.
+andır. **Güncellendi (Phase 3B Test 2, 2026-09-18):** buraya girmenin
+tek yolu artık yalnızca "Ekledim" değil — kullanıcının hem "Ekledim"
+(§3.6.c) hem de "Bağladım" (§3.6.d, yeni `linking_trigger` adımı)
+demesidir. Kod tarafında bu henüz uygulanmadı (bkz. §3.6.d'nin "Kod
+tarafı" notu); bu satır, kodun hedef davranışını tarif ediyor.
 `success` ise sadece kutlama/kapanış ekranı; `installed` dışından
 erişilemez.
 
