@@ -47,9 +47,28 @@ soruyor ve programatik yol bulamadıklarını bildiriyor; önerilen yol
 App Intents ile eylem sunmak ve otomasyonu kullanıcının kendisinin
 kurması.
 
-Kanıt seviyesi: **ikincil** (geliştirici forumu, Apple dokümanı değil).
-Bu yüzden registry `possible: "unverified"` diyor — ama sözleşme, tersini
-varsaymayı yasaklıyor.
+Kanıt seviyesi (başlangıçta): **ikincil** (geliştirici forumu, Apple
+dokümanı değil). Bu yüzden registry `possible: "unverified"` diyordu —
+ama sözleşme, tersini varsaymayı yasaklıyordu.
+
+**Güncelleme (2026-09-18, gerçek iPhone 16 Pro, iOS 26):** Bu artık
+ikincil kaynak değil, **gerçek cihaz testiyle doğrulanmış bir kısıt.**
+Phase 3B Test 1 (`docs/phase3b-validation-plan.md`), sıfırdan üretilmiş
+(Apple/iCloud tarafından imzalanmamış) bir `.shortcut` dosyasının,
+`shortcuts://import-shortcut` dahil hiçbir yoldan içe aktarılamadığını
+gösterdi — iOS'un kendi hata mesajı: *"Importing unsigned shortcut
+files is not supported."* Yani üçüncü taraf bir uygulama (bizim
+uygulamamız dahil) çalışma zamanında bir shortcut dosyası **üretip**
+kullanıcıya **doğrudan verme** yeteneğine sahip değil; bu kod tarafında
+bir eksiklik değil, iOS'un platform seviyesinde bir kısıtı.
+
+Not: Bu sonuç `shortcuts://import-shortcut` mekanizmasının kendisini
+geçersiz kılmıyor (URL tanınıyor, işleniyor) — yalnızca *imzasız*
+içeriği reddediyor. Apple'ın kendi imzaladığı, önceden Shortcuts
+uygulamasında elle hazırlanmış bir şablonun (iCloud bağlantısıyla) aynı
+yoldan geçip geçemeyeceği henüz test edilmedi; bu, `user_assisted_import`
+kurulum yönteminin herhangi bir biçimde hayatta kalıp kalamayacağını
+belirleyecek açık soru.
 
 **Bunun ürün sonucu:** Phase 1 UX'indeki "native otomatik kurulum"
 ekranı (docs/ux.md §3.6.a — "Harika! Otomasyon telefonuna kuruluyor")
@@ -177,8 +196,12 @@ Sözleşmenin işe yaradığının kanıtı bu.
 
 1. **iOS 16/17/18 doğrulaması** — Bluetooth/Wi-Fi/Mesaj davranışının hangi
    sürümde değiştiği bilinmiyor. Şu an muhafazakâr varsayım yapılıyor.
-2. **Programatik kurulum** (§1.2) — resmi Apple dokümanıyla teyit
-   edilmeli. Ürünün kurulum UX'i buna bağlı.
+2. **Programatik kurulum** (§1.2) — 2026-09-18'de gerçek cihazda kısmen
+   teyit edildi: sıfırdan/imzasız shortcut üretimi kesin olarak
+   çalışmıyor. Kalan açık soru: Apple-imzalı (iCloud) önceden hazırlanmış
+   bir şablonun `shortcuts://import-shortcut` ile içe aktarılıp
+   aktarılamayacağı (Phase 3B Test 1b, henüz yapılmadı). Ürünün kurulum
+   UX'i bu son soruya bağlı.
 3. **Focus tetikleyicisi** — Apple'ın hiçbir listesinde geçmiyor.
 4. **Tesla eylemlerinin "otomatik çalıştır" desteği** — Tesla'nın
    eylemleri `Ask Before Running` kapalıyken çalışıyor mu, doğrulanmadı.

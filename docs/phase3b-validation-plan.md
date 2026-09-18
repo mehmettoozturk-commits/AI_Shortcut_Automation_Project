@@ -47,6 +47,59 @@ aç, şu eylemi ekle" rehberi (yani her şey `guided_manual`'a döner).
 
 ---
 
+### Test 1 SONUÇ (2026-09-18, gerçek iPhone 16 Pro, iOS 26, kablosuz)
+
+**KALDI — ama son derece bilgilendirici bir "kaldı".**
+
+**Yöntem:** Elle yazılmış (Apple/iCloud tarafından imzalanmamış), tek
+eylemli ("Show Notification") bir `.shortcut` XML plist dosyası
+hazırlandı, Mac'te yerel ağa (`http://192.168.1.x:8765/...`) açıldı, iki
+farklı yoldan denendi:
+
+1. `shortcuts://import-shortcut?url=<http-link>&name=...` — telefonda
+   `xcrun devicectl device process launch --payload-url ...` ile
+   Shortcuts uygulamasına doğrudan iletildi.
+2. Dosya Safari ile indirilip Dosyalar uygulamasından "Shortcuts ile
+   Aç" ile elle açıldı (URL şemasından bağımsız, dosya-tabanlı ikinci
+   bir yol).
+
+**Gözlem:**
+- Yol 1: Shortcuts açıldı, **"Import Failed"** hatası verdi. Sunucu
+  logunda telefondan gelen hiçbir HTTP isteği YOK — yani Shortcuts,
+  dosyayı ağdan çekmeden reddetti (muhtemelen ATS: Apple'ın kendi
+  uygulamaları düz `http://` bağlantısını denemeden reddediyor —
+  bu ayrıca doğrulandı: aynı URL Safari'de normal şekilde açılıp
+  indirildi, yani ağ/erişilebilirlik sorunu değildi).
+- Yol 2 (kesin sonuç): Dosyadan elle açmada Shortcuts şu **tam
+  metni** gösterdi: **"Shortcut cannot be opened — Importing unsigned
+  shortcut files is not supported."**
+
+**Bu, transport'tan (http/https, URL şeması/dosya) bağımsız, iOS'un
+platform seviyesinde bir kuralı:** Apple/iCloud tarafından imzalanmamış
+`.shortcut` dosyaları, kaynak ne olursa olsun içe aktarılamıyor. Bizim
+(ya da AI'ın çalışma zamanında) sıfırdan ürettiği bir shortcut dosyası
+kullanıcıya bu yoldan asla verilemez.
+
+**Açık kalan, test edilmemiş soru:** Bu sonuç, `shortcuts://import-shortcut`
+mekanizmasının kendisini geçersiz kılmıyor — mekanizma URL'i tanıdı ve
+işledi, yalnızca **imzasız içerik** reddedildi. Apple'ın kendi
+imzaladığı bir shortcut (örn. Shortcuts uygulamasında elle oluşturup
+"iCloud Bağlantısını Kopyala" ile paylaşılan, önceden hazırlanmış bir
+şablon) aynı `shortcuts://import-shortcut?url=<icloud-link>` yoluyla
+denenmedi — bu, `user_assisted_import`'ın herhangi bir biçimde hayatta
+kalıp kalamayacağını belirleyecek doğal bir sonraki adım (bkz. altta
+"Sonuç etkisi — güncellendi").
+
+**Sonuç etkisi — güncellendi:** `docs/capabilities.md` §1.2, kanıt
+seviyesi `secondary`'den gerçek cihaz testine yükseltildi (bkz. o
+dosya). Registry'deki `installMethod` değerleri **henüz değiştirilmedi**
+— Apple-imzalı şablon yolu (yukarıdaki açık soru) test edilmeden
+`guided_manual`'a topluca geçmek erken olur; o test "hayır" çıkarsa bu
+geçiş tek satırlık bir registry değişikliği olarak yapılabilir (mimari
+zaten buna hazır, bkz. §"Sonuç matrisi").
+
+---
+
 ### Test 2 — Personal Automation'a programatik bağlama (P0)
 
 **Sorulan soru:** Test 1 başarılıysa, içe aktarılan shortcut bir
