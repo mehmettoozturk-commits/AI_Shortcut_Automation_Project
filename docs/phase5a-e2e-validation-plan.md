@@ -168,6 +168,31 @@ başarılı olmasını gerektiriyor) ve Test 2'nin gerçek LLM'li tekrarı olan
 Test 6, gerçek cihazda çalıştırılamaz.** Yalnızca Test 5 bu boşluktan
 tamamen bağımsız — o zaten yalnızca `previewConfirm`'e kadar gidiyor.
 
+### İş 0.5 SONUÇ (2026-09-19)
+
+**TAMAMLANDI.** Kullanıcı gerçek iPhone'unda Shortcuts uygulamasında
+tek eylemli ("Show Notification") bir kestirme oluşturup iCloud
+bağlantısını paylaştı: `https://www.icloud.com/shortcuts/6cce8a476d664f34997734f87f95fc4b`
+("Bildirim Göster"). Bu link `ios.notification.show`'un `template`
+alanına eklendi, contract/snapshot yenilendi, Swift Resources'a
+kopyalandı. Doğrulama: TS 280/280, Swift 46 (Core, +1 yeni
+`testTemplateAvailable_forNotificationShow`) + 4 (UI) = 50/50, gerçek
+Xcode UI testi 4/4 — hepsi tek commit'te (`feat: add real Shortcuts
+template for ios.notification.show`).
+
+**Test 2 için önerilen gerçek cihaz girdisi:** "Pil yüzde 20'ye
+düşünce bana haber ver" — rule-based sağlayıcıyla doğrudan
+`ios.notification.show` eylemine çözümlendiği zaten `curl` ile
+doğrulandı (`notifications` izni dışında bir bağımlılığı yok).
+
+**Henüz doğrulanmayan (yalnızca gerçek cihazda kanıtlanabilir):**
+iCloud linkinin `shortcuts://import-shortcut?url=...` ile GERÇEKTEN
+içe aktarılıp aktarılmadığı — Phase 3B Test 1'in açık bıraktığı soru
+budur, ve tam olarak Test 2'nin konusu. Kod tarafı (registry okuma,
+`prepareHandoff`/`handOffToShortcuts` çağrısı, "Ekledim"/"Bağladım"
+onayları) doğrulandı; OS'un bu linki gerçekten kabul edip Shortcuts'a
+aktarması henüz test EDİLMEDİ.
+
 ---
 
 ## Ön koşullar
