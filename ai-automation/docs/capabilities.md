@@ -233,8 +233,11 @@ Sözleşmenin işe yaradığının kanıtı bu.
    eylemin parametresi "Her Seferinde Sor" bırakılırsa (sabitlenmezse),
    otomasyon içinde bile interaktif olarak sorar — yani AI/compiler'ın
    ürettiği her parametreli eylem somut bir değerle bağlanmak zorunda.
-   Bu, `src/compiler/contract.ts`'ye eklenecek yeni bir sözleşme kuralı
-   adayı (henüz kodlanmadı).
+   **Kodlandı (Phase 3C-1, 2026-09-19):** `Capability.parameters` +
+   `capability-validator.ts` bunu makine tarafından doğrulanan bir
+   sözleşmeye çevirdi — eksik/geçersiz parametreli bir eylem artık
+   reddediliyor (`missing_required_parameter`/`invalid_parameter_value`).
+   Tesla'nın gerçek şeması: `mode: enum, allowed: ["enable","disable"]`.
 5. **Tesla kaynağı** — 2026-09-19'da `secondary`'den gerçek cihaz
    kanıtına yükseltildi (yukarıdaki madde). Resmi Tesla dokümanı/release
    notu hâlâ bulunmadı; `evidence: "vendor_docs"` için bu ayrıca gerekli
