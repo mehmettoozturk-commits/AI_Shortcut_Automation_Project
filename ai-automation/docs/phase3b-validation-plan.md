@@ -353,6 +353,25 @@ metnini/ekran görüntüsünü kaydet.
 **Geçti/Kaldı:** Bu bir doğrulama değil, bir belgeleme testi — çıktısı
 `docs/ux.md`'nin kopya metnini güncellemek için kullanılır.
 
+### Test 6 SONUÇ (2026-09-19) — GÖZLEM İMKANI YOK
+
+**Ertelendi — ne bir "geçti" ne bir "kaldı".** Bu testin gerektirdiği
+şey, ekrandaki tam metni birebir okuyup kaydetmek. Ama:
+- Kullanıcının fiziksel iPhone ekranına erişimi yok.
+- Claude Code tarafında da ekran görüntüsü alma imkanı yok —
+  `devicectl`'de böyle bir alt komut bulunmuyor, ve `idevicescreenshot`
+  gibi üçüncü parti araçlar (libimobiledevice) kurulu değil; kurulsa
+  bile bu cihazın kablosuz CoreDevice protokolüyle (lockdownd değil)
+  bağlı olması nedeniyle çalışıp çalışmayacağı belirsiz.
+
+Ekran görüntüsü alma imkanı (ör. `idevicescreenshot` kurulumu, ya da
+kullanıcının fiziksel erişiminin olduğu bir oturumda tekrar denenmesi)
+ortaya çıkarsa bu test tekrar ele alınabilir. Şimdilik `docs/ux.md`
+§3.6.b/d'deki kopya metinleri, Test 1b/2'nin akış ADIMLARINA (ekran
+sayısı, hangi butona basıldığı) dayanıyor ama Apple'ın TAM ekran
+metnine dayanmıyor — bu netlik korunmalı, kopya metinleri Apple'ın
+gerçek metniymiş gibi sunulmamalı.
+
 ---
 
 ### Test 7 — `installed` doğrulaması (P0)
@@ -497,3 +516,58 @@ Sonuçlar `docs/capabilities.md` (evidence seviyeleri güncellenir),
 işlenir. Ancak bundan sonra Swift kodu (varsa yeni state, `HTTPBackedPlanner`,
 gerçek `import AppIntents`) yazılır — spekülatif olarak değil, bu
 testlerin gerçek çıktısına göre.
+
+---
+
+## Phase 3B Kapanış Özeti (2026-09-19)
+
+| Test | Öncelik | Sonuç |
+|---|---|---|
+| 1 — İmzasız `.shortcut` import | P0 | ❌ KALDI — "Importing unsigned shortcut files is not supported" |
+| 1b — Apple-imzalı iCloud şablon import | P0 | ✅ GEÇTİ |
+| 2 — Otomasyon tetikleyicisi programatik bağlama | P0 | ✅ GEÇTİ (gerçekçi sonuç: elle, ama tek dokunuşla düşük sürtünme) |
+| 3 — Bluetooth onaysız çalışma | P0 | ✅ GEÇTİ (iOS 26) |
+| 4 — CarPlay onaysız çalışma | P0 | ⏸️ ERTELENDİ (donanım yok) |
+| 5 — Tesla Sentry Mode | P0 | ✅ GEÇTİ (koşullu: parametre sabitlenmeli) |
+| 6 — Apple ekran metni (belgeleme) | P1 | ⏸️ GÖZLEM İMKANI YOK (ne kullanıcı ne Claude Code ekranı görebiliyor) |
+| 7 — `installed` doğrulaması / programatik geri bildirim | P0 | ❌ KALDI (beklenen şekilde) — x-callback-url hiç tetiklenmedi |
+| 8 — Uygulama↔Shortcuts senkronizasyonu | P1 | ⏸️ ERTELENDİ — implementation prerequisite missing (gerçek repository/setup entegrasyonu yok) |
+
+**6 P0 testten 4'ü GEÇTİ, 1'i KALDI (bilgilendirici), 1'i donanım nedeniyle ERTELENDİ.**
+**KALMA/ERTELEME de bir sonuçtur** — planın kendi ilkesi (§ giriş): "bir
+testin 'hayır' sonucu ürünü durdurmaz, ürünün UX'i o sonuca göre
+şekillenir." Bu oturumda tam olarak öyle oldu.
+
+**Ana bulgu (Test 1 + 2 + 7'nin birleşimi):** Apple, üçüncü taraf bir
+uygulamaya Shortcuts üzerinde ne YAZMA (imzasız içerik reddi, Test 1)
+ne de OKUMA/dinleme (programatik geri bildirim yok, Test 7) imkanı
+tanıyor. Shortcuts, uygulamamız açısından **tek yönlü bir kara kutu**:
+biz bir şey öneririz (Apple-imzalı bir şablon), kullanıcı Shortcuts'ın
+kendi arayüzünde elle kurar, ve bunun gerçekleştiğini yalnızca
+kullanıcının kendi beyanından öğreniriz. `docs/ux.md`'nin "otomatik
+ilerleme yok" ilkesi artık varsayım değil, üç ayrı testle (1, 2, 7)
+çapraz doğrulanmış bir mimari gerçek.
+
+**Koda işlenenler (bu oturumda tamamlandı):**
+- `linking_trigger`/`linkingTrigger` state'i (TS+Swift) — Test 2'nin
+  sonucu.
+- `installed`'a giren tek yol: "Ekledim" + "Bağladım" (iki ayrı gerçek
+  kullanıcı onayı) — Test 1/2/7'nin birleşik sonucu.
+- `EvidenceLevel.device_verified`, registry'de Bluetooth (Test 3) ve
+  Tesla (Test 5) satırlarının yükseltilmesi, `PROGRAMMATIC_AUTOMATION_INSTALL.possible: false`.
+- TS: 185/185 PASS. Swift: 20/20 PASS (macOS host + gerçek iPhone).
+
+**Phase 3C'ye bırakılanlar (henüz koda dökülmedi, ayrı iş):**
+1. Tesla eylem parametrelerinin (Enable/Disable) DSL/compiler
+   sözleşmesinde zorunlu kılınması (şu an yalnızca registry notu).
+2. Gerçek native `SetupService`/`AutomationRepository` adaptörü —
+   Test 8'in önkoşulu, ve Shortcuts'ın "kara kutu" olduğu gerçeğiyle
+   nasıl dürüstçe tasarlanacağı (MASTER_SPEC §18 ruhuyla).
+3. `x-success` yolunun (başarılı import) x-callback-url ile test
+   edilmesi — ham, doğrudan fetch'lenebilir imzalı bir `.shortcut`
+   kaynağı bulunursa.
+4. Test 6 — ekran görüntüsü alma imkanı ortaya çıkarsa tekrar ele
+   alınabilir.
+5. Test 4 (CarPlay) — donanım erişimi olursa.
+6. iOS 16/17/18 davranış boşluğu (`docs/capabilities.md` §1.1) —
+   yalnızca iOS 26 test edildi.
