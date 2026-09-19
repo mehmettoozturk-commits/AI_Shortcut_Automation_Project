@@ -90,6 +90,16 @@ public struct CapabilityParameter: Codable, Sendable, Equatable {
     public var defaultValue: String?
 }
 
+/// Phase 3C-2: Apple/iCloud tarafından imzalanmış, önceden Shortcuts'ta
+/// elle hazırlanmış bir şablon (Phase 3B Test 1b'nin kanıtladığı TEK
+/// çalışan yol). Veri yalnızca registry snapshot'ından decode edilir.
+/// ŞU AN HİÇBİR CAPABILITY'NİN GERÇEK BİR ŞABLONU YOK — bu içerik
+/// boşluğu, kod eksikliği değil (bkz. TemplateBackedSetupService.swift).
+public struct ShortcutTemplate: Codable, Sendable, Equatable {
+    public var iCloudURL: String
+    public var suggestedName: String
+}
+
 public struct OSBehavior: Codable, Sendable, Equatable {
     public var minOSVersion: Int
     public var canRunWithoutAsking: Tristate
@@ -123,6 +133,8 @@ public struct Capability: Codable, Sendable, Identifiable, Equatable {
     public var triggerLinkingSteps: [String]?
     /// Bu eylemin gerektirdiği parametreler (bkz. CapabilityParameter).
     public var parameters: [CapabilityParameter]?
+    /// Bkz. ShortcutTemplate — şu an tüm capability'lerde nil.
+    public var template: ShortcutTemplate?
 
     public var triggerGroup: String?
     public var priority: Int?

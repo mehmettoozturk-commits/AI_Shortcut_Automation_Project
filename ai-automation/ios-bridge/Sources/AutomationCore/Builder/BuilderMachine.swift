@@ -24,17 +24,25 @@ public final class BuilderMachine: ObservableObject {
     private let planner: Planner
     private let permissions: PermissionService
     private let setup: SetupService
+    private let shortcutsHandoff: ShortcutsHandoff
     private let repository: AutomationRepository
     private let platform: Platform
     private let device: DeviceContext
     private let now: () -> Date
     private let idGenerator: () -> String
 
+    /// `prepareHandoff()`'ta çözülen, `handOffToShortcuts()`'ta açılacak
+    /// URL. `BuilderStep`'in PUBLIC şeklini değiştirmemek için (TS ile
+    /// yapısal paralelliği bozmamak — TS'de gerçek bir handoff URL'i
+    /// kavramı yok) bilerek private tutuluyor.
+    private var pendingHandoff: (url: URL, suggestedName: String)?
+
     public init(
         registry: CapabilityRegistry,
         planner: Planner,
         permissions: PermissionService,
         setup: SetupService,
+        shortcutsHandoff: ShortcutsHandoff,
         repository: AutomationRepository,
         platform: Platform = .ios,
         device: DeviceContext,
@@ -45,6 +53,7 @@ public final class BuilderMachine: ObservableObject {
         self.planner = planner
         self.permissions = permissions
         self.setup = setup
+        self.shortcutsHandoff = shortcutsHandoff
         self.repository = repository
         self.platform = platform
         self.device = device
@@ -194,18 +203,33 @@ public final class BuilderMachine: ObservableObject {
 
     public func prepareHandoff() async {
         guard case .setup(let draft, let setupKind) = step else { return }
-        let prepared = await setup.prepare(draft)
-        guard prepared else {
-            step = .setupFailed(draft: draft, setup: setupKind, reason: "Kurulum paketi hazırlanamadı.")
-            return
+        switch await setup.prepare(draft) {
+        case .noTemplateAvailable(let reason):
+            pendingHandoff = nil
+            step = .setupFailed(draft: draft, setup: setupKind, reason: reason)
+        case .ready(let url, let suggestedName):
+            pendingHandoff = (url, suggestedName)
+            step = .userAssistedImport(draft: draft, setup: setupKind)
         }
-        step = .userAssistedImport(draft: draft, setup: setupKind)
     }
 
-    /// "Kestirmelere Ekle" — kullanıcı Apple'ın kendi ekranına
-    /// aktarılır. BURADAN İTİBAREN OTOMATİK İLERLEME YOKTUR.
-    public func handOffToShortcuts() {
-        guard case .userAssistedImport(let draft, let setupKind) = step else { return }
+    /// "Kestirmelere Ekle" — Phase 3C-2: artık GERÇEKTEN bir URL açar
+    /// (`shortcutsHandoff.open`). Apple bize sonucu bildirmez (Phase 3B
+    /// Test 7) — `open()`'ın dönüşü yalnızca "OS bu URL'i işleyebildi
+    /// mi" sorusuna cevaptır. `false` GERÇEKTEN bildiğimiz bir hata
+    /// (örn. Shortcuts kurulu değil) olduğu için `setup_failed`
+    /// meşrudur; `true` ise kullanıcının ne yaptığını HÂLÂ bilmiyoruz —
+    /// bu yüzden BURADAN İTİBAREN DE OTOMATİK İLERLEME YOKTUR,
+    /// `waiting_for_user` yine kullanıcıya sormak zorunda.
+    public func handOffToShortcuts() async {
+        guard case .userAssistedImport(let draft, let setupKind) = step,
+              let handoff = pendingHandoff
+        else { return }
+        let opened = await shortcutsHandoff.open(handoff.url)
+        guard opened else {
+            step = .setupFailed(draft: draft, setup: setupKind, reason: "Kestirmeler uygulaması açılamadı.")
+            return
+        }
         step = .waitingForUser(draft: draft, setup: setupKind)
     }
 

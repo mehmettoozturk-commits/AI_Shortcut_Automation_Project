@@ -26,10 +26,19 @@ public protocol PermissionService: Sendable {
     func request(_ permission: String) async -> Bool
 }
 
-/// Kurulum paketini HAZIRLAR; kurmaz. Gerçek kurulum kullanıcı
-/// onayı gerektirir (bkz. BuilderMachine.handOffToShortcuts).
+/// `prepare()`'ın sonucu — Phase 3C-2. Kurulum paketini HAZIRLAR; kurmaz.
+/// Gerçek kurulum kullanıcı onayı gerektirir (bkz.
+/// BuilderMachine.handOffToShortcuts). `.noTemplateAvailable`, "Apple'dan
+/// cevap gelmedi" gibi belirsiz bir durum DEĞİL — bizim GERÇEKTEN
+/// bildiğimiz bir eksiklik (bu eylem için henüz bir şablon yok);
+/// `setup_failed`'ı yalnızca böyle bilinen nedenler tetikleyebilir.
+public enum PrepareResult: Sendable, Equatable {
+    case ready(handoffURL: URL, suggestedName: String)
+    case noTemplateAvailable(reason: String)
+}
+
 public protocol SetupService: Sendable {
-    func prepare(_ plan: DraftAutomationPlan) async -> Bool
+    func prepare(_ plan: DraftAutomationPlan) async -> PrepareResult
 }
 
 public protocol AutomationRepository: Sendable {

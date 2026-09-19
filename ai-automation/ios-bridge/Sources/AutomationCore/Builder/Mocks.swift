@@ -50,9 +50,13 @@ public actor MockPermissionService: PermissionService {
 }
 
 public actor MockSetupService: SetupService {
-    private let succeeds: Bool
-    public init(succeeds: Bool = true) { self.succeeds = succeeds }
-    public func prepare(_ plan: DraftAutomationPlan) async -> Bool { succeeds }
+    private let result: PrepareResult
+    public init(succeeds: Bool = true) {
+        self.result = succeeds
+            ? .ready(handoffURL: URL(string: "https://example.com/mock-shortcut-template")!, suggestedName: "Mock Kestirme")
+            : .noTemplateAvailable(reason: "Mock: kasıtlı başarısızlık")
+    }
+    public func prepare(_ plan: DraftAutomationPlan) async -> PrepareResult { result }
 }
 
 /// MOCK planner — gerçek Intent/Entity Extraction (Phase 2, TS

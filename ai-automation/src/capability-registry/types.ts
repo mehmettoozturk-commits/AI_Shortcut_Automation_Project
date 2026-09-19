@@ -124,6 +124,20 @@ export interface Capability {
   triggerLinkingSteps?: string[];
   /** Bu eylemin gerektirdiği parametreler (bkz. CapabilityParameter). */
   parameters?: CapabilityParameter[];
+  /**
+   * Phase 3C-2: Bu eylem için önceden Shortcuts uygulamasında elle
+   * hazırlanmış ve Apple/iCloud tarafından imzalanmış bir şablon (Phase
+   * 3B Test 1b'nin kanıtladığı TEK çalışan yol — AI çalışma zamanında
+   * `.shortcut` üretemez, bkz. docs/capabilities.md §1.2).
+   *
+   * ŞU AN HİÇBİR CAPABILITY'NİN GERÇEK BİR ŞABLONU YOK — bu bir içerik
+   * boşluğu (birinin Shortcuts'ta elle her eylem için bir şablon
+   * oluşturup iCloud bağlantısını buraya eklemesi gerekiyor), kod
+   * eksikliği değil. Alan tanımlı ama boş bırakılıyor; gerçek
+   * `SetupService` (Swift, `TemplateBackedSetupService`) bunu bulamazsa
+   * dürüstçe `setup_failed` üretir, "kuruldu" demez.
+   */
+  template?: { iCloudURL: string; suggestedName: string };
 
   // --- çözümleme ---
   /** Aynı kullanıcı niyetini karşılayan capability'lerin grubu */

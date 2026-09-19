@@ -20,6 +20,7 @@ final class BuilderMachineTests: XCTestCase {
         granted: [String] = ["bluetooth", "tesla_account"],
         autoGrant: Bool = true,
         setupSucceeds: Bool = true,
+        handoffSucceeds: Bool = true,
         hasCarPlay: Bool = false
     ) -> (BuilderMachine, InMemoryAutomationRepository) {
         let repo = InMemoryAutomationRepository()
@@ -28,6 +29,7 @@ final class BuilderMachineTests: XCTestCase {
             planner: MockPlanner(registry: registry),
             permissions: MockPermissionService(granted: granted, autoGrant: autoGrant),
             setup: MockSetupService(succeeds: setupSucceeds),
+            shortcutsHandoff: MockShortcutsHandoff(succeeds: handoffSucceeds),
             repository: repo,
             device: DeviceContext(osVersion: 26, hasCarPlay: hasCarPlay)
         )
@@ -65,7 +67,7 @@ final class BuilderMachineTests: XCTestCase {
         await machine.prepareHandoff()
         guard case .userAssistedImport = machine.step else { return XCTFail("userAssistedImport bekleniyordu") }
 
-        machine.handOffToShortcuts()
+        await machine.handOffToShortcuts()
         guard case .waitingForUser = machine.step else { return XCTFail("waitingForUser bekleniyordu") }
         let beforeConfirm = await repo.list()
         XCTAssertEqual(beforeConfirm.count, 0, "kullanıcı doğrulamadan HİÇBİR ŞEY kaydedilmemeli")
@@ -97,7 +99,7 @@ final class BuilderMachineTests: XCTestCase {
         await machine.confirmUnderstanding()
         await machine.create()
         await machine.prepareHandoff()
-        machine.handOffToShortcuts()
+        await machine.handOffToShortcuts()
 
         try await Task.sleep(nanoseconds: 30_000_000)
 
@@ -117,7 +119,7 @@ final class BuilderMachineTests: XCTestCase {
         await machine.confirmUnderstanding()
         await machine.create()
         await machine.prepareHandoff()
-        machine.handOffToShortcuts()
+        await machine.handOffToShortcuts()
         machine.showSuccess() // installed değil, yok sayılmalı
         guard case .waitingForUser = machine.step else {
             return XCTFail("showSuccess() waitingForUser'dan doğrudan atlayabilmemeli")
@@ -135,7 +137,7 @@ final class BuilderMachineTests: XCTestCase {
         await machine.confirmUnderstanding()
         await machine.create()
         await machine.prepareHandoff()
-        machine.handOffToShortcuts()
+        await machine.handOffToShortcuts()
         machine.confirmShortcutAdded() // "Ekledim"
         guard case .linkingTrigger = machine.step else { return XCTFail("linkingTrigger bekleniyordu") }
         let saved = await repo.list()
@@ -157,7 +159,7 @@ final class BuilderMachineTests: XCTestCase {
         await machine.confirmUnderstanding()
         await machine.create()
         await machine.prepareHandoff()
-        machine.handOffToShortcuts()
+        await machine.handOffToShortcuts()
         guard case .waitingForUser = machine.step else { return XCTFail("waitingForUser bekleniyordu") }
         await machine.confirmTriggerLinked() // yanlış state, no-op olmalı
         guard case .waitingForUser = machine.step else {
@@ -176,7 +178,7 @@ final class BuilderMachineTests: XCTestCase {
         await machine.confirmUnderstanding()
         await machine.create()
         await machine.prepareHandoff()
-        machine.handOffToShortcuts()
+        await machine.handOffToShortcuts()
         machine.confirmShortcutAdded()
 
         try await Task.sleep(nanoseconds: 30_000_000)
@@ -198,7 +200,7 @@ final class BuilderMachineTests: XCTestCase {
         await machine.confirmUnderstanding()
         await machine.create()
         await machine.prepareHandoff()
-        machine.handOffToShortcuts()
+        await machine.handOffToShortcuts()
         machine.confirmShortcutAdded()
         machine.reportInstallFailed(reason: "Otomasyon tetikleyicisi bağlanamadı.")
         guard case .setupFailed(_, _, let reason) = machine.step else {
@@ -250,5 +252,132 @@ final class BuilderMachineTests: XCTestCase {
         }
         let saved = await repo.list()
         XCTAssertEqual(saved.count, 0)
+    }
+
+    // MARK: - Phase 3C-2: gerçek SetupService/ShortcutsHandoff sınırı
+
+    /// `prepareHandoff()` TEK BAŞINA asla `installed`'a götürmemeli —
+    /// yalnızca `userAssistedImport`'a hazırlar.
+    func testPrepareHandoffNeverReachesInstalled() async throws {
+        let registry = try makeRegistry()
+        let (machine, repo) = makeMachine(registry: registry)
+        machine.open()
+        machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
+        await machine.submit()
+        await machine.confirmUnderstanding()
+        await machine.create()
+        await machine.prepareHandoff()
+        guard case .userAssistedImport = machine.step else {
+            return XCTFail("userAssistedImport bekleniyordu, installed DEĞİL")
+        }
+        let saved1 = await repo.list()
+        XCTAssertEqual(saved1.count, 0)
+    }
+
+    /// `handOffToShortcuts()` (URL açma başarılı olsa bile) asla
+    /// `installed`'a götürmemeli — Apple bize sonucu bildirmez (Test 7),
+    /// bu yüzden yalnızca `waitingForUser`'a geçebilir.
+    func testHandOffToShortcutsNeverReachesInstalled() async throws {
+        let registry = try makeRegistry()
+        let (machine, repo) = makeMachine(registry: registry, handoffSucceeds: true)
+        machine.open()
+        machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
+        await machine.submit()
+        await machine.confirmUnderstanding()
+        await machine.create()
+        await machine.prepareHandoff()
+        await machine.handOffToShortcuts()
+        guard case .waitingForUser = machine.step else {
+            return XCTFail("waitingForUser bekleniyordu, installed DEĞİL")
+        }
+        let saved2 = await repo.list()
+        XCTAssertEqual(saved2.count, 0)
+    }
+
+    /// `shortcutsHandoff.open()` `false` dönerse (OS URL'i işleyemedi —
+    /// GERÇEKTEN bildiğimiz bir hata, örn. Shortcuts kurulu değil):
+    /// bu meşru bir `setupFailed` nedenidir. "Apple'dan cevap gelmedi"
+    /// (bilinmeyen durum) İLE KARIŞTIRILMAMALI.
+    func testHandOffToShortcutsFailure_whenOSCannotOpenURL() async throws {
+        let registry = try makeRegistry()
+        let (machine, repo) = makeMachine(registry: registry, handoffSucceeds: false)
+        machine.open()
+        machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
+        await machine.submit()
+        await machine.confirmUnderstanding()
+        await machine.create()
+        await machine.prepareHandoff()
+        await machine.handOffToShortcuts()
+        guard case .setupFailed(_, _, let reason) = machine.step else {
+            return XCTFail("setupFailed bekleniyordu")
+        }
+        XCTAssertEqual(reason, "Kestirmeler uygulaması açılamadı.")
+        let saved3 = await repo.list()
+        XCTAssertEqual(saved3.count, 0)
+    }
+
+    /// `handOffToShortcuts()`, `prepareHandoff()`'ın çözdüğü GERÇEK URL'i
+    /// açar — uydurma/sabit bir URL değil.
+    func testHandOffToShortcutsOpensTheResolvedURL() async throws {
+        let registry = try makeRegistry()
+        let repo = InMemoryAutomationRepository()
+        let handoff = MockShortcutsHandoff(succeeds: true)
+        let machine = BuilderMachine(
+            registry: registry,
+            planner: MockPlanner(registry: registry),
+            permissions: MockPermissionService(granted: ["bluetooth", "tesla_account"]),
+            setup: MockSetupService(succeeds: true),
+            shortcutsHandoff: handoff,
+            repository: repo,
+            device: DeviceContext(osVersion: 26, hasCarPlay: false)
+        )
+        machine.open()
+        machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
+        await machine.submit()
+        await machine.confirmUnderstanding()
+        await machine.create()
+        await machine.prepareHandoff()
+        await machine.handOffToShortcuts()
+        let opened = await handoff.openedURLs
+        XCTAssertEqual(opened, [URL(string: "https://example.com/mock-shortcut-template")!])
+    }
+}
+
+/// `TemplateBackedSetupService` — Phase 3C-2 gerçek implementasyonu.
+/// Registry'nin `template` alanını okur; capability id/parametre
+/// HARDCODE ETMEZ.
+@MainActor
+final class TemplateBackedSetupServiceTests: XCTestCase {
+    func testNoTemplateAvailable_forRealCapabilitiesToday() async throws {
+        // 2026-09-19 itibarıyla registry'deki 15 capability'nin
+        // HİÇBİRİNDE gerçek bir template yok (içerik boşluğu, bkz.
+        // TemplateBackedSetupService.swift'in dosya başı yorumu). Bu
+        // test tam olarak o dürüst davranışı kilitler: sahte bir
+        // "hazır" durumu ASLA üretilmemeli.
+        let registry = try CapabilityRegistry.loadFromBundle()
+        let service = TemplateBackedSetupService(registry: registry)
+        let draft = DraftAutomationPlan(
+            name: "Test",
+            trigger: TriggerDTO(type: "ios.bluetooth.disconnected", device: "Tesla Model Y"),
+            steps: [.action(type: "tesla.sentry_mode.toggle", params: ["mode": AnyCodable("enable")])]
+        )
+        let result = await service.prepare(draft)
+        guard case .noTemplateAvailable = result else {
+            return XCTFail("Gerçek bir template olmadığı için .noTemplateAvailable bekleniyordu, ready DEĞİL")
+        }
+    }
+
+    func testUnknownCapability_isNoTemplateAvailable_notCrash() async throws {
+        let registry = try CapabilityRegistry.loadFromBundle()
+        let service = TemplateBackedSetupService(registry: registry)
+        let draft = DraftAutomationPlan(
+            name: "Test",
+            trigger: TriggerDTO(type: "ios.bluetooth.disconnected", device: nil),
+            steps: [.action(type: "made.up.capability", params: nil)]
+        )
+        let result = await service.prepare(draft)
+        guard case .noTemplateAvailable = result else {
+            return XCTFail(".noTemplateAvailable bekleniyordu")
+        }
     }
 }

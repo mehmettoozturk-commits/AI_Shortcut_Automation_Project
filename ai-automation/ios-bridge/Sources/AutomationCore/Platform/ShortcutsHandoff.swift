@@ -1,73 +1,81 @@
-// Shortcuts handoff abstraction.
+// Shortcuts handoff — Phase 3C-2, Phase 3B'nin gerçek cihaz kanıtlarına
+// göre YENİDEN yazıldı (2026-09-19). Bu dosyanın önceki hali Phase 3B'den
+// ÖNCE, hiçbir gerçek cihaz testi olmadan yazılmıştı ve şimdi YANLIŞ
+// olduğu kanıtlanmış varsayımlar içeriyordu — o varsayımlar burada
+// bilerek SİLİNDİ, düzeltilmedi bırakılmadı:
 //
-// Doğrulanan gerçek (support.apple.com/guide/shortcuts/apdcd7f20a6f/,
-// 2026-09-18 erişildi): Shortcuts, `x-callback-url` standardını
-// destekler. `shortcuts://x-callback-url/run-shortcut?...&x-success=
-// &x-cancel=&x-error=` bir shortcut'ı ÇALIŞTIRIR ve sonucu geri
-// bildirir.
+//  - ESKİ VARSAYIM: "shortcuts://import-shortcut?url=..." bir .shortcut
+//    dosyasını içe aktarır. GERÇEK (Test 1): yalnızca Apple/iCloud
+//    tarafından İMZALANMIŞ içerik için — imzasız içerik "Importing
+//    unsigned shortcut files is not supported" ile REDDEDİLİR.
+//  - ESKİ VARSAYIM: doğru mekanizma import-shortcut URL şemasıdır.
+//    GERÇEK (Test 1b): iCloud paylaşım linkleri (https://www.icloud.com/
+//    shortcuts/<id>) İÇİNE SARILMAMALI — bu URL'in kendisi (Universal
+//    Link olarak) doğrudan açılmalı. import-shortcut'a sarmak "file
+//    isn't in the correct format" hatası verir (o sayfa HTML, ham dosya
+//    değil).
+//  - ESKİ VARSAYIM: x-callback-url (`x-success`/`x-cancel`) sonucu bize
+//    bildirir. GERÇEK (Test 7): import-shortcut için bu callback'lerin
+//    HİÇBİRİ tetiklenmedi (en azından imzasız-red senaryosunda).
 //
-// ⚠️ DOĞRULANMAMIŞ (ikincil kaynak, Phase 3B'de resmi Apple
-// dokümanıyla teyit edilmeli): `shortcuts://import-shortcut?url=...`
-// şemasının bir .shortcut dosyasını İÇE AKTARDIĞI iddia ediliyor. Bunu
-// kullanan bir kaynak buldum ama Apple'ın kendi guide sayfasında
-// açıkça göremedim.
-//
-// ⚠️ AÇIK SORU (docs/capabilities.md §1.2'nin devamı): import-shortcut
-// bir .shortcut dosyasını (eylem dizisini) aktarabilse bile, bunun bir
-// TETİKLEYİCİYLE (Personal Automation — "Bluetooth bağlantısı
-// kesildiğinde") birlikte içe aktarılabildiğine dair HİÇBİR kanıt yok.
-// Muhtemel gerçek: uygulama yalnızca EYLEM kısmını aktarabilir;
-// kullanıcı otomasyonun tetikleyicisini Shortcuts uygulamasının
-// Otomasyon sekmesinde kendisi oluşturmak zorunda kalabilir. Bu,
-// "Kestirmelere Ekle" tek dokunuşunun aslında "eylem hazır, tetikleyici
-// için Otomasyon sekmesine git" şeklinde iki adıma çıkabileceği
-// anlamına gelir. BU FARK docs/ux.md'nin §3.6.b metnini etkiler ve
-// Phase 3B'nin İLK doğrulama maddesidir.
+// Bu üç bulgunun BİRLEŞİK sonucu: bu protokol yalnızca "URL'i açmayı
+// DENEDİK ve OS bunu işleyebildi mi" sorusuna cevap verebilir —
+// kullanıcının Shortcuts içinde ne yaptığına dair HİÇBİR bilgi taşıyamaz.
+// Gerçek sonuç yalnızca BuilderMachine.confirmShortcutAdded()/
+// reportInstallFailed() ile, kullanıcının kendi beyanından gelir.
 
 import Foundation
 
-public struct ShortcutHandoffRequest: Sendable, Equatable {
-    /// Kestirmeler'e aktarılacak eylem dizisinin adı.
-    public var suggestedName: String
-    /// Aktarılacak .shortcut içeriğinin nasıl üretileceği Phase 3B'de
-    /// netleşecek (muhtemelen bir .plist/binary property list
-    /// serileştirmesi). Şimdilik yalnızca planı taşıyoruz.
-    public var plan: DraftAutomationPlan
-}
-
-public enum ShortcutHandoffOutcome: Sendable, Equatable {
-    case userCompletedImport
-    case userCancelled
-    case failed(reason: String)
-}
-
-/// Kurulumun kullanıcıya aktarılması. Gerçek implementasyon Phase 3B'de
-/// `UIApplication.shared.open(_:)` ile `shortcuts://` URL'i açacak ve
-/// x-callback-url ile geri dönüşü dinleyecek — ama bu protokol
-/// `SetupService`'ten (Ports.swift) bilerek AYRI tutuldu, çünkü
-/// `SetupService.prepare` yalnızca PAKETİ hazırlar; bu protokol
-/// kullanıcıyı Apple'ın arayüzüne AKTARIR. BuilderMachine ikisini
-/// birbirine bağımlı kılmaz — bu da `waiting_for_user`'dan otomatik
-/// ilerleme olmaması gerçeğiyle tutarlıdır: uygulama, x-success
-/// callback'ini alsa bile bunu "kuruldu" olarak YORUMLAMAMALIDIR, çünkü
-/// yukarıdaki açık soru netleşmeden x-success'in tam olarak neyi
-/// doğruladığı belirsizdir. Kullanıcı onayı (confirmInstalledByUser)
-/// birincil kaynak olmaya devam eder.
+/// Kullanıcıyı Apple'ın kendi Shortcuts arayüzüne aktarır.
+///
+/// `open(_:)`'ın dönüş değeri YALNIZCA şunu söyler: iOS bu URL şemasını
+/// işleyebildi mi (örn. Shortcuts uygulaması kurulu mu, URL biçimi
+/// geçerli mi). `true` KULLANICININ KESTİRMEYİ EKLEDİĞİ ANLAMINA GELMEZ;
+/// `false` yalnızca "hand-off'un kendisi başarısız oldu" (gerçekten
+/// bildiğimiz bir hata) anlamına gelir — bu ayrım BuilderMachine'in
+/// `setup_failed`'ı ne zaman kullanabileceğini belirler (bkz.
+/// docs/phase3b-validation-plan.md Test 7 SONUÇ).
 public protocol ShortcutsHandoff: Sendable {
-    func present(_ request: ShortcutHandoffRequest) async -> ShortcutHandoffOutcome
+    func open(_ url: URL) async -> Bool
 }
 
-/// MOCK — hiçbir URL açmaz, gerçek Shortcuts uygulamasıyla konuşmaz.
+/// MOCK — hiçbir gerçek URL açmaz. Testlerde `succeeds` ile hem "OS
+/// açtı" hem "hand-off başarısız oldu" (örn. Shortcuts kurulu değil)
+/// yollarını simüle etmek için kullanılır.
 public actor MockShortcutsHandoff: ShortcutsHandoff {
-    private let outcome: ShortcutHandoffOutcome
-    public private(set) var presented: [ShortcutHandoffRequest] = []
+    private let succeeds: Bool
+    public private(set) var openedURLs: [URL] = []
 
-    public init(outcome: ShortcutHandoffOutcome = .userCompletedImport) {
-        self.outcome = outcome
+    public init(succeeds: Bool = true) {
+        self.succeeds = succeeds
     }
 
-    public func present(_ request: ShortcutHandoffRequest) async -> ShortcutHandoffOutcome {
-        presented.append(request)
-        return outcome
+    public func open(_ url: URL) async -> Bool {
+        openedURLs.append(url)
+        return succeeds
     }
 }
+
+#if canImport(UIKit)
+import UIKit
+
+/// GERÇEK implementasyon — Phase 3C-2. `UIApplication.shared.open`
+/// yalnızca UIKit'in bulunduğu (gerçek iOS) hedeflerde derlenir; macOS
+/// host'ta veya SwiftPM'in XCTest'inde (canlı bir UIApplication süreci
+/// olmadığı için) ÇALIŞTIRILAMAZ — yalnızca gerçek cihaz/uygulama
+/// derlemesinde (`xcodebuild ... -destination 'id=<gerçek iPhone>'`)
+/// derlenip gerçek bir uygulama içinde çalıştırılabilir. Bu dosyanın bu
+/// kısmı bu oturumda ÇALIŞTIRILMADI, yalnızca BUILD ile doğrulandı.
+@MainActor
+public struct UIKitShortcutsHandoff: ShortcutsHandoff {
+    public init() {}
+
+    public func open(_ url: URL) async -> Bool {
+        await withCheckedContinuation { continuation in
+            UIApplication.shared.open(url, options: [:]) { success in
+                continuation.resume(returning: success)
+            }
+        }
+    }
+}
+#endif
