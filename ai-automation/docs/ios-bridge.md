@@ -460,3 +460,134 @@ Response: PlanningOutcome
 Phase 3B'de `HTTPBackedPlanner` ile birlikte yazılacak — bu Phase 3A'nın
 kapsamına alınmadı çünkü NLU bağlantı kararı bu konuşmada netleşti,
 Phase 3A'nın yazıldığı sırada değil.
+
+## Phase 4C — `HTTPBackedPlanner`: ilk gerçek uçtan uca bağlantı (2026-09-19)
+
+Yukarıdaki bölümün planladığı `HTTPBackedPlanner: Planner` artık gerçek
+— `Sources/AutomationCore/Platform/HTTPBackedPlanner.swift` (+
+`PlanHTTPTransport.swift`, `PlannerError.swift`). Kasıtlı olarak DAR
+kapsam: **Shortcuts kurulumu/`installed`/gerçek execution YOK** — yalnızca
+`Swift → HTTP → Backend (Phase 4B'nin `planAsync`'i) → semantik plan →
+Swift preview (`.understanding`)` dikey dilimi.
+
+### 1. `HTTPBackedPlanner` neyi bilmez
+
+Bu dosya hiçbir platforma özel capability id'sini (`"tesla...".`/`"ios...".`
+gibi) veya `CapabilityRegistry`'yi hiç import etmez/bilmez — bu, kaynak
+kod taramasıyla kilitli (`HTTPBackedPlannerTests.testNoCapabilityIdHardcoded`,
+`tests/nlu-contract.test.ts`'teki TS tarafı taramasının Swift karşılığı).
+Yalnızca `PlanRequest` JSON'u gönderir, `PlanResponse` JSON'unu decode
+eder. Backend'in ÇÖZDÜĞÜ capability id'leri (örn. `"unsupported"`
+yanıtındaki `capability`/`trigger` alanları) bu dosyadan GEÇER ama bu
+dosya onları hiç YORUMLAMAZ — anlamlarını yalnızca `BuilderMachine` +
+onun KENDİ registry'si çözer (aşağıya bkz., §3).
+
+### 2. Konuşma bağlamı: OPAK round-trip, tam bir `ConversationContext` portu DEĞİL
+
+`Entities`/`IntentResult`'ın (Normalized<T> sarmalayıcılar dahil) tüm
+karmaşıklığını Swift'e taşımak yerine, `conversation` JSON alanı
+`AnyCodable` olarak OPAK taşınır: `HTTPBackedPlanner` onu hiç yorumlamaz,
+bir sonraki istekte AYNEN geri gönderir. Yalnızca TEK bir alt-alanı
+(`currentPlan`) — `needs_clarification` durumunda backend'in ZATEN
+çözdüğü (capability id'leri dahil) tam taslağı okumak için — çıkarır
+(`extractCurrentPlan`). Bu, "her turda yalnızca son cümleyi değil, tüm
+bağlamı gönder" gereksinimini, Swift'te TS'nin `Entities` tipini
+yeniden yazmadan karşılar; gerçek bir backend'e karşı (bkz. §5)
+3 turlu düzeltme senaryosuyla doğrulandı.
+
+### 3. `unsupported` → `PlannerResult` üzerinden DEĞİL, TS `NluPlannerAdapter` ile AYNI desen
+
+`PlannerResult` (Ports.swift) hâlâ yalnızca `.plan`/`.notUnderstood`
+biliyor — Phase 1'den beri değişmedi, DEĞİŞTİRİLMEDİ. Backend
+`"unsupported"` döndüğünde (Phase 4B'nin registry çözümü sonucu),
+`HTTPBackedPlanner` backend'in verdiği `capability`/`trigger` id'lerini
+minimal bir `DraftAutomationPlan`'a gömüp `.plan(...)` olarak döner —
+`BuilderMachine.submit()`'in KENDİ registry kontrolü
+(`findUnavailableCapability`) bunu otomatik olarak doğru `.unsupported`
+BuilderStep'ine çevirir; alternatifler de Swift'in KENDİ registry'sinden
+(backend'in gönderdiği listeden DEĞİL) türer. Bu, `MockPlanner` için
+zaten var olan, değişmeyen bir mekanizmanın yeniden kullanılması —
+`TS NluPlannerAdapter`'ın senkron `Planner` portu için yaptığı TRIKI
+birebir tekrarlar (bkz. `src/nlu/pipeline.ts`). Backend `trigger: null`
+verirse (tetikleyici de çözülemediyse) `.notUnderstood`'a düşülür — TS
+tarafının aynı durumdaki kendi fallback'iyle birebir.
+
+Bunun için Phase 4B'nin `PlanningOutcome`'daki `"unsupported"` şekline
+YENİ bir `trigger: string | null` alanı eklendi (`src/nlu/types.ts`,
+`src/api/contract.ts`, `src/nlu/plan-builder.ts`) — HTTP yanıtı bu
+olmadan Swift'in tetikleyici id'sini elde etmesinin YOLU yoktu (backend
+bunu hesaplıyor ama daha önce dışa aktarmıyordu).
+
+### 4. Zengin HTTP hata eşlemesi: `PlannerError` yan kanalı
+
+`Planner` protokolünün dar sözleşmesi (`.plan`/`.notUnderstood`)
+KIRILMADI. Bunun yerine `HTTPBackedPlanner.lastError: PlannerError?`
+şu dört durumu ayrı ayrı raporlar (`PlannerError.swift`):
+
+| HTTP | Anlamı | `PlannerError` |
+|---|---|---|
+| 200 | Draft plan / clarification / unsupported / not_understood | (yok — `PlannerResult` zaten ayırt eder) |
+| 400 | İstek gövdesi/şeması geçersiz | `.invalidRequest(message:)` |
+| 422 | İyi biçimli ama Validation zincirinden (izin/güvenlik) geçemeyen plan | `.validationFailed(issues:)` |
+| 502 | LLM sağlayıcısı hiç çalışamadı (`provider_error`, Phase 4B) | `.providerUnavailable(message:)` |
+| ağ hatası/zaman aşımı/beklenmeyen durum | — | `.plannerUnreachable(message:)` |
+
+422, bu round'da backend'e YENİ eklendi (`server.ts`: `status:"plan"` +
+`validation.ok:false` artık 200 değil 422 döner — gövde AYNI kalır,
+yalnızca durum kodu ayrışır). Şu ana kadar hiçbir gerçek SwiftUI View
+katmanı yok (bu paket yalnızca `AutomationCore` mantığını içeriyor); bu
+yüzden `lastError` şimdilik gözlemlenebilir bir API — ileride bir UI
+katmanı bunu switch'leyip kullanıcıya doğru mesajı gösterebilir. Amaç,
+Phase 3B/3C boyunca kurulan "asla 'Bir sorun oluştu'ya ezme, gerçekten
+BİLİNENİ raporla" disiplinini burada da sürdürmekti.
+
+### 5. Test disiplini: TS Phase 4B'nin fake-provider deseni
+
+`Tests/AutomationCoreTests/HTTPBackedPlannerTests.swift` (9 test)
+gerçek ağ çağrısı YAPMAZ — `FakeTransport`, `PlanHTTPTransport`
+protokolünü önceden hazırlanmış `(statusCode, body)` çiftleriyle uygular
+(TS'teki `ClaudeMessagesClient` enjeksiyonunun birebir Swift karşılığı).
+Kapsanan senaryolar: basit plan (Test A — EN ÖNEMLİSİ: draft'taki
+capability id'nin backend yanıtından geldiğini, Swift kodunda hardcode
+olmadığını kanıtlar), clarification (Test B), 3 turlu düzeltme + gerçek
+`conversation` round-trip doğrulaması (Test C), unsupported'ın
+`BuilderMachine` üzerinden doğru `.unsupported` adımına düştüğü tam
+entegrasyon testi (Test D), provider_error'ın ayrı bir domain durumu
+olarak yüzeye çıktığı test (Test E), artı 400/422/timeout eşlemeleri ve
+statik capability-id-hardcode taraması.
+
+**Ayrıca, otomatik test paketinin dışında, GERÇEK çalışan bir backend'e
+karşı** (`npm run serve`, kural tabanlı varsayılan sağlayıcı — LLM
+anahtarı bu ortamda yoktu) geçici bir yürütülebilir hedefle elle
+doğrulandı: Sentry Mode tek-tur planı, 3 turlu düzeltme (yalnızca araç
+değişti, tetikleyici/eylem korundu) ve unsupported akışının TAMAMI
+gerçek HTTP + gerçek JSON decode ile çalıştı. Bu smoke test SIRASINDA
+iki gerçek hata bulundu ve düzeltildi:
+- `HTTPBackedPlanner` `grantedPermissions`'ı hep `[]` gönderiyordu —
+  gerçek bir backend'e karşı HER izinli eylem 422 ile başarısız
+  oluyordu. Düzeltme: `HTTPBackedPlanner`, `BuilderMachine`'in de
+  kullandığı AYNI `PermissionService`'i enjekte alır artık.
+- `MissingInfoField.optional`, backend'in JSON'unda yalnızca `true`
+  iken yazılıyor (`false` iken alan tamamen YOK) — sentezlenmiş
+  `Decodable` bunu `keyNotFound` ile reddediyordu. Düzeltme: özel bir
+  `init(from:)`, `decodeIfPresent(... ) ?? false` kullanır (tıpkı
+  `WorkflowStepDTO`/`AnyCodable`'daki gibi).
+
+Bu iki bulgu, sahte transport'larla yazılan testlerin YETERLİ
+OLMADIĞININ kanıtı — CLAUDE.md'nin "gerçek cihaz/backend entegrasyonu
+mümkün değilse mock kullan ve bunu açıkça belirt" ilkesi burada da
+işledi: mock'lar mimariyi doğrular, gerçek veri şeklini DOĞRULAMAZ.
+
+### 6. Kapsam dışı (bilinçli olarak sonraki round'lara bırakıldı)
+
+- Shortcuts kurulumu / `installed` / gerçek otomasyon çalıştırma —
+  Phase 3C'de ayrı bir sınır olarak zaten doğrulandı; bu round'un konusu
+  DEĞİL.
+- `HTTPBackedPlanner`'ın gerçek bir SwiftUI View/ViewModel'e bağlanması
+  — bu paket hâlâ yalnızca `AutomationCore` mantığını içeriyor, bir App
+  hedefi yok.
+- Gerçek Claude API'ye karşı Swift tarafından uçtan uca doğrulama — bu
+  ortamda `LLM_API_KEY`/`ANTHROPIC_API_KEY` yoktu; yalnızca backend'in
+  kural tabanlı (deterministik) varsayılan sağlayıcısına karşı
+  doğrulandı. Gerçek LLM ile tekrarı, anahtar tanımlandığında aynı
+  smoke test adımlarıyla elle yapılabilir.

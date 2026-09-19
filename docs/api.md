@@ -84,14 +84,12 @@ karar yeniden değerlendirilebilir; şimdiden o karmaşıklığı almadık.
 
 ## 6. Kapsam dışı (bilinçli olarak Phase 4B/4C'ye bırakıldı)
 
-- **Swift/iOS istemcisi (`HTTPBackedPlanner`).** Bu round yalnızca
-  backend'i kurdu; iOS tarafında hâlâ `MockPlanner` kullanılıyor.
-  Phase 4C'nin konusu.
 - **CORS, kimlik doğrulama, rate limiting** — yerel/dev kullanım için
   gerekli değil; gerçek bir dağıtım öncesi ayrıca ele alınmalı.
 
 (Bu bölümde daha önce listelenen "gerçek LLM çağrısı" ve "LLM JSON
-hatası → retry" maddeleri Phase 4B'de kapatıldı — bkz. §8.)
+hatası → retry" maddeleri Phase 4B'de, "Swift/iOS istemcisi" Phase 4C'de
+kapatıldı — bkz. §8, §9 ve `docs/ios-bridge.md` Phase 4C bölümü.)
 
 ## 7. Test kapsamı
 
@@ -235,3 +233,32 @@ tamamlanabilir.
   `status: "provider_error"` döndürdüğünü doğrular.
 - `tests/nlu-contract.test.ts`'teki statik hardcode taraması artık
   `src/nlu/providers/*.ts` dosyalarını da kapsıyor.
+
+## 9. Phase 4C eki — sözleşme değişiklikleri (2026-09-19)
+
+Swift `HTTPBackedPlanner`'ı gerçek bir backend'e karşı ilk kez
+çalıştırırken (bkz. `docs/ios-bridge.md` Phase 4C bölümü) ortaya çıkan
+iki sözleşme değişikliği — ikisi de geriye dönük UYUMLU (mevcut alanlar
+değişmedi, yalnızca eklendi/ayrıştırıldı):
+
+- **`"unsupported"` yanıtına yeni bir `trigger: string | null` alanı
+  eklendi** (`src/nlu/types.ts`, `src/api/contract.ts`,
+  `src/nlu/plan-builder.ts`). Registry'yi HİÇ bilmeyen bir istemcinin
+  (Swift `HTTPBackedPlanner`), backend'in TS `NluPlannerAdapter`'ının
+  yaptığı ile aynı deseni ("desteklenmeyen eylemi sahte bir plana göm,
+  istemcinin KENDİ registry'sine buldur") tekrar edebilmesi için
+  tetikleyicinin çözülmüş capability id'sine ihtiyacı vardı — önceden
+  bu bilgi backend içinde hesaplanıyor ama dışa hiç aktarılmıyordu.
+- **`status: "plan"` + `validation.ok: false` artık HTTP 200 değil 422
+  döner** (gövde AYNI kalır). Amaç: bir istemcinin "isteği anladım ama
+  çalıştıramam" durumunu (izin eksik, riskli eylem onaysız) genel bir
+  200 başarısından ayırt edebilmesi — 400 (istek hatası) ve 502
+  (`provider_error`, Phase 4B) ile birlikte artık üç farklı HTTP durumu
+  üç farklı anlam taşıyor. `"unsupported"`/`"needs_clarification"`/
+  `"not_understood"` HÂLÂ 200 — bunlar "isteği anladım, cevap bu"
+  durumları, validation zincirinin konusu değil.
+
+Test kapsamı: `tests/api-server.test.ts`'e 422 (`izin verilmemişse...`
+testi artık durum kodunu da doğruluyor) ve `trigger` alanı için
+assertion'lar eklendi; `tests/api-contract.test.ts`'in "unsupported"
+fixture'ı yeni alanı içerecek şekilde güncellendi.

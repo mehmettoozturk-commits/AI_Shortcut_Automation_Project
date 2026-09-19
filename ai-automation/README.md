@@ -152,6 +152,27 @@ satırda hardcode edilmedi. Ayrıntı: `docs/api.md` §8.
 **TS test durumu: 236/236** (Phase 4A: 177 + 44, Phase 4B: +15)
 typecheck: PASS · build: PASS · web build: PASS
 
+### Phase 4C — Swift `HTTPBackedPlanner`: ilk gerçek uçtan uca dikey dilim (2026-09-19)
+
+`ios-bridge/Sources/AutomationCore/Platform/HTTPBackedPlanner.swift` —
+`Planner` protokolünü (Phase 1'den beri değişmeyen `.plan`/
+`.notUnderstood` sözleşmesi) gerçek bir `POST /plan` HTTP client'ıyla
+karşılar. Registry/LLM/capability id bilmez — yalnızca `PlanRequest`
+gönderir, `PlanResponse`'u decode eder; conversation bağlamını OPAK
+olarak (yorumlamadan) taşır. Kasıtlı olarak dar kapsam: Shortcuts
+kurulumu/`installed` YOK, yalnızca `Swift → HTTP → Backend → semantik
+plan → Swift preview`. Zengin HTTP hata eşlemesi (400/422/502/timeout)
+`Planner`'ın dar sözleşmesini bozmadan `lastError: PlannerError?` yan
+kanalından raporlanır. Gerçek bir `npm run serve`e karşı elle
+doğrulandı (bkz. `docs/ios-bridge.md` Phase 4C bölümü) — bu sırada
+`grantedPermissions` ve `MissingInfoField.optional` decode'unda iki
+gerçek hata bulunup düzeltildi.
+
+**Swift test durumu: 42/42** (Phase 3B/3C: 33 + Phase 4C: 9)
+**TS test durumu: 236/236** (Phase 4C'de `PlanningOutcome.unsupported`e
+`trigger` alanı eklendi, izin hatası artık HTTP 422 döner — bkz.
+`docs/api.md` §9)
+
 Not: bu README'nin geri kalanındaki test sayıları (158/177) ve "Swift
 derlenmedi" ifadesi artık ESKİ — o zamandan beri Phase 3B/3C tamamlandı,
 Swift gerçek cihazda derleniyor/test ediliyor. Güncel sayılar ve durum
