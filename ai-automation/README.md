@@ -173,6 +173,25 @@ gerçek hata bulunup düzeltildi.
 `trigger` alanı eklendi, izin hatası artık HTTP 422 döner — bkz.
 `docs/api.md` §9)
 
+### Phase 4D-1 — gerçek SwiftUI uygulama kabuğu (2026-09-19)
+
+`ios-bridge/Sources/AutomationUI/` — `BuilderMachine`'i gerçek bir
+SwiftUI arayüze bağlayan View/ViewModel katmanı (`AutomationCore`'dan
+AYRI bir hedef). `App/` — XcodeGen ile üretilen, gerçek çalıştırılabilir
+bir Xcode projesi (`project.yml` tek doğruluk kaynağı). Akış: Home →
+"Seni şöyle anladım" (✓/✎) → gerekirse tek soru → hazır önizleme;
+Shortcuts kurulumu bilinçli olarak bu round'da BAĞLANMADI.
+
+Gerçek iOS Simulator'da, gerçek `npm run serve`e (kural tabanlı
+sağlayıcı) karşı üç XCUITest senaryosuyla doğrulandı — en önemlisi,
+ekranda HİÇBİR capability id'nin görünmediğini kanıtlayan test. Bu
+ortamda fiziksel cihaz yok; aynı proje kullanıcının kendi Mac'inde
+gerçek cihazla açılabilir. Ayrıntı: `docs/ios-bridge.md` Phase 4D-1
+bölümü.
+
+Phase 4D-2 (gerçek Claude API smoke test) henüz yapılmadı — bu UI hazır
+olduğuna göre sıradaki adım.
+
 Not: bu README'nin geri kalanındaki test sayıları (158/177) ve "Swift
 derlenmedi" ifadesi artık ESKİ — o zamandan beri Phase 3B/3C tamamlandı,
 Swift gerçek cihazda derleniyor/test ediliyor. Güncel sayılar ve durum

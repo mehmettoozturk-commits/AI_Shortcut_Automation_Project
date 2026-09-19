@@ -591,3 +591,97 @@ işledi: mock'lar mimariyi doğrular, gerçek veri şeklini DOĞRULAMAZ.
   kural tabanlı (deterministik) varsayılan sağlayıcısına karşı
   doğrulandı. Gerçek LLM ile tekrarı, anahtar tanımlandığında aynı
   smoke test adımlarıyla elle yapılabilir.
+
+## Phase 4D-1 — gerçek SwiftUI uygulama kabuğu (2026-09-19)
+
+`HTTPBackedPlanner` artık gerçek bir SwiftUI arayüzden çalıştırılıyor —
+`ios-bridge`'e yeni bir `AutomationUI` kütüphane hedefi (View/ViewModel)
+ve pakedin dışında, `App/` altında gerçek, çalıştırılabilir bir Xcode
+uygulaması eklendi.
+
+### 1. `AutomationUI` neden `AutomationCore`'dan AYRI bir hedef
+
+"Core" mantık (state machine, registry, HTTP client) SwiftUI'a
+bağımlı OLMAMALI — ileride farklı bir sunum katmanı (örn. widget,
+watchOS) aynı `AutomationCore`'u SwiftUI'sız kullanabilmeli. Tek yeni
+tip `BuilderViewModel` (`AutomationUI/BuilderViewModel.swift`):
+`BuilderMachine`'in `@Published var step`'ini Combine ile yeniden
+yayınlar VE registry üzerinden **capability id → insan dili** çevirisini
+yapar (`triggerSummary`/`actionSummaries`) — View'lar hiçbir zaman ham
+`draft.trigger.type`/`step.type` göstermez.
+
+### 2. Kapsam: `.previewConfirm`'de DURUR
+
+Ekran akışı tam olarak istenen sırayı izler: Home (`HomeView`) →
+Understanding ("Seni şöyle anladım", ✓/✎ — `UnderstandingView`) →
+gerekirse MissingInfo (`MissingInfoView`, tek soru) → ReadyView
+(`.previewConfirm`). `.setup` ve sonrası (Shortcuts kurulumu,
+`installed`, `success`) bilinçli olarak BAĞLANMADI —
+`AutomationRootView` bu durumları `ScopeBoundaryView`'e yönlendirir
+("Kurulum akışı bu sürümde henüz bağlı değil"). `ReadyView` de aynı
+notu (`.noTemplateAvailable`'ın kullanıcı diline çevrilmiş hâli, bir
+sonraki round'un konusu) taşıyan bir yer tutucu gösterir; `create()`
+ÇAĞRILMAZ.
+
+Gerçek bir izin isteme ekranı henüz yok — `App/Sources/AutomationApp/
+AutomationApp.swift`, backend'in Permission Validator'ının (HTTP 422)
+önizlemeyi engellememesi için geniş, sabit bir izin kümesiyle
+(`MockPermissionService`) başlar. Bu kasıtlı bir GEÇİCİ yer tutucu,
+açıkça yorumlanmış durumda.
+
+### 3. `App/` — gerçek, çalıştırılabilir Xcode projesi (XcodeGen)
+
+SwiftPM tek başına gerçek bir iOS uygulama paketi (Info.plist, asset
+catalog, code signing) üretemez; bu yüzden `App/project.yml`
+(XcodeGen spesifikasyonu) `../ios-bridge`'i yerel bir paket bağımlılığı
+olarak alan minimal bir `AutomationApp` hedefi ve bir
+`AutomationAppUITests` UI test hedefi tanımlar. **`project.yml` tek
+doğruluk kaynağıdır; `AutomationApp.xcodeproj` `xcodegen generate` ile
+ÜRETİLİR** — kolaylık olsun diye (XcodeGen kurulu olmayan biri de
+doğrudan Xcode'da açabilsin diye) commit edildi, ama `project.yml`
+veya `Sources/`/`UITests/` altına dosya eklenince YENİDEN
+ÜRETİLMELİDİR (`cd App && xcodegen generate`).
+
+### 4. Doğrulama: gerçek iOS Simulator + gerçek backend + XCUITest
+
+Bu ortamda fiziksel bir iPhone yok, ama TAM Xcode + iOS Simulator var —
+bu yüzden doğrulama, mümkün olan en güçlü biçimde yapıldı:
+`xcodebuild -project App/AutomationApp.xcodeproj -scheme AutomationApp
+-destination 'platform=iOS Simulator,name=iPhone 17' test`, GERÇEKTEN
+çalışan bir `npm run serve`e (kural tabanlı varsayılan sağlayıcı) karşı.
+Üç XCUITest senaryosu (`App/UITests/AutomationAppUITests.swift`),
+gerçek dokunma/yazma olaylarıyla:
+
+- Basit bir plan ("Pil yüzde 20'ye düşünce...") → Understanding
+  ekranına ulaşır.
+- **EN ÖNEMLİ TEST**: Tesla Sentry Mode senaryosu → ekrandaki HİÇBİR
+  statik metin bir capability id'ye benzemiyor (`"ios."`/`"tesla."`
+  içeren bir dize YOK) — bu değişmez artık yalnızca kaynak
+  taramasıyla/pipeline'da değil, GERÇEKTEN ÇALIŞAN bir uygulamada
+  kilitli.
+- Çok turlu düzeltme (klima → onay → "Hangi araç?" sorusu → "Tesla
+  Model Y" seçimi → previewConfirm'e ulaşma).
+
+Üçü de GERÇEKTEN geçti (ilk denemede). Ekran görüntüsüyle de elle
+doğrulandı — "Seni şöyle anladım" ekranı registry açıklamalarını
+gösteriyor, capability id yok.
+
+**Bilinen bir kozmetik boşluk (kod hatası DEĞİL):** `ios.bluetooth.
+disconnected`'ın registry `description`'ı ("Seçilen Bluetooth
+cihazının bağlantısı kesildiğinde tetiklenir") teknik/Bluetooth
+dilinde; mockup'taki "🚗 Arabadan uzaklaşınca" gibi araç-odaklı, emoji'li
+bir metin DEĞİL. Capability id sızmıyor (asıl değişmez korunuyor) ama
+bu bir İÇERİK/metin cilası — registry'deki `description` alanlarının
+kullanıcı diline daha da yaklaştırılması ayrı, küçük bir sonraki adım.
+
+### 5. Kapsam dışı (bilinçli olarak sonraki round'lara bırakıldı)
+
+- Gerçek bir fiziksel iPhone'da çalıştırma — bu ortamda mümkün değil;
+  aynı `App/AutomationApp.xcodeproj`, kullanıcının kendi Mac'inde
+  gerçek cihaz hedefiyle açılıp çalıştırılabilir.
+- Gerçek izin isteme UI'ı — şu an sabit/geniş bir mock.
+- Kurulum akışı (Shortcuts/`installed`) — Phase 3C'de ayrı doğrulandı,
+  bu round'da UI'ya bağlanmadı.
+- **Phase 4D-2: gerçek Claude API smoke test'i** — bu UI hazır olduğuna
+  göre bir sonraki adım; otomatik test paketine SOKULMAYACAK (yalnızca
+  `LLM_API_KEY` tanımlıyken elle, `serve.ts`'in gerçek sağlayıcı yoluyla).
