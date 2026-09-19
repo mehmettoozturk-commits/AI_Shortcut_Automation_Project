@@ -46,3 +46,21 @@ export interface PlanRevisionEngine {
 export interface NluPlanner {
   plan(input: string, context: ConversationContext): PlanningOutcome;
 }
+
+/**
+ * Phase 4B — ASYNC sağlayıcı sınırı.
+ *
+ * Yukarıdaki `IntentExtractor` SENKRON kalır (mevcut 221 test ve
+ * `RuleBasedIntentExtractor`'ın doğrudan senkron kullanımı bozulmaz).
+ * `NluProvider`, ağ I/O gerektiren gerçek bir LLM sağlayıcısının
+ * (`ClaudeIntentProvider`) VE kural tabanlı sağlayıcının aynı ASYNC
+ * sınırdan geçmesini sağlayan ayrı, paralel bir arayüzdür —
+ * `NluPipeline.planAsync()` bunu kullanır (bkz. pipeline.ts).
+ *
+ * Sonuç hâlâ `IntentResult` — API'ye özel ayrı bir "SemanticResult"
+ * şekli İCAT EDİLMEDİ; LLM de dahil her sağlayıcı aynı semantik
+ * sözleşmeye (capability id YOK, yalnızca semantik isim) uyar.
+ */
+export interface NluProvider {
+  plan(input: string, context?: ConversationContext): Promise<IntentResult>;
+}

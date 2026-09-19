@@ -138,4 +138,12 @@ export type PlanningOutcome =
       intent: IntentResult;
       reason: string;
     }
-  | { status: "needs_clarification"; question: MissingInfoField; intent: IntentResult };
+  | { status: "needs_clarification"; question: MissingInfoField; intent: IntentResult }
+  /**
+   * Phase 4B — LLM/JSON hatası (ağ, parse, şema). Bu, "anlaşılamadı" ile
+   * KARIŞTIRILMAZ: `not_understood` geçerli bir semantik sonuçtur (LLM/
+   * kural tabanlı sağlayıcı çalıştı ama niyeti tanımadı); `provider_error`
+   * sağlayıcının HİÇ çalışamadığını gösterir — istemci bunu retry/hata
+   * mesajıyla ayrı ele almalı.
+   */
+  | { status: "provider_error"; message: string };

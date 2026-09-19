@@ -186,6 +186,16 @@ export const PlanResponseSchema = z.discriminatedUnion("status", [
     intent: IntentResultSchema,
     conversation: ConversationContextSchema,
   }),
+  z.object({
+    /**
+     * Phase 4B — LLM/JSON hatası (ağ, geçersiz şema). `not_understood`
+     * ile KARIŞTIRILMAZ: o geçerli bir semantik sonuçtur, bu ise
+     * sağlayıcının HİÇ çalışamadığını gösterir (bkz. src/nlu/types.ts).
+     */
+    status: z.literal("provider_error"),
+    message: z.string(),
+    conversation: ConversationContextSchema,
+  }),
 ]);
 export type PlanResponse = z.infer<typeof PlanResponseSchema>;
 

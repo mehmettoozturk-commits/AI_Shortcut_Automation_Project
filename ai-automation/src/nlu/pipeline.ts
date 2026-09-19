@@ -13,12 +13,15 @@ import type { Planner, PlannerResult } from "../builder/ports.js";
 import { findBySemantic, findCapability } from "../capability-registry/registry.js";
 import type { WorkflowStep } from "../dsl/schema.js";
 import { buildPlan } from "./plan-builder.js";
-import type { ClarificationEngine, EntityExtractor, IntentExtractor, NluPlanner, PlanRevisionEngine } from "./ports.js";
+import type { ClarificationEngine, EntityExtractor, IntentExtractor, NluPlanner, NluProvider, PlanRevisionEngine } from "./ports.js";
+import { LlmProviderError } from "./providers/errors.js";
+import { RuleBasedProvider } from "./providers/rule-based-provider.js";
 import { RuleBasedEntityExtractor, RuleBasedIntentExtractor } from "./rule-based.js";
 import { lower, normalizeTime } from "./turkish.js";
 import {
   emptyContext,
   type ConversationContext,
+  type IntentResult,
   type PlanningOutcome,
 } from "./types.js";
 
@@ -143,11 +146,43 @@ export class NluPipeline implements NluPlanner {
   constructor(
     private intentExtractor: IntentExtractor = new RuleBasedIntentExtractor(),
     private clarification: ClarificationEngine = new DefaultClarificationEngine(),
-    private revision: PlanRevisionEngine = new DefaultPlanRevisionEngine()
+    private revision: PlanRevisionEngine = new DefaultPlanRevisionEngine(),
+    private provider: NluProvider = new RuleBasedProvider()
   ) {}
 
   plan(input: string, context: ConversationContext): PlanningOutcome {
     const intent = this.intentExtractor.extract(input, context);
+    return this.continueFromIntent(intent, input, context);
+  }
+
+  /**
+   * Phase 4B — ASYNC giriş noktası. Senkron `plan()`'dan farkı yalnızca
+   * niyetin NASIL üretildiği: burada `this.provider` (varsayılan olarak
+   * `RuleBasedProvider`, üretimde `ClaudeIntentProvider` olabilir)
+   * kullanılır. Niyet üretildikten SONRAKİ her şey (`continueFromIntent`)
+   * TAMAMEN AYNI — testler ve production aynı boru hattını paylaşır.
+   *
+   * LLM/JSON hatası (ağ, geçersiz şema) `needs_clarification`/
+   * `unsupported` ile KARIŞTIRILMAZ: `provider_error` olarak ayrı döner.
+   */
+  async planAsync(input: string, context: ConversationContext): Promise<PlanningOutcome> {
+    let intent: IntentResult;
+    try {
+      intent = await this.provider.plan(input, context);
+    } catch (err) {
+      const message = err instanceof LlmProviderError ? err.message : "Sağlayıcı beklenmeyen bir hatayla başarısız oldu.";
+      return { status: "provider_error", message };
+    }
+    return this.continueFromIntent(intent, input, context);
+  }
+
+  /**
+   * Niyet üretildikten SONRAKİ paylaşılan mantık (§10): düzeltme mi,
+   * yoksa yeni bir plan mı; eksik bilgi var mı. Hem `plan()` (senkron,
+   * kural tabanlı `IntentExtractor`) hem `planAsync()` (async
+   * `NluProvider` — kural tabanlı VEYA gerçek LLM) burada birleşir.
+   */
+  private continueFromIntent(intent: IntentResult, input: string, context: ConversationContext): PlanningOutcome {
     context.conversationTurns.push({ role: "user", text: input });
     context.lastIntent = intent;
 
@@ -263,7 +298,10 @@ export class NluPlannerAdapter implements Planner {
 
   async plan(text: string, existingDraft?: DraftAutomationPlan | null): Promise<PlannerResult> {
     if (existingDraft) this.context.currentPlan = existingDraft;
-    const outcome = this.pipeline.plan(text, this.context);
+    // Phase 4B: async sınırdan geçer (varsayılan sağlayıcı hâlâ kural
+    // tabanlı — davranış değişmez; gerçek bir LLM sağlayıcısı enjekte
+    // edilirse bu yol, Builder state machine'e KADAR taşınır).
+    const outcome = await this.pipeline.planAsync(text, this.context);
 
     switch (outcome.status) {
       case "plan":
@@ -294,6 +332,12 @@ export class NluPlannerAdapter implements Planner {
         return { kind: "not_understood" };
       }
       case "not_understood":
+        return { kind: "not_understood" };
+      case "provider_error":
+        // Phase 1 `PlannerResult` sözleşmesinde ayrı bir hata kolu yok
+        // (bkz. builder/ports.ts) — bilinçli olarak genişletilmedi (bu
+        // TS Builder'ın kendi konusu değil, Phase 4C/backend'in konusu).
+        // Güvenli varsayılan: "anlaşılamadı" olarak raporlanır.
         return { kind: "not_understood" };
     }
   }

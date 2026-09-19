@@ -10,6 +10,10 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Server } from "node:http";
 import { createPlanServer } from "../src/api/server.js";
+import { NluPipeline } from "../src/nlu/pipeline.js";
+import type { NluProvider } from "../src/nlu/ports.js";
+import { LlmProviderError } from "../src/nlu/providers/errors.js";
+import type { IntentResult } from "../src/nlu/types.js";
 
 let server: Server;
 let baseUrl: string;
@@ -121,5 +125,46 @@ describe("POST /plan — gerçek HTTP sunucusu", () => {
   it("GET /plan 404 döner (yalnızca POST destekleniyor)", async () => {
     const res = await fetch(`${baseUrl}/plan`);
     expect(res.status).toBe(404);
+  });
+});
+
+/**
+ * Phase 4B — sağlayıcı hatası (LLM ağ/JSON hatası) HTTP'de ayrı bir
+ * durum ve durum kodu (502) olarak raporlanır; `not_understood`/
+ * `unsupported` (200) ile KARIŞTIRILMAZ. Sahte bir `NluProvider`
+ * enjekte edilir — gerçek ağ çağrısı yapılmaz (§14).
+ */
+describe("POST /plan — sağlayıcı hatası (provider_error)", () => {
+  class FailingProvider implements NluProvider {
+    async plan(): Promise<IntentResult> {
+      throw new LlmProviderError("LLM isteği başarısız oldu (test).");
+    }
+  }
+
+  let failingServer: Server;
+  let failingBaseUrl: string;
+
+  beforeAll(async () => {
+    failingServer = createPlanServer({ pipeline: new NluPipeline(undefined, undefined, undefined, new FailingProvider()) });
+    await new Promise<void>((resolve) => failingServer.listen(0, resolve));
+    const address = failingServer.address();
+    if (address === null || typeof address === "string") throw new Error("beklenmeyen adres");
+    failingBaseUrl = `http://127.0.0.1:${address.port}`;
+  });
+
+  afterAll(async () => {
+    await new Promise<void>((resolve, reject) => failingServer.close((err) => (err ? reject(err) : resolve())));
+  });
+
+  it("502 döner ve durumu 'provider_error' olarak raporlar", async () => {
+    const res = await fetch(`${failingBaseUrl}/plan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "Arabadan inince Sentry Mode'u aç" }),
+    });
+    expect(res.status).toBe(502);
+    const body = await res.json();
+    expect(body.status).toBe("provider_error");
+    expect(body.message).toContain("test");
   });
 });

@@ -57,10 +57,20 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
  * (kendi içinde hiçbir konuşma verisi tutmaz, yalnızca kendisine
  * verilen `ConversationContext`'i okur/yazar). Bu yüzden tek bir
  * paylaşılan örnek güvenlidir ve her istek arasında veri sızdırmaz.
+ *
+ * Phase 4B: `serve.ts`, ortam değişkenine göre bu pipeline'ı kural
+ * tabanlı VEYA gerçek bir LLM sağlayıcısıyla enjekte edebilir
+ * (`createPlanServer({ pipeline })`) — testler de aynı yoldan sahte bir
+ * sağlayıcı enjekte eder, gerçek ağ çağrısı hiçbir otomatik testte
+ * yapılmaz (§14).
  */
-const pipeline = new NluPipeline();
+const defaultPipeline = new NluPipeline();
 
-export async function handlePlanRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
+export async function handlePlanRequest(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pipeline: NluPipeline = defaultPipeline
+): Promise<void> {
   let raw: unknown;
   try {
     const bodyText = await readBody(req);
@@ -92,7 +102,15 @@ export async function handlePlanRequest(req: IncomingMessage, res: ServerRespons
   const context: ConversationContext = conversation ?? emptyContext(text);
   const outcome = context.lastMissingField
     ? pipeline.answerClarification(text, context)
-    : pipeline.plan(text, context);
+    : await pipeline.planAsync(text, context);
+
+  // Phase 4B: sağlayıcı (LLM ağ hatası/geçersiz JSON) hiç çalışamadıysa
+  // — bu bir "anlaşılamadı" veya "desteklenmiyor" değil, sunucunun ayrı
+  // bir HTTP durumuyla (502) rapor etmesi gereken bir hata.
+  if (outcome.status === "provider_error") {
+    sendJson(res, 502, { status: "provider_error", message: outcome.message, conversation: context });
+    return;
+  }
 
   let response: PlanResponse;
   switch (outcome.status) {
@@ -150,10 +168,11 @@ export async function handlePlanRequest(req: IncomingMessage, res: ServerRespons
   sendJson(res, 200, validatedResponse.data);
 }
 
-export function createPlanServer() {
+export function createPlanServer(options: { pipeline?: NluPipeline } = {}) {
+  const pipeline = options.pipeline ?? defaultPipeline;
   return createServer((req, res) => {
     if (req.method === "POST" && req.url === "/plan") {
-      handlePlanRequest(req, res).catch(() => {
+      handlePlanRequest(req, res, pipeline).catch(() => {
         sendJson(res, 500, { error: "Beklenmeyen sunucu hatası." });
       });
       return;

@@ -77,7 +77,16 @@ describe("Registry source-of-truth: capability id'leri AI katmanında hardcode D
 
   it("AI katmanı kaynak dosyalarında capability id'si hardcode edilmemiş", async () => {
     const { readFileSync } = await import("node:fs");
-    for (const file of ["src/nlu/rule-based.ts", "src/nlu/pipeline.ts", "src/nlu/plan-builder.ts"]) {
+    for (const file of [
+      "src/nlu/rule-based.ts",
+      "src/nlu/pipeline.ts",
+      "src/nlu/plan-builder.ts",
+      // Phase 4B: LLM sağlayıcısı da bu değişmeze uyar — capability
+      // id'leri LLM'e prompt/context olarak dahi verilmez.
+      "src/nlu/providers/claude-provider.ts",
+      "src/nlu/providers/llm-schema.ts",
+      "src/nlu/providers/rule-based-provider.ts",
+    ]) {
       const source = readFileSync(file, "utf8");
       // Registry'deki TÜM capability id'leri aranır — tesla.* ve ios.*
       // dahil. Hiçbiri AI katmanında geçmemeli.
