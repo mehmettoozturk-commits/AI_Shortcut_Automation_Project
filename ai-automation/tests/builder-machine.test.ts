@@ -133,7 +133,10 @@ describe("BuilderMachine — temel geçişler (docs/ux.md §1.2)", () => {
     expect(m.step.kind).toBe("user_assisted_import");
     m.handOffToShortcuts();
     expect(m.step.kind).toBe("waiting_for_user");
-    expect(await repository.list()).toHaveLength(0); // henüz kaydedilmedi
+    // Phase 3C-3: create()'te ERKEN bir pending_user kaydı oluştu; henüz installed DEĞİL.
+    const beforeAdd = await repository.list();
+    expect(beforeAdd).toHaveLength(1);
+    expect(beforeAdd[0]!.installStatus).toBe("pending_user");
 
     // "Ekledim" — Phase 3B Test 2: bu HENÜZ installed'a götürmez.
     m.confirmShortcutAdded();
@@ -141,7 +144,9 @@ describe("BuilderMachine — temel geçişler (docs/ux.md §1.2)", () => {
     if (m.step.kind === "linking_trigger") {
       expect(m.step.steps.length).toBeGreaterThan(0);
     }
-    expect(await repository.list()).toHaveLength(0); // hâlâ kaydedilmedi
+    const afterAdd = await repository.list();
+    expect(afterAdd).toHaveLength(1); // hâlâ aynı kayıt
+    expect(afterAdd[0]!.installStatus).toBe("pending_user");
 
     // "Bağladım" — installed'a giden TEK yol.
     await m.confirmTriggerLinked();
@@ -187,7 +192,10 @@ describe("BuilderMachine — kurulum modeli değişmezleri", () => {
     // Hiçbir şey çağırmadan bekle: durum değişmemeli
     await new Promise((r) => setTimeout(r, 30));
     expect(machine.step.kind).toBe("waiting_for_user");
-    expect(await repository.list()).toHaveLength(0);
+    // Phase 3C-3: erken pending_user kaydı var, ama installed DEĞİL.
+    const saved = await repository.list();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.installStatus).toBe("pending_user");
   });
 
   it("success'e waiting_for_user'dan doğrudan atlanamaz", async () => {
@@ -208,7 +216,9 @@ describe("BuilderMachine — kurulum modeli değişmezleri", () => {
     machine.handOffToShortcuts();
     machine.confirmShortcutAdded(); // "Ekledim"
     expect(machine.step.kind).toBe("linking_trigger");
-    expect(await repository.list()).toHaveLength(0);
+    const saved = await repository.list();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.installStatus).toBe("pending_user");
     machine.showSuccess(); // installed değil, yok sayılmalı
     expect(machine.step.kind).toBe("linking_trigger");
   });
@@ -222,7 +232,9 @@ describe("BuilderMachine — kurulum modeli değişmezleri", () => {
     expect(machine.step.kind).toBe("waiting_for_user"); // henüz "Ekledim" denmedi
     await machine.confirmTriggerLinked(); // yanlış state, no-op olmalı
     expect(machine.step.kind).toBe("waiting_for_user");
-    expect(await repository.list()).toHaveLength(0);
+    const saved = await repository.list();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.installStatus).toBe("pending_user");
   });
 
   it("linking_trigger'dan OTOMATİK ilerleme yoktur", async () => {
@@ -234,22 +246,26 @@ describe("BuilderMachine — kurulum modeli değişmezleri", () => {
     machine.confirmShortcutAdded();
     await new Promise((r) => setTimeout(r, 30));
     expect(machine.step.kind).toBe("linking_trigger");
-    expect(await repository.list()).toHaveLength(0);
+    const saved = await repository.list();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.installStatus).toBe("pending_user");
   });
 
-  it("Bağlayamadım: linking_trigger -> setup_failed, kaydedilmez", async () => {
+  it("Bağlayamadım: linking_trigger -> setup_failed, kayıt 'failed' olur (sessizce kaybolmaz)", async () => {
     const { machine, repository } = makeMachine();
     await runToPreview(machine);
     await machine.create();
     await machine.prepareHandoff();
     machine.handOffToShortcuts();
     machine.confirmShortcutAdded();
-    machine.reportInstallFailed("Otomasyon tetikleyicisi bağlanamadı.");
+    await machine.reportInstallFailed("Otomasyon tetikleyicisi bağlanamadı.");
     expect(machine.step.kind).toBe("setup_failed");
     if (machine.step.kind === "setup_failed") {
       expect(machine.step.reason).toBe("Otomasyon tetikleyicisi bağlanamadı.");
     }
-    expect(await repository.list()).toHaveLength(0);
+    const saved = await repository.list();
+    expect(saved).toHaveLength(1); // çoğalmadı, AYNI kayıt güncellendi
+    expect(saved[0]!.installStatus).toBe("failed");
   });
 
   it("Ekledim + Bağladım: installed'a ulaşır ve kaydedilir", async () => {
@@ -264,35 +280,44 @@ describe("BuilderMachine — kurulum modeli değişmezleri", () => {
     expect(await repository.list()).toHaveLength(1);
   });
 
-  it("kullanıcı kurulamadığını bildirirse setup_failed olur, kaydedilmez", async () => {
+  it("kullanıcı kurulamadığını bildirirse setup_failed olur, kayıt 'failed' olarak kalır", async () => {
     const { machine, repository } = makeMachine();
     await runToPreview(machine);
     await machine.create();
     await machine.prepareHandoff();
     machine.handOffToShortcuts();
-    machine.reportInstallFailed();
+    await machine.reportInstallFailed();
     expect(machine.step.kind).toBe("setup_failed");
-    expect(await repository.list()).toHaveLength(0);
+    const saved = await repository.list();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.installStatus).toBe("failed");
   });
 
-  it("setup_failed -> retrySetup() -> setup", async () => {
-    const { machine } = makeMachine();
+  it("setup_failed -> retrySetup() -> setup, kayıt 'pending_user'a döner", async () => {
+    const { machine, repository } = makeMachine();
     await runToPreview(machine);
     await machine.create();
     await machine.prepareHandoff();
     machine.handOffToShortcuts();
-    machine.reportInstallFailed();
-    machine.retrySetup();
+    await machine.reportInstallFailed();
+    await machine.retrySetup();
     expect(machine.step.kind).toBe("setup");
+    const saved = await repository.list();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.installStatus).toBe("pending_user");
   });
 
-  it("hazırlık başarısız olursa setup_failed (sahte başarı yasağı, MASTER_SPEC §18)", async () => {
+  it("hazırlık başarısız olursa setup_failed (sahte başarı yasağı, MASTER_SPEC §18) — kayıt 'pending_user' kalır, 'failed' DEĞİL", async () => {
     const { machine, repository } = makeMachine({ installSucceeds: false });
     await runToPreview(machine);
     await machine.create();
     await machine.prepareHandoff();
     expect(machine.step.kind).toBe("setup_failed");
-    expect(await repository.list()).toHaveLength(0);
+    // "Template/hazırlık yok" bir içerik eksikliğidir, kesin başarısızlık
+    // değil (docs/capabilities.md açık iş #7) — pending_user kalmalı.
+    const saved = await repository.list();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.installStatus).toBe("pending_user");
   });
 
   it("confirmGuidedSetupDone(): yanlış state'den (guided_manual olmayan setup) çağrılırsa YOK SAYILIR", async () => {
@@ -302,7 +327,9 @@ describe("BuilderMachine — kurulum modeli değişmezleri", () => {
     expect(machine.step.kind).toBe("setup"); // Sentry -> user_assisted_import, guided_manual DEĞİL
     await machine.confirmGuidedSetupDone();
     expect(machine.step.kind).toBe("setup"); // hiçbir şey olmadı
-    expect(await repository.list()).toHaveLength(0);
+    const saved = await repository.list();
+    expect(saved).toHaveLength(1); // create()'in erken kaydı
+    expect(saved[0]!.installStatus).toBe("pending_user");
   });
 
   it("confirmTriggerLinked() setup/preview_confirm gibi yanlış state'lerden çağrılırsa YOK SAYILIR", async () => {
@@ -311,11 +338,14 @@ describe("BuilderMachine — kurulum modeli değişmezleri", () => {
     expect(machine.step.kind).toBe("preview_confirm");
     await machine.confirmTriggerLinked();
     expect(machine.step.kind).toBe("preview_confirm"); // hiçbir şey olmadı
+    expect(await repository.list()).toHaveLength(0); // create() henüz çağrılmadı
     await machine.create();
     expect(machine.step.kind).toBe("setup");
     await machine.confirmTriggerLinked();
     expect(machine.step.kind).toBe("setup"); // hâlâ hiçbir şey olmadı
-    expect(await repository.list()).toHaveLength(0);
+    const saved = await repository.list();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.installStatus).toBe("pending_user");
   });
 
   it("preview_confirm, kurulumun kullanıcı onayı gerektirdiğini önceden söyler", async () => {

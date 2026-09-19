@@ -37,6 +37,14 @@ export class BuilderMachine {
   private _step: BuilderStep = { kind: "idle" };
   private listeners: Array<(step: BuilderStep) => void> = [];
 
+  /**
+   * Phase 3C-3: `create()`'te bir kez üretilir, akış boyunca AYNI kayda
+   * güncelleme (upsert) yapmak için taşınır. `BuilderStep`'in şeklini
+   * bozmamak için (Swift ile paralellik) bilerek private tutuluyor —
+   * `pendingHandoff`'un Swift tarafındaki paterniyle aynı.
+   */
+  private currentAutomationId: string | null = null;
+
   constructor(private deps: BuilderDeps) {}
 
   get step(): BuilderStep {
@@ -62,8 +70,15 @@ export class BuilderMachine {
     this.transition({ kind: "capturing", text: prefillText, draft: null, notUnderstood: false });
   }
 
-  /** ✕ — akıştan tamamen çıkış, hiçbir şey kaydedilmez. */
+  /**
+   * ✕ — akıştan tamamen çıkış. Eğer `create()`'ten beri bir `pending_user`
+   * kaydı oluştuysa, o kayıt SİLİNMEZ (kullanıcı yarım kalan girişimini
+   * Otomasyonlarım listesinde dürüstçe görebilmeli) — yalnızca akışın
+   * kendi bağlantısı (`currentAutomationId`) sıfırlanır ki bir sonraki
+   * `create()` YENİ bir kayıt üretsin, eskisinin üzerine yazmasın.
+   */
   close(): void {
+    this.currentAutomationId = null;
     this.transition({ kind: "idle" });
   }
 
@@ -200,8 +215,15 @@ export class BuilderMachine {
    * `ask_confirmation` adımının ve Safety Validator'ın aradığı kullanıcı
    * onayının gerçek dünya karşılığıdır.
    *
-   * Artık kurulum YAPMAZ; yalnızca kurulum paketini hazırlar. Kurulumun
+   * Kurulum YAPMAZ; yalnızca kurulum paketini hazırlar. Kurulumun
    * kendisi kullanıcı onayı gerektirir (docs/capabilities.md §1.2).
+   *
+   * Phase 3C-3: burada `installStatus: "pending_user"` ile ERKEN bir
+   * kayıt oluşturulur ve kaydedilir — Test 8'in gerektirdiği gibi,
+   * yarım kalan/başarısız bir girişim de Otomasyonlarım listesinde
+   * dürüstçe görünür olsun diye ("sessiz kaybolma" yerine). Bu kaydın
+   * `id`'si (`currentAutomationId`) akış boyunca taşınır; sonraki her
+   * geçiş AYNI kaydı GÜNCELLER (upsert), yeni bir tane oluşturmaz.
    */
   async create(): Promise<void> {
     if (this._step.kind !== "preview_confirm") return;
@@ -221,12 +243,24 @@ export class BuilderMachine {
       }
     }
 
-    this.transition({ kind: "setup", draft, setup: this.resolveSetupKind(draft) });
+    const setup = this.resolveSetupKind(draft);
+    this.currentAutomationId = this.generateId();
+    const pending = this.buildAutomation(draft, setup, "pending_user", this.currentAutomationId);
+    await this.deps.repository.save(pending);
+    this.transition({ kind: "setup", draft, setup });
   }
 
   /**
    * Hazırlık bitti; kullanıcıya aktarılmaya hazır. `setup` durumunda
    * derleme/doğrulama yapılır, sonra kullanıcı onayı beklenir.
+   *
+   * Phase 3C-3: hazırlık başarısız olursa (örn. henüz hazır bir şablon
+   * yok — bkz. docs/capabilities.md açık iş #7) kayıt `failed` OLARAK
+   * GÜNCELLENMEZ, `pending_user` kalır — bu bir veri/içerik eksikliği,
+   * kesin bir başarısızlık değil (docs/phase3b-validation-plan.md Test 8
+   * notu). `failed`, yalnızca kullanıcının kendisinin "Ekleyemedim"/
+   * "Bağlayamadım" dediği veya OS'un URL'i açamadığı GERÇEKTEN bilinen
+   * durumlarda kullanılır (bkz. reportInstallFailed).
    */
   async prepareHandoff(): Promise<void> {
     if (this._step.kind !== "setup") return;
@@ -277,7 +311,7 @@ export class BuilderMachine {
   async confirmTriggerLinked(): Promise<void> {
     if (this._step.kind !== "linking_trigger") return;
     const { draft, setup } = this._step;
-    const automation = this.buildAutomation(draft, setup, "installed");
+    const automation = this.buildAutomation(draft, setup, "installed", this.currentAutomationId ?? this.generateId());
     await this.deps.repository.save(automation);
     this.transition({ kind: "installed", automation });
   }
@@ -290,26 +324,46 @@ export class BuilderMachine {
   async confirmGuidedSetupDone(): Promise<void> {
     if (this._step.kind !== "setup" || this._step.setup.kind !== "guided_manual") return;
     const { draft, setup } = this._step;
-    const automation = this.buildAutomation(draft, setup, "installed");
+    const automation = this.buildAutomation(draft, setup, "installed", this.currentAutomationId ?? this.generateId());
     await this.deps.repository.save(automation);
     this.transition({ kind: "installed", automation });
   }
 
-  /** Kullanıcı kurulamadığını/bağlayamadığını bildirdi. Sahte başarı üretilmez. */
-  reportInstallFailed(reason = "Kestirme kurulamadı."): void {
+  /**
+   * Kullanıcı kurulamadığını/bağlayamadığını bildirdi (GERÇEKTEN BİLİNEN
+   * bir başarısızlık — "Apple'dan cevap gelmedi" ile KARIŞTIRILMAMALI).
+   * Phase 3C-3: `create()`'teki `pending_user` kaydı burada `failed`
+   * olarak güncellenir — sahte başarı üretilmez, ama girişim de sessizce
+   * kaybolmaz (Test 8).
+   */
+  async reportInstallFailed(reason = "Kestirme kurulamadı."): Promise<void> {
     if (
       this._step.kind !== "waiting_for_user" &&
       this._step.kind !== "user_assisted_import" &&
       this._step.kind !== "linking_trigger"
     )
       return;
-    this.transition({ kind: "setup_failed", draft: this._step.draft, setup: this._step.setup, reason });
+    const { draft, setup } = this._step;
+    if (this.currentAutomationId) {
+      const failed = this.buildAutomation(draft, setup, "failed", this.currentAutomationId);
+      await this.deps.repository.save(failed);
+    }
+    this.transition({ kind: "setup_failed", draft, setup, reason });
   }
 
-  /** setup_failed -> tekrar dene (hazırlık aşamasına döner). */
-  retrySetup(): void {
+  /**
+   * setup_failed -> tekrar dene (hazırlık aşamasına döner). Kayıt varsa
+   * yeniden denendiği için `pending_user`'a döner (bir önceki `failed`
+   * durum kalıcı değil, yeniden deneme aktif bir girişimdir).
+   */
+  async retrySetup(): Promise<void> {
     if (this._step.kind !== "setup_failed") return;
-    this.transition({ kind: "setup", draft: this._step.draft, setup: this._step.setup });
+    const { draft, setup } = this._step;
+    if (this.currentAutomationId) {
+      const pending = this.buildAutomation(draft, setup, "pending_user", this.currentAutomationId);
+      await this.deps.repository.save(pending);
+    }
+    this.transition({ kind: "setup", draft, setup });
   }
 
   /** installed -> success (kutlama ekranı). Tek giriş yolu `installed`. */
@@ -455,9 +509,23 @@ export class BuilderMachine {
     return Array.from(new Set(out));
   }
 
-  private buildAutomation(draft: DraftAutomationPlan, setup: SetupKind, installStatus: InstallStatus): Automation {
+  private generateId(): string {
+    return (this.deps.idGenerator ?? (() => "auto-" + Math.random().toString(36).slice(2, 10)))();
+  }
+
+  /**
+   * Phase 3C-3: `id` artık parametre — akış boyunca aynı otomasyon
+   * kaydını GÜNCELLEMEK (upsert) için, her çağrıda yeni bir id
+   * üretilmiyor. `createdAt` her çağrıda `now()` ile yeniden yazılır
+   * (basitlik için; tam bir audit-trail bu fazın kapsamı dışında).
+   */
+  private buildAutomation(
+    draft: DraftAutomationPlan,
+    setup: SetupKind,
+    installStatus: InstallStatus,
+    id: string
+  ): Automation {
     const now = (this.deps.now ?? (() => new Date()))().toISOString();
-    const id = (this.deps.idGenerator ?? (() => "auto-" + Math.random().toString(36).slice(2, 10)))();
     return {
       id,
       userId: "local",

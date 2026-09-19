@@ -481,17 +481,17 @@ async function handleAction(action: string, el: HTMLElement, target: EventTarget
       break;
     case "handoff": m.handOffToShortcuts(); break;
     case "confirm-shortcut-added": m.confirmShortcutAdded(); break;
-    case "report-failed": m.reportInstallFailed(); break;
+    case "report-failed": await m.reportInstallFailed(); break;
     case "open-shortcuts-app":
       // Prototip: gerçek uygulamada UIApplication.shared.open(URL(string: "shortcuts://"))
       // çağrısına karşılık gelir (bkz. docs/ios-bridge.md §5, x-callback-url doğrulanan).
       vm.showToast(S.setup.linkingOpenApp + "… (prototipte simülasyon)");
       break;
     case "confirm-trigger-linked": await m.confirmTriggerLinked(); break;
-    case "report-trigger-link-failed": m.reportInstallFailed("Otomasyon tetikleyicisi bağlanamadı."); break;
+    case "report-trigger-link-failed": await m.reportInstallFailed("Otomasyon tetikleyicisi bağlanamadı."); break;
     case "confirm-guided-done": await m.confirmGuidedSetupDone(); break;
     case "retry-setup":
-      m.retrySetup();
+      await m.retrySetup();
       if (m.step.kind === "setup" && m.step.setup.kind === "user_assisted_import") {
         window.setTimeout(() => { void m.prepareHandoff(); }, 1200);
       }

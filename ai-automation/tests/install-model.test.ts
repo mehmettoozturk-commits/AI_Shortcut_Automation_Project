@@ -63,10 +63,10 @@ describe("Kurulum modeli: automatic asla varsayılmaz", () => {
   });
 });
 
-describe("Kurulum modeli: installed'a giden tek yol kullanıcı doğrulaması", () => {
+describe("Kurulum modeli: installed'a giden tek yol kullanıcı doğrulaması (Phase 3C-3)", () => {
   const reachable: BuilderStep["kind"][] = [];
 
-  it("create() tek başına otomasyonu kaydetmez", async () => {
+  it("create() ERKEN bir kayıt oluşturur — ama 'pending_user' olarak, ASLA 'installed' değil", async () => {
     const { machine, repository } = makeMachine();
     machine.open();
     machine.setText("Arabadan inince Tesla Model Y'nin Sentry Mode'unu aç");
@@ -74,10 +74,12 @@ describe("Kurulum modeli: installed'a giden tek yol kullanıcı doğrulaması", 
     await machine.confirmUnderstanding();
     await machine.create();
     reachable.push(machine.step.kind);
-    expect(await repository.list()).toHaveLength(0);
+    const saved = await repository.list();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.installStatus).toBe("pending_user");
   });
 
-  it("prepareHandoff() tek başına otomasyonu kaydetmez", async () => {
+  it("prepareHandoff() kaydı hâlâ 'pending_user' bırakır (yeni kayıt oluşturmaz)", async () => {
     const { machine, repository } = makeMachine();
     machine.open();
     machine.setText("Arabadan inince Tesla Model Y'nin Sentry Mode'unu aç");
@@ -86,10 +88,12 @@ describe("Kurulum modeli: installed'a giden tek yol kullanıcı doğrulaması", 
     await machine.create();
     await machine.prepareHandoff();
     expect(machine.step.kind).toBe("user_assisted_import");
-    expect(await repository.list()).toHaveLength(0);
+    const saved = await repository.list();
+    expect(saved).toHaveLength(1); // aynı kayıt, çoğalmadı
+    expect(saved[0]!.installStatus).toBe("pending_user");
   });
 
-  it("handOffToShortcuts() tek başına otomasyonu kaydetmez", async () => {
+  it("handOffToShortcuts() kaydı hâlâ 'pending_user' bırakır (OS açsa bile — kullanıcı ne yaptı BİLİNMİYOR)", async () => {
     const { machine, repository } = makeMachine();
     machine.open();
     machine.setText("Arabadan inince Tesla Model Y'nin Sentry Mode'unu aç");
@@ -98,10 +102,12 @@ describe("Kurulum modeli: installed'a giden tek yol kullanıcı doğrulaması", 
     await machine.create();
     await machine.prepareHandoff();
     machine.handOffToShortcuts();
-    expect(await repository.list()).toHaveLength(0);
+    const saved = await repository.list();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.installStatus).toBe("pending_user");
   });
 
-  it("confirmShortcutAdded() tek başına otomasyonu kaydetmez (Phase 3B Test 2: trigger bağlama ayrı adım)", async () => {
+  it("confirmShortcutAdded() ('Ekledim') TEK BAŞINA installed YAPMAZ — kayıt 'pending_user' kalır", async () => {
     const { machine, repository } = makeMachine();
     machine.open();
     machine.setText("Arabadan inince Tesla Model Y'nin Sentry Mode'unu aç");
@@ -112,10 +118,12 @@ describe("Kurulum modeli: installed'a giden tek yol kullanıcı doğrulaması", 
     machine.handOffToShortcuts();
     machine.confirmShortcutAdded();
     expect(machine.step.kind).toBe("linking_trigger");
-    expect(await repository.list()).toHaveLength(0);
+    const saved = await repository.list();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.installStatus).toBe("pending_user");
   });
 
-  it("yalnızca confirmTriggerLinked() (Ekledim + Bağladım'dan sonra) installStatus'u 'installed' yapar", async () => {
+  it("yalnızca confirmTriggerLinked() (Ekledim + Bağladım'dan sonra) installStatus'u 'installed' yapar — AYNI kayıt güncellenir, çoğalmaz", async () => {
     const { machine, repository } = makeMachine();
     machine.open();
     machine.setText("Arabadan inince Tesla Model Y'nin Sentry Mode'unu aç");
@@ -127,6 +135,61 @@ describe("Kurulum modeli: installed'a giden tek yol kullanıcı doğrulaması", 
     machine.confirmShortcutAdded();
     await machine.confirmTriggerLinked();
     const saved = await repository.list();
+    expect(saved).toHaveLength(1);
     expect(saved[0]!.installStatus).toBe("installed");
+  });
+
+  it("reportInstallFailed() ('Ekleyemedim'/'Bağlayamadım') kaydı 'failed' yapar — sessizce KAYBOLMAZ (Test 8)", async () => {
+    const { machine, repository } = makeMachine();
+    machine.open();
+    machine.setText("Arabadan inince Tesla Model Y'nin Sentry Mode'unu aç");
+    await machine.submit();
+    await machine.confirmUnderstanding();
+    await machine.create();
+    await machine.prepareHandoff();
+    machine.handOffToShortcuts();
+    await machine.reportInstallFailed("Ekleyemedim");
+    const saved = await repository.list();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.installStatus).toBe("failed");
+  });
+
+  it("'Template yok' hazırlık başarısızlığı 'failed' DEĞİL, 'pending_user' kalır (içerik eksikliği ≠ kesin başarısızlık)", async () => {
+    const repository = new InMemoryAutomationRepository();
+    const machine = new BuilderMachine({
+      planner: new MockPlanner(),
+      permissions: new MockPermissionService(["bluetooth", "tesla_account"]),
+      setup: new MockSetupService(false), // "template/hazırlık yok" senaryosu
+      repository,
+      platform: "ios",
+      device: { osVersion: 26, hasCarPlay: false },
+    });
+    machine.open();
+    machine.setText("Arabadan inince Tesla Model Y'nin Sentry Mode'unu aç");
+    await machine.submit();
+    await machine.confirmUnderstanding();
+    await machine.create();
+    await machine.prepareHandoff();
+    expect(machine.step.kind).toBe("setup_failed");
+    const saved = await repository.list();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.installStatus).toBe("pending_user"); // failed DEĞİL
+  });
+
+  it("retrySetup() 'failed' bir kaydı yeniden 'pending_user'a döndürür (aktif yeniden deneme)", async () => {
+    const { machine, repository } = makeMachine();
+    machine.open();
+    machine.setText("Arabadan inince Tesla Model Y'nin Sentry Mode'unu aç");
+    await machine.submit();
+    await machine.confirmUnderstanding();
+    await machine.create();
+    await machine.prepareHandoff();
+    machine.handOffToShortcuts();
+    await machine.reportInstallFailed("Ekleyemedim");
+    expect((await repository.list())[0]!.installStatus).toBe("failed");
+    await machine.retrySetup();
+    const saved = await repository.list();
+    expect(saved).toHaveLength(1);
+    expect(saved[0]!.installStatus).toBe("pending_user");
   });
 });

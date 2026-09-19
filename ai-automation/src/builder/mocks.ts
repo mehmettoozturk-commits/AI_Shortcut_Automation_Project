@@ -149,8 +149,20 @@ export class InMemoryAutomationRepository implements AutomationRepository {
   async list(): Promise<Automation[]> {
     return [...this.items];
   }
+  /**
+   * Phase 3C-3: gerçek bir UPSERT — aynı `id` ile tekrar save() çağrısı
+   * kaydı GÜNCELLER, çoğaltmaz. Eskiden bu yalnızca prepend yapıyordu
+   * (aynı id iki kez çağrılırsa iki ayrı satır oluşurdu) — BuilderMachine
+   * artık `create()`'te erken bir kayıt oluşturup aynı id'yi akış
+   * boyunca güncellediği için bu düzeltme zorunlu hale geldi.
+   */
   async save(automation: Automation): Promise<void> {
-    this.items = [automation, ...this.items];
+    const idx = this.items.findIndex((a) => a.id === automation.id);
+    if (idx === -1) {
+      this.items = [automation, ...this.items];
+    } else {
+      this.items = this.items.map((a) => (a.id === automation.id ? automation : a));
+    }
   }
   async setActive(id: string, active: boolean): Promise<void> {
     this.items = this.items.map((a) =>
