@@ -7,7 +7,7 @@
 
 import Foundation
 
-public enum PlannerResult: Sendable {
+public enum PlannerResult: Sendable, Equatable {
     case plan(DraftAutomationPlan)
     /// docs/ux.md §7.2 — AI hiçbir niyet çıkaramadı
     case notUnderstood

@@ -5,7 +5,7 @@
 
 import Foundation
 
-public struct MissingInfoField: Sendable, Equatable, Identifiable {
+public struct MissingInfoField: Sendable, Equatable, Identifiable, Codable {
     public var id: String
     public var kind: MissingInfoKind
     public var question: String
@@ -19,10 +19,31 @@ public struct MissingInfoField: Sendable, Equatable, Identifiable {
         self.options = options
         self.optional = optional
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, kind, question, options, optional
+    }
+
+    /// Phase 4C — gerçek backend'e (`MissingInfoFieldSchema`, `src/api/contract.ts`)
+    /// karşı manuel smoke testte keşfedildi: `optional` alanı yalnızca
+    /// `true` iken JSON'a yazılır (Zod `.optional()` — TS tarafı `false`
+    /// değerini AÇIKÇA yazmaz, alan tamamen YOK olur). Sentezlenmiş
+    /// `Decodable`, eksik bir anahtar için stored-property varsayılanını
+    /// KULLANMAZ ve `keyNotFound` ile başarısız olurdu — bu yüzden özel
+    /// bir decoder, `decodeIfPresent` ile güvenli varsayılana (`false`)
+    /// düşer (tıpkı `WorkflowStepDTO`/`AnyCodable`'daki gibi).
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(String.self, forKey: .id)
+        kind = try c.decode(MissingInfoKind.self, forKey: .kind)
+        question = try c.decode(String.self, forKey: .question)
+        options = try c.decode([String].self, forKey: .options)
+        optional = try c.decodeIfPresent(Bool.self, forKey: .optional) ?? false
+    }
 }
 
 /// docs/ux.md §7.4 öncelik sırası: dizideki case sırası = öncelik.
-public enum MissingInfoKind: String, Sendable, CaseIterable {
+public enum MissingInfoKind: String, Sendable, CaseIterable, Codable {
     case trigger
     case deviceOrPerson = "device_or_person"
     case actionDetail = "action_detail"
@@ -31,7 +52,7 @@ public enum MissingInfoKind: String, Sendable, CaseIterable {
 
 /// AI'nin ürettiği taslak plan — henüz doğrulanmamış, eksik alanlar
 /// içerebilir. Doğrulanmış hali AutomationPlanDTO.
-public struct DraftAutomationPlan: Sendable, Equatable {
+public struct DraftAutomationPlan: Sendable, Equatable, Codable {
     public var name: String
     public var trigger: TriggerDTO
     public var steps: [WorkflowStepDTO]
