@@ -9,7 +9,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "bundle": "esbuild src/ui/app.ts --bundle --format=iife --target=es2020 --minify --outfile=web/app.bundle.js",
-    "build:web": "npm run bundle && node scripts/build-web.mjs"
+    "build:web": "npm run bundle && node scripts/build-web.mjs",
+    "serve": "tsx src/api/serve.ts"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
