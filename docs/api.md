@@ -366,3 +366,51 @@ Son ikisi (`öğlen`/`gece` + saat 12) Phase 4D-3'te düzeltilen GERÇEK bir
 öncesi hatayı temsil ediyor: `normalizeTime()` "gece"yi "akşam" ile aynı
 kovaya koyuyordu, bu da "gece 12'de" için 00:00 yerine 12:00 üretiyordu
 (bkz. `src/nlu/turkish.ts`).
+
+## 12. Semantic completeness — malformed-semantic validation (Phase 4E-1)
+
+Üç katmanlı koruma zinciri artık şöyle:
+
+```
+LLM → Schema (Zod, LlmPlanOutputSchema) → Semantic completeness
+    → Registry (plan-builder.ts)
+```
+
+`checkSemanticCompleteness()` (`src/nlu/providers/llm-schema.ts`,
+`NluPipeline.planAsync()` içinde §11'deki `hardenTemporalAmbiguity` ile
+AYNI yerde uygulanır), Zod şemasını geçen ama ANLAMSAL olarak bozuk bir
+çıktıyı yakalar — bunlar SESSİZCE `"unsupported"`a düşürülmez (o,
+registry'nin "anladım ama yapamam" kararı için ayrılmış), `provider_error`
+olarak raporlanır: LLM burada kendi sözleşmesini ihlal etmiştir, bu bir
+business-logic sonucu değildir.
+
+Gerçek bir NVIDIA NIM smoke testinde gözlemlenen iki somut ihlal:
+
+1. **Katalog satırı öneki sızıntısı.** Sistem promptu semantikleri
+   `- [trigger] vehicle_departure: ...` biçiminde listeliyor; model bazen
+   `"[trigger] "`/`"[action] "` önekini SEMANTİK ALANA kopyalıyor
+   (`trigger.semantic: "[trigger] vehicle_departure"`). Böyle bir
+   semantik registry'de yok — düzeltmek yerine (sessiz post-processing
+   RİSKLİ: hangi önek biçimlerinin "güvenle" temizlenebileceğine dair
+   kapsamlı olmayan bir varsayım listesi gerekir) doğrudan reddedilir.
+2. **Eylemin tamamen kaybolması.** `intent: "create_automation"` +
+   geçerli bir `trigger` + `steps: []`. Registry'nin kendi "unsupported"
+   mesajı ("karşılık gelen bir işlem bulamadım") burada YANLIŞ bir
+   çerçeve olurdu — registry hiçbir şeyi ÇÖZMEYE bile çalışmadı, model
+   eylemi hiç üretmedi.
+
+`"unmapped:"` öneki (rule-based sağlayıcının, registry'de karşılığı
+olmayan ama GERÇEKTEN anlaşılan bir eylemi işaretlemek için kullandığı
+kasıtlı konvansiyon) istisnadır — reddedilmez, registry'nin kendi
+`unsupported` akışına düşmeye devam eder.
+
+Gerçek NVIDIA sunucusuna karşı doğrulandı: aynı "9'da bana hatırlat."
+girdisi art arda denendiğinde, önek sızıntısı ve eksik eylem
+durumlarının İKİSİ de artık `provider_error` olarak net bir mesajla
+raporlanıyor; hiçbiri sessizce `unsupported`a düşmüyor.
+
+Test kapsamı: `tests/semantic-completeness.test.ts` (12 test) —
+`checkSemanticCompleteness()`'ın birim testleri artı `NluPipeline.
+planAsync()` üzerinden uçtan uca doğrulama (önek sızıntısı, boş eylem,
+geçerli plan yanlış pozitif üretmiyor, gerçek `unsupported` hâlâ
+`unsupported` kalıyor).
