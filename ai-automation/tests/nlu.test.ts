@@ -276,6 +276,26 @@ describe("§15.10 — \"9'da hatırlat.\" (AM/PM belirsiz)", () => {
     expect(normalizeTime("sabah 9'da")?.ambiguous).toBeUndefined();
     expect(normalizeTime("21:00")?.ambiguous).toBeUndefined();
   });
+
+  // Phase 4D-3 — gerçek Claude/NVIDIA smoke testinde çıkan test matrisi
+  // (docs/api.md Phase 4D-3 eki). "gece 12'de"/"öğlen 12'de" öncesinde
+  // GERÇEK bir hataydı: "gece" ve "akşam" aynı kovaya konuyordu, bu da
+  // "gece 12" için 00:00 yerine 12:00 üretiyordu.
+  it("belirsiz durumda değer güvenilir DEĞİLDİR (ambiguous:true çağıranı uyarır)", () => {
+    expect(normalizeTime("9'da hatırlat")?.ambiguous).toBe(true);
+  });
+
+  it.each([
+    ["sabah 9'da", "09:00"],
+    ["akşam 9'da", "21:00"],
+    ["21'de", "21:00"],
+    ["öğlen 12'de", "12:00"],
+    ["gece 12'de", "00:00"],
+  ] as const)('"%s" → %s, belirsiz DEĞİL', (input, expectedValue) => {
+    const result = normalizeTime(input);
+    expect(result?.value).toBe(expectedValue);
+    expect(result?.ambiguous).toBeUndefined();
+  });
 });
 
 describe("§15.11 — anlaşılmayan niyet", () => {

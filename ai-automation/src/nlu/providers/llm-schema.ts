@@ -22,6 +22,7 @@
 // etmiyor.
 import { z } from "zod/v4";
 import { CAPABILITIES } from "../../capability-registry/registry.js";
+import { normalizeTime } from "../turkish.js";
 import type { ConversationContext, Entities, IntentResult, IntentType } from "../types.js";
 
 /** LLM'e gösterilecek TEK bir semantik giriş — capability id İÇERMEZ. */
@@ -195,6 +196,18 @@ export function systemPrompt(): string {
     "`missing` alanına, eylemi çalıştırmak için netleşmemiş ama gerekli olan",
     "alanları ekle (örn. bir araç eylemi için araç belirtilmemişse",
     '{field: "vehicle", reason: "required_for_vehicle_action"}).',
+    "",
+    "SAAT (ZAMAN) KURALI — Phase 4D-3, gerçek bir modelin bu hatayı",
+    "yaptığı gözlemlendi: Türkçe saat ifadesinde sabah/öğle/öğleden",
+    "sonra/akşam/gece gibi bir GÜN BÖLÜMÜ belirtilmemişse ve saat 1-12",
+    "arasında (12 saatlik formatta) veriliyorsa, bu saat SABAH mı AKŞAM",
+    "mı BİLİNMEZ. Böyle bir durumda:",
+    "  ❌ 09:00 veya 21:00 gibi bir saat ASLA UYDURMA/TAHMİN ETME.",
+    "  ❌ `entities` içine belirsiz bir saat değeri KOYMA.",
+    '  ✅ `missing` alanına {field: "time_of_day", reason: "am_pm_ambiguous"} ekle.',
+    'Örnek: "9\'da hatırlat" → gün bölümü YOK → belirsiz → missing\'e ekle.',
+    'Örnek: "akşam 9\'da" / "sabah 9\'da" / "21\'de" → gün bölümü VEYA',
+    "24 saatlik format zaten VAR → belirsizlik yok, saati normal üret.",
   ].join("\n");
 }
 
@@ -218,7 +231,15 @@ export function userPrompt(input: string, context?: ConversationContext): string
   return parts.join("\n");
 }
 
-/** Doğrulanmış `LlmPlanOutput` → `IntentResult`. Tüm sağlayıcılar bunu paylaşır. */
+/**
+ * Doğrulanmış `LlmPlanOutput` → `IntentResult`. Tüm sağlayıcılar bunu
+ * paylaşır. Bilinçli olarak SAF bir eşleme — Phase 4D-3'ün deterministik
+ * güvenlik ağı (`hardenTemporalAmbiguity`) burada DEĞİL, `NluPipeline.
+ * planAsync()`'te uygulanır: amaç "hangi `NluProvider` olursa olsun"
+ * (bu fonksiyonu hiç çağırmayan, ileride yazılacak bir sağlayıcı dahil)
+ * korunan bir invariant — tek bir paylaşılan yardımcıya gömülü,
+ * atlanabilir bir kontrol DEĞİL.
+ */
 export function toIntentResult(out: LlmPlanOutput, sourceText: string): IntentResult {
   return {
     intent: out.intent,
@@ -229,4 +250,30 @@ export function toIntentResult(out: LlmPlanOutput, sourceText: string): IntentRe
     missing: out.missing,
     sourceText,
   };
+}
+
+/**
+ * Phase 4D-3 — DETERMİNİSTİK güvenlik ağı (Katman 2), `NluPipeline.
+ * planAsync()` tarafından her async sağlayıcının (hangi LLM/model
+ * olursa olsun) çıktısına uygulanır. Prompttaki "SAAT KURALI" (Katman 1,
+ * `systemPrompt()`) bir talimattır, GARANTİ değil — gerçek bir smoke
+ * testte bir model, "9'da bana hatırlat" için ne clarification sordu ne
+ * bir saat uydurdu: şema açısından geçerli ama saat bilgisi TAMAMEN EKSİK
+ * bir `time` tetikleyicisi üretti. Bu fonksiyon LLM'e GÜVENMEDEN,
+ * `sourceText`'i (hangi sağlayıcı olursa olsun aynı metin) kural tabanlı
+ * `normalizeTime()` ile YENİDEN değerlendirir — modelin kendisi
+ * değişse/iyileşse bile bu invariant kod tarafında sabit kalır.
+ */
+export function hardenTemporalAmbiguity(result: IntentResult): IntentResult {
+  if (result.trigger?.type !== "time") return result;
+  if (result.missing.some((m) => m.field === "time_of_day" || m.field === "time")) return result;
+
+  const normalized = normalizeTime(result.sourceText);
+  if (normalized === null) {
+    return { ...result, missing: [...result.missing, { field: "time", reason: "required_for_time_trigger" }] };
+  }
+  if (normalized.ambiguous) {
+    return { ...result, missing: [...result.missing, { field: "time_of_day", reason: "am_pm_ambiguous" }] };
+  }
+  return result;
 }

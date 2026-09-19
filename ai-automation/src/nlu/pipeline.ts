@@ -15,6 +15,7 @@ import type { WorkflowStep } from "../dsl/schema.js";
 import { buildPlan } from "./plan-builder.js";
 import type { ClarificationEngine, EntityExtractor, IntentExtractor, NluPlanner, NluProvider, PlanRevisionEngine } from "./ports.js";
 import { LlmProviderError } from "./providers/errors.js";
+import { hardenTemporalAmbiguity } from "./providers/llm-schema.js";
 import { RuleBasedProvider } from "./providers/rule-based-provider.js";
 import { RuleBasedEntityExtractor, RuleBasedIntentExtractor } from "./rule-based.js";
 import { lower, normalizeTime } from "./turkish.js";
@@ -173,6 +174,12 @@ export class NluPipeline implements NluPlanner {
       const message = err instanceof LlmProviderError ? err.message : "Sağlayıcı beklenmeyen bir hatayla başarısız oldu.";
       return { status: "provider_error", message };
     }
+    // Phase 4D-3: HANGİ async sağlayıcı (`this.provider`) olursa olsun —
+    // bilinmeyen/gelecekteki bir provider dahil — çıktısı burada,
+    // pipeline'ın kendi seviyesinde deterministik olarak yeniden
+    // denetlenir. Bu invariant tek bir paylaşılan yardımcı fonksiyona
+    // (`toIntentResult`) gömülü değil ki atlanamasın.
+    intent = hardenTemporalAmbiguity(intent);
     return this.continueFromIntent(intent, input, context);
   }
 

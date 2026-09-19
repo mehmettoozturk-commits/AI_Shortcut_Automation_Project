@@ -53,11 +53,22 @@ export function parseTurkishNumber(text: string): number | null {
   return total > 0 || words.includes("sıfır") ? total : null;
 }
 
-/** Günün hangi bölümünden bahsedildiği; AM/PM çözümü için. */
-function dayPart(text: string): "morning" | "evening" | null {
+/**
+ * Günün hangi bölümünden bahsedildiği; AM/PM çözümü için.
+ *
+ * Phase 4D-3: "öğlen"/"öğle" ayrı bir "noon" olarak, "gece" ayrı bir
+ * "night" olarak ele alınır — ikisi de eskiden "morning"/"evening"
+ * ile aynı kovaya konuyordu, bu da saat 12 için yanlış sonuç
+ * üretiyordu ("gece 12'de" 12:00 dönüyordu, 00:00 olması gerekirken;
+ * "öğlen 1'de" gibi bir ifade "morning" sayılıp 13:00 yerine 01:00
+ * dönerdi). Test matrisi: docs/api.md Phase 4D-3 eki.
+ */
+function dayPart(text: string): "morning" | "noon" | "evening" | "night" | null {
   const t = lower(text);
-  if (/(sabah|öğlen|öğle|kahvalt)/.test(t)) return "morning";
-  if (/(akşam|gece|öğleden sonra|yatarken)/.test(t)) return "evening";
+  if (/(öğlen|öğle)\b/.test(t)) return "noon";
+  if (/(sabah|kahvalt)/.test(t)) return "morning";
+  if (/gece/.test(t)) return "night";
+  if (/(akşam|öğleden sonra|yatarken)/.test(t)) return "evening";
   return null;
 }
 
@@ -96,7 +107,12 @@ export function normalizeTime(input: string): Normalized<string> | null {
   if (hour === 0 || hour > 12) {
     return { value: `${pad(hour)}:00`, raw: hourMatch[0] };
   }
-  if (part === "evening") {
+  // "gece 12'de" → gece yarısı (00:00) — "gece" 1-11 arası saatlerle
+  // birlikteyken (örn. "gece 9'da") hâlâ akşam/PM tarafı sayılır.
+  if (part === "night" && hour === 12) {
+    return { value: "00:00", raw: hourMatch[0] };
+  }
+  if (part === "evening" || part === "night" || part === "noon") {
     return { value: `${pad(hour === 12 ? 12 : hour + 12)}:00`, raw: hourMatch[0] };
   }
   if (part === "morning") {
