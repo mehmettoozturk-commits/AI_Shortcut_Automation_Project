@@ -33,5 +33,12 @@ let package = Package(
         // Gerçek bir App hedefi bu paketin dışında (App/) yaşar ve bu
         // ürünü tüketir.
         .target(name: "AutomationUI", dependencies: ["AutomationCore"]),
+        // Phase 4E-2: BuilderViewModel'in displayDescription çevirisini
+        // (capability id/description sızmadığını) doğrudan test etmek için.
+        // AutomationCore da AYRICA listelenir — SwiftPM, AutomationUI'ın
+        // KENDİ bağımlılığını (AutomationCore) test hedefine örtük
+        // aktarmaz; MockPermissionService/BuilderMachine gibi tipler
+        // için doğrudan `import AutomationCore` gerekiyor.
+        .testTarget(name: "AutomationUITests", dependencies: ["AutomationUI", "AutomationCore"]),
     ]
 )

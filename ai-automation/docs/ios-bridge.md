@@ -685,3 +685,77 @@ kullanıcı diline daha da yaklaştırılması ayrı, küçük bir sonraki adım
 - **Phase 4D-2: gerçek Claude API smoke test'i** — bu UI hazır olduğuna
   göre bir sonraki adım; otomatik test paketine SOKULMAYACAK (yalnızca
   `LLM_API_KEY` tanımlıyken elle, `serve.ts`'in gerçek sağlayıcı yoluyla).
+
+## Phase 4E-2 — `description` → `displayDescription` ayrımı (2026-09-19)
+
+Yukarıdaki §4'te not edilen "kozmetik boşluk" (Bluetooth tetikleyicisinin
+`description`'ı — "Seçilen Bluetooth cihazının bağlantısı kesildiğinde
+tetiklenir" — mockup'taki gibi kullanıcı diline değil, resmi/mekanizma
+diline yakındı) artık kapatıldı.
+
+### Ne değişti
+
+`Capability`'ye (TS `types.ts`, Swift `Capability.swift`) YENİ, ZORUNLU
+bir alan eklendi: `displayDescription`. `description` DEĞİŞMEDİ ve
+KULLANILMAYA devam ediyor — LLM'e verilen semantik katalog
+(`buildSemanticCatalog()`) ve backend'in DSL metinleri (otomasyon adı,
+`ask_confirmation` mesajı, `plan-builder.ts`) hâlâ `description`'ı
+kullanır. `displayDescription` YALNIZCA `AutomationUI/BuilderViewModel.
+swift`'in `triggerSummary`/`actionSummaries` fonksiyonlarında tüketilir
+— bilinçli olarak dar bir UI presentation concern'i, LLM/registry
+çözümleme mantığına hiç dokunmaz:
+
+```
+LLM → semantic → Semantic completeness → Capability Registry
+                                              │
+                              description ────┼──── displayDescription
+                                (LLM katalog/DSL)   (yalnızca UI)
+```
+
+Örnek (gerçek registry verisi):
+
+```json
+{
+  "id": "ios.bluetooth.disconnected",
+  "description": "Seçilen Bluetooth cihazının bağlantısı kesildiğinde tetiklenir.",
+  "displayDescription": "Telefonunun Bluetooth bağlantısı kesildiğinde"
+}
+```
+
+### Üç seviyeli doğrulama
+
+1. **Registry (TS).** `checkRegistryContract()`'a iki yeni kural
+   eklendi: `display_description_required` (boş/yalnızca boşluk kabul
+   edilmez) ve `display_description_no_id` (capability id'yi
+   İÇEREMEZ — capability id sızıntısını engelleyen aynı disiplin, LLM
+   promptu/API sözleşmesiyle birebir aynı). `tests/capability-matrix.
+   test.ts`'e 4 yeni test + registry çapında bir "hiçbiri boş/sızdırmaz"
+   testi eklendi.
+2. **UI (Swift).** Yeni `AutomationUITests` hedefi (Package.swift) —
+   `BuilderViewModelTests.swift` (3 test), `triggerSummary`/
+   `actionSummaries`'in GERÇEKTEN `displayDescription` döndürdüğünü,
+   `description`'ın resmi dilinin ("tetiklenir") hiç sızmadığını ve
+   capability id'nin hiç görünmediğini doğrular.
+3. **Gerçek Xcode UI testi.** `App/UITests/AutomationAppUITests.swift`'e
+   eklenen yeni test, GERÇEK simulator + GERÇEK (kural tabanlı, elle
+   seçilmiş — smoke testin kendisi LLM davranışını değil UI metnini
+   ölçtüğü için deterministik bir sağlayıcı kullanıldı) backend'e karşı
+   çalıştırıldı: "Seni şöyle anladım" ekranı GERÇEKTEN "Telefonunun
+   Bluetooth bağlantısı kesildiğinde" / "Tesla'nın Sentry Mode
+   özelliğini açar veya kapatır" gösteriyor — "tetiklenir"/"(gözcü
+   modu)" gibi eski, resmi dil YOK. Ekran görüntüsüyle elle de
+   doğrulandı.
+
+Regresyon: TS 273/273 (+4), Swift 45/45 (+3, yeni `AutomationUITests`
+hedefi dahil).
+
+### Kapsam dışı (bilinçli olarak dokunulmadı)
+
+- `plan-builder.ts`'in `ask_confirmation` mesajı / otomasyon adı — hâlâ
+  `description` kullanıyor; bunlar backend DSL üretimi, "UI presentation"
+  kapsamının dışında bırakıldı (bkz. mimari kural yukarıda).
+- `BuilderMachine.swift`'in `UnsupportedAlternative`/disclosure metinleri
+  — hâlâ `description` kullanıyor; bunlar `AutomationCore` (core state
+  machine), `AutomationUI` değil.
+- NVIDIA küçük model kalite hardening (`provider_error` oranını
+  azaltmak) — Phase 4E-3'ün konusu, bu round'da ele alınmadı.

@@ -182,6 +182,34 @@ describe("Compiler contract — registry değişmezleri", () => {
     };
     expect(checkRegistryContract([bad]).some((v) => v.rule === "parameter_schema_invalid")).toBe(true);
   });
+
+  // Phase 4E-2: `displayDescription` — kullanıcıya SwiftUI'da gösterilen,
+  // capability id İÇERMEYEN doğal dil açıklaması.
+  it("boş displayDescription'ı yakalar", () => {
+    const bad: Capability = { ...findCapability("ios.bluetooth.disconnected")!, id: "bad.emptydisplay", displayDescription: "" };
+    expect(checkRegistryContract([bad]).some((v) => v.rule === "display_description_required")).toBe(true);
+  });
+
+  it("yalnızca boşluklardan oluşan displayDescription'ı da yakalar", () => {
+    const bad: Capability = { ...findCapability("ios.bluetooth.disconnected")!, id: "bad.blankdisplay", displayDescription: "   " };
+    expect(checkRegistryContract([bad]).some((v) => v.rule === "display_description_required")).toBe(true);
+  });
+
+  it("capability id'sini İÇEREN bir displayDescription'ı yakalar (id sızıntısı)", () => {
+    const bad: Capability = {
+      ...findCapability("ios.bluetooth.disconnected")!,
+      id: "bad.leakydisplay",
+      displayDescription: "bad.leakydisplay tetiklendiğinde",
+    };
+    expect(checkRegistryContract([bad]).some((v) => v.rule === "display_description_no_id")).toBe(true);
+  });
+
+  it("her gerçek capability'nin geçerli, boş olmayan bir displayDescription'ı var (registry çapında)", () => {
+    for (const cap of CAPABILITIES) {
+      expect(cap.displayDescription.trim().length, cap.id).toBeGreaterThan(0);
+      expect(cap.displayDescription, cap.id).not.toContain(cap.id);
+    }
+  });
 });
 
 describe("Compiler contract — kurulum yöntemi hesabı", () => {

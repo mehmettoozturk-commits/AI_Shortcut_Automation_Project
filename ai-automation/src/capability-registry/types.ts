@@ -96,8 +96,26 @@ export interface Capability {
   id: string;
   platform: Platform;
   kind: CapabilityKind;
-  /** Teknik olmayan, kullanıcıya gösterilebilir açıklama (MASTER_SPEC §3) */
+  /**
+   * Teknik OLMAYAN (capability id içermeyen) ama yine de mekanizma
+   * odaklı/resmi bir açıklama (MASTER_SPEC §3) — LLM'e verilen semantik
+   * katalogda (`buildSemanticCatalog()`) ve backend'in kendi DSL
+   * metinlerinde (`plan-builder.ts`'in `ask_confirmation` mesajı,
+   * otomasyon adı) kullanılır. UI'da doğrudan gösterilmez — bkz.
+   * `displayDescription`.
+   */
   description: string;
+  /**
+   * Phase 4E-2 — kullanıcıya SwiftUI'da gösterilecek, doğal/günlük dilde
+   * ikinci tekil şahıs açıklama ("Bluetooth bağlantın kesildiğinde" gibi;
+   * "Seçilen Bluetooth cihazının bağlantısı kesildiğinde tetiklenir"
+   * DEĞİL). Capability id veya `description`'ın resmi/mekanizma
+   * diline ASLA sızmaz — bu SADECE bir UI presentation concern'i;
+   * LLM/registry/semantic çözümleme mantığı bunu hiç görmez, hâlâ
+   * `description`/`semantic` kullanır (bkz. docs/api.md Phase 4E-2).
+   * Boş string kabul edilmez — `checkRegistryContract()` bunu denetler.
+   */
+  displayDescription: string;
 
   // --- "native destekliyor mu?" ---
   nativeSupport: boolean;

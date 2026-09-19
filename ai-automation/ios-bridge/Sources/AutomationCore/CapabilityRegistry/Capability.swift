@@ -113,7 +113,15 @@ public struct Capability: Codable, Sendable, Identifiable, Equatable {
     public var id: String
     public var platform: Platform
     public var kind: CapabilityKind
+    /// Teknik olmayan ama mekanizma odaklı/resmi açıklama — UI'da
+    /// DOĞRUDAN gösterilmez (bkz. `displayDescription`).
     public var description: String
+    /// Phase 4E-2 — kullanıcıya SwiftUI'da gösterilecek, doğal/günlük
+    /// dilde açıklama. Capability id veya `description`'ın resmi dili
+    /// ASLA sızmaz; bu SADECE bir UI presentation concern'i
+    /// (`AutomationUI/BuilderViewModel.swift`) — registry/semantic
+    /// çözümleme mantığı bunu hiç kullanmaz.
+    public var displayDescription: String
 
     public var nativeSupport: Bool
     public var availableInShortcuts: Tristate

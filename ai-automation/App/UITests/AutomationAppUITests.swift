@@ -63,6 +63,34 @@ final class AutomationAppUITests: XCTestCase {
         assertNoCapabilityIdVisible(in: app)
     }
 
+    // Phase 4E-2 — registry `description` (mekanizma odaklı, resmi dil)
+    // ile `displayDescription` (doğal dil) AYRIMI: ekranda gerçekten
+    // `displayDescription` metni var, eski `description` dili (örn.
+    // "tetiklenir", "(gözcü modu)") SIZMIYOR.
+    func testUnderstandingScreen_showsDisplayDescription_notTechnicalDescription() throws {
+        let app = makeApp()
+        app.launch()
+
+        let field = app.textFields["promptField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("Arabadan inince Tesla Model Y'nin Sentry Mode'unu aç")
+        app.buttons["sendButton"].tap()
+
+        let triggerSummary = app.staticTexts["triggerSummary"]
+        XCTAssertTrue(triggerSummary.waitForExistence(timeout: 10))
+        XCTAssertEqual(triggerSummary.label, "Telefonunun Bluetooth bağlantısı kesildiğinde")
+
+        let actionSummary = app.staticTexts["actionSummary"]
+        XCTAssertTrue(actionSummary.exists)
+        XCTAssertEqual(actionSummary.label, "Tesla'nın Sentry Mode özelliğini açar veya kapatır")
+
+        for element in app.staticTexts.allElementsBoundByIndex {
+            XCTAssertFalse(element.label.contains("tetiklenir"), "Teknik description dili sızdı: \(element.label)")
+            XCTAssertFalse(element.label.contains("gözcü modu"), "Teknik description dili sızdı: \(element.label)")
+        }
+    }
+
     func testMultiTurnCorrection_onlyVehicleChanges() throws {
         let app = makeApp()
         app.launch()

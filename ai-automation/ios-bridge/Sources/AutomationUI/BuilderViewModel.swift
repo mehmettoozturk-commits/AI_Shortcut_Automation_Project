@@ -44,12 +44,16 @@ public final class BuilderViewModel: ObservableObject {
 
     // MARK: - Semantik → insan dili (capability id ASLA dışarı sızmaz)
 
-    /// "🚗 Arabadan uzaklaşınca" gibi bir tetikleyici özeti.
+    /// "🚗 Arabadan uzaklaşınca" gibi bir tetikleyici özeti. Phase 4E-2:
+    /// `cap.description` (mekanizma odaklı, resmi dil) DEĞİL,
+    /// `cap.displayDescription` (doğal/günlük dil) kullanılır — bu
+    /// dosyadaki İKİ ÇAĞRI, `displayDescription`'ın gerçekten UI'a
+    /// ulaştığı TEK yer.
     public func triggerSummary(for draft: DraftAutomationPlan) -> String {
         guard let cap = registry.find(draft.trigger.type) else {
             return "Bir tetikleyici"
         }
-        return trimTrailingDot(cap.description)
+        return trimTrailingDot(cap.displayDescription)
     }
 
     /// "🚨 Tesla Sentry Mode'u aç" gibi eylem özetleri — `ask_confirmation`/
@@ -58,7 +62,7 @@ public final class BuilderViewModel: ObservableObject {
         flattenSteps(draft.steps).compactMap { step in
             guard case .action(let type, _) = step else { return nil }
             guard let cap = registry.find(type) else { return nil }
-            return trimTrailingDot(cap.description)
+            return trimTrailingDot(cap.displayDescription)
         }
     }
 

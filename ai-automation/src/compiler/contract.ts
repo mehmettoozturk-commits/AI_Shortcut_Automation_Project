@@ -149,6 +149,16 @@ export function checkRegistryContract(capabilities: Capability[] = CAPABILITIES)
         add("parameter_schema_invalid", `Parametre "${param.name}" enum tipinde ama allowed listesi boş`);
       }
     }
+
+    // 9. Phase 4E-2: `displayDescription` boş olamaz VE capability id'yi
+    //    içeremez — bu alan doğrudan SwiftUI'da gösterilir, id sızıntısı
+    //    burada da (LLM promptu/API sözleşmesiyle aynı disiplinle)
+    //    engellenir.
+    if (!cap.displayDescription || cap.displayDescription.trim().length === 0) {
+      add("display_description_required", "displayDescription boş olamaz");
+    } else if (cap.displayDescription.includes(cap.id)) {
+      add("display_description_no_id", "displayDescription capability id'sini İÇERMEMELİ");
+    }
   }
 
   // 8. Grup içi priority tekilliği.
