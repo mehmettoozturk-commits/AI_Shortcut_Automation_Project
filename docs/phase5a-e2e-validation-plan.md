@@ -275,7 +275,37 @@ DEĞİL, kullanıcı beyanına dayanan tasarım kararı olarak değerlendirir.
 
 ---
 
-### Test 2 SONUÇ (beklemede)
+### Test 2 SONUÇ (2026-09-19, gerçek iPhone, Wi-Fi üzerinden Mac'teki rule-based backend'e bağlı)
+
+**PASS.**
+
+- **Ortam:** Fiziksel iPhone (kullanıcının kendi Apple ID/Team'iyle
+  imzalanmış gerçek cihaz derlemesi) + Mac'te `npx tsx src/api/serve.ts`
+  (rule-based, `LLM_PROVIDER` tanımsız) + `PLAN_BACKEND_URL=http://192.168.1.116:3000/plan`
+  (Run scheme env var), aynı Wi-Fi ağı.
+- **Girdi:** "Pil yüzde 20'ye düşünce bana haber ver."
+- **Beklenen:** Anlama ekranı → Kestirmelere Aktar → Shortcuts açılır →
+  "Bildirim Göster" içe aktarılır → Ekledim → tetikleyici bağlama →
+  Bağladım → installed/success → Otomasyonlarım'da görünür.
+- **Gerçekleşen:** Tam olarak beklenen sırayla gerçekleşti. "Seni şöyle
+  anladım" ekranı geldi; "Kestirmelere Aktar"a basınca Shortcuts
+  uygulaması GERÇEKTEN açıldı ve "Bildirim Göster" kestirmesi kütüphaneye
+  içe aktarıldı (kullanıcı gözle doğruladı); uygulamaya dönüp "Ekledim"
+  dendi, tetikleyici bağlama adımına geçildi, "Bağladım" dendi, kuruldu/
+  başarılı ekranına ulaşıldı, Otomasyonlarım listesinde göründü.
+- **PASS / FAIL / BLOCKED:** **PASS.**
+- **Kanıt:** Kullanıcı gözlemi (ekran akışı + Shortcuts kütüphanesinde
+  gerçek içe aktarma), bu oturumda kayıt altına alındı.
+- **Not:** Bu, Phase 3B Test 1'in açık bıraktığı soruyu kapatıyor —
+  Apple/iCloud tarafından GERÇEKTEN imzalanmış bir kestirme,
+  `shortcuts://import-shortcut?url=<icloud-link>` ile sorunsuz içe
+  aktarılıyor (Test 1'in kanıtladığı ret yalnızca İMZASIZ içerik
+  içindi). Yol boyunca ayrı, kod dışı iki altyapı sorunu bulunup
+  çözüldü: (1) `App/project.yml`'deki `CODE_SIGNING_ALLOWED: NO` gerçek
+  cihaz kurulumunu engelliyordu → `CODE_SIGN_STYLE: Automatic`'e
+  geçildi (`09e0691`); (2) Xcode scheme'inde `PLAN_BACKEND_URL` değeri
+  yanlış yazılmıştı (`ttp://` — baştaki `h` eksik), düzeltilince
+  bağlantı çalıştı. İkisi de kod/ürün mantığı değişikliği değil.
 
 ---
 
@@ -386,8 +416,8 @@ tutarlı, teknik olmayan bir dille kullanıcıya sunulduğu doğrulanır.
 
 | Test | Öncelik | Sonuç | Not |
 |---|---|---|---|
-| 1 — guided_manual E2E | P0 | beklemede | |
-| 2 — user_assisted_import E2E + handoff | P0 | beklemede | |
+| 1 — guided_manual E2E | P0 | BLOCKED (ürün kararı bekliyor) | Kasıtlı, bkz. İş 0.5 notu |
+| 2 — user_assisted_import E2E + handoff | P0 | **PASS** (2026-09-19) | Phase 3B Test 1'in açık sorusunu kapattı |
 | 3 — kalıcılık (installed sonrası kapat/aç) | P0 | beklemede | |
 | 4 — kalıcılık (ara durumda kapat/aç) | P1 | beklemede (davranış tespiti) | |
 | 5 — clarification + düzeltme | P1 | beklemede | |
