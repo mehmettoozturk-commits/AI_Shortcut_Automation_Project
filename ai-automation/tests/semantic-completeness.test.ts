@@ -57,7 +57,7 @@ describe("checkSemanticCompleteness — birim testleri", () => {
       missing: [],
       sourceText: "x",
     };
-    expect(checkSemanticCompleteness(intent)).toContain("[trigger] vehicle_departure");
+    expect(checkSemanticCompleteness(intent)).toEqual({ code: "unknown_trigger_semantic", value: "[trigger] vehicle_departure" });
   });
 
   it("katalog satırı önekini (\"[action] \") kopyalayan bir eylemi reddeder", () => {
@@ -70,7 +70,7 @@ describe("checkSemanticCompleteness — birim testleri", () => {
       missing: [],
       sourceText: "x",
     };
-    expect(checkSemanticCompleteness(intent)).toContain("[action] vehicle_sentry_mode");
+    expect(checkSemanticCompleteness(intent)).toEqual({ code: "unknown_action_semantic", value: "[action] vehicle_sentry_mode" });
   });
 
   it("tamamen uydurma/bilinmeyen bir semantik ismi de reddeder", () => {
@@ -83,7 +83,25 @@ describe("checkSemanticCompleteness — birim testleri", () => {
       missing: [],
       sourceText: "x",
     };
-    expect(checkSemanticCompleteness(intent)).toContain("vehicle_teleport");
+    expect(checkSemanticCompleteness(intent)).toEqual({ code: "unknown_action_semantic", value: "vehicle_teleport" });
+  });
+
+  it("rule-based'in registry'de HENÜZ karşılığı olmayan ama MEŞRU semantiğini (location_arrive) reddetmez", () => {
+    // Phase 4E-3'te bulunan gerçek bir regresyon: "Eve gelince..." rule-based
+    // tarafından doğru anlaşılıyor ama registry'de "location_arrive" için
+    // hiçbir capability yok — bu, LLM'in geçersiz bir semantik uydurmasından
+    // FARKLI: registry'nin kendi "unsupported" akışına düşmesi gerekir,
+    // provider_error'a DEĞİL.
+    const intent: IntentResult = {
+      intent: "create_automation",
+      confidence: 0.5,
+      trigger: { type: "location_arrive" },
+      steps: [{ type: "unmapped:ışıkları_aç" }],
+      entities: {},
+      missing: [],
+      sourceText: "Eve gelince ışıkları aç.",
+    };
+    expect(checkSemanticCompleteness(intent)).toBeNull();
   });
 
   it("create_automation + geçerli tetikleyici + BOŞ steps'i reddeder", () => {
@@ -96,7 +114,7 @@ describe("checkSemanticCompleteness — birim testleri", () => {
       missing: [],
       sourceText: "x",
     };
-    expect(checkSemanticCompleteness(intent)).toContain("hiçbir eylem üretmedi");
+    expect(checkSemanticCompleteness(intent)).toEqual({ code: "missing_action_for_create_automation" });
   });
 
   it("not_understood için boş trigger/steps GEÇERLİDİR (reddedilmez)", () => {

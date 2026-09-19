@@ -15,7 +15,7 @@ import type { WorkflowStep } from "../dsl/schema.js";
 import { buildPlan } from "./plan-builder.js";
 import type { ClarificationEngine, EntityExtractor, IntentExtractor, NluPlanner, NluProvider, PlanRevisionEngine } from "./ports.js";
 import { LlmProviderError } from "./providers/errors.js";
-import { checkSemanticCompleteness, hardenTemporalAmbiguity } from "./providers/llm-schema.js";
+import { buildRepairInstruction, checkSemanticCompleteness, describeSemanticViolation, hardenTemporalAmbiguity } from "./providers/llm-schema.js";
 import { RuleBasedProvider } from "./providers/rule-based-provider.js";
 import { RuleBasedEntityExtractor, RuleBasedIntentExtractor } from "./rule-based.js";
 import { lower, normalizeTime } from "./turkish.js";
@@ -141,9 +141,28 @@ function replaceActionSteps(steps: WorkflowStep[], capabilityId: string): Workfl
   });
 }
 
+/**
+ * Phase 4E-3 — kullanıcıya GÖSTERİLMEZ (API yanıtına hiç girmez); yalnızca
+ * gözlemlenebilirlik için. `NluPipeline` her örnekte kendi sayaçlarını
+ * tutar — bir smoke test betiği, N gerçek istekten sonra bunu okuyup
+ * "kaçı ilk denemede, kaçı repair sonrası başarılı oldu, kaçı hâlâ
+ * provider_error" diye raporlayabilir.
+ */
+export interface RetryMetrics {
+  firstPassSuccess: number;
+  repairSuccess: number;
+  providerError: number;
+}
+
+type AttemptResult =
+  | { ok: true; intent: IntentResult }
+  | { ok: false; retryable: boolean; message: string; repair?: Parameters<typeof buildRepairInstruction>[0] };
+
 /* ---------------- planlayıcı ---------------- */
 
 export class NluPipeline implements NluPlanner {
+  public readonly retryMetrics: RetryMetrics = { firstPassSuccess: 0, repairSuccess: 0, providerError: 0 };
+
   constructor(
     private intentExtractor: IntentExtractor = new RuleBasedIntentExtractor(),
     private clarification: ClarificationEngine = new DefaultClarificationEngine(),
@@ -165,33 +184,66 @@ export class NluPipeline implements NluPlanner {
    *
    * LLM/JSON hatası (ağ, geçersiz şema) `needs_clarification`/
    * `unsupported` ile KARIŞTIRILMAZ: `provider_error` olarak ayrı döner.
+   *
+   * Phase 4E-3 — tek seferlik repair/retry: ilk deneme RETRY EDİLEBİLİR
+   * bir hatayla (bkz. `AttemptResult`/`LlmProviderError.retryable`)
+   * başarısız olursa, sağlayıcıya NEYİN yanlış olduğunu açıklayan
+   * (capability id İÇERMEYEN, jenerik) bir talimatla TAM OLARAK BİR KEZ
+   * daha denenir. İkinci deneme de başarısız olursa `provider_error`
+   * döner — modeli "arka planda ne pahasına olursa olsun düzeltmeye"
+   * çalışılmaz, en fazla iki gerçek istek yapılır.
    */
   async planAsync(input: string, context: ConversationContext): Promise<PlanningOutcome> {
+    const first = await this.attemptPlan(input, context);
+    if (first.ok) {
+      this.retryMetrics.firstPassSuccess++;
+      return this.continueFromIntent(first.intent, input, context);
+    }
+    if (!first.retryable) {
+      this.retryMetrics.providerError++;
+      return { status: "provider_error", message: first.message };
+    }
+
+    const second = await this.attemptPlan(input, context, first.repair);
+    if (second.ok) {
+      this.retryMetrics.repairSuccess++;
+      return this.continueFromIntent(second.intent, input, context);
+    }
+    this.retryMetrics.providerError++;
+    return { status: "provider_error", message: second.message };
+  }
+
+  /** Tek bir sağlayıcı çağrısı + Katman 1/2 denetimleri (Phase 4D-3/4E-1). Retry mantığı İÇERMEZ. */
+  private async attemptPlan(
+    input: string,
+    context: ConversationContext,
+    repair?: Parameters<typeof buildRepairInstruction>[0]
+  ): Promise<AttemptResult> {
     let intent: IntentResult;
     try {
-      intent = await this.provider.plan(input, context);
+      const hint = repair ? { instruction: buildRepairInstruction(repair) } : undefined;
+      intent = await this.provider.plan(input, context, hint);
     } catch (err) {
-      const message = err instanceof LlmProviderError ? err.message : "Sağlayıcı beklenmeyen bir hatayla başarısız oldu.";
-      return { status: "provider_error", message };
+      if (err instanceof LlmProviderError) {
+        return { ok: false, retryable: err.retryable, message: err.message, repair: { kind: "malformed_output" } };
+      }
+      return { ok: false, retryable: false, message: "Sağlayıcı beklenmeyen bir hatayla başarısız oldu." };
     }
-    // Phase 4D-3: HANGİ async sağlayıcı (`this.provider`) olursa olsun —
-    // bilinmeyen/gelecekteki bir provider dahil — çıktısı burada,
-    // pipeline'ın kendi seviyesinde deterministik olarak yeniden
-    // denetlenir. Bu invariant tek bir paylaşılan yardımcı fonksiyona
-    // (`toIntentResult`) gömülü değil ki atlanamasın.
+
+    // Phase 4D-3: HANGİ async sağlayıcı olursa olsun — bilinmeyen/
+    // gelecekteki bir provider dahil — çıktısı burada, pipeline'ın kendi
+    // seviyesinde deterministik olarak yeniden denetlenir.
     intent = hardenTemporalAmbiguity(intent);
 
     // Phase 4E-1: LLM → Schema → BURASI → Registry. Şema açısından
-    // geçerli ama anlamsal olarak BOZUK (katalogda olmayan bir semantik
-    // isim, veya create_automation için hiç eylem üretmeme) bir çıktı
-    // sessizce "unsupported"a düşürülmez — bu registry'nin "anladım ama
-    // yapamam" kararı için ayrılmış; burası LLM'in kendi sözleşmesini
-    // ihlal ettiği durumdur.
-    const semanticError = checkSemanticCompleteness(intent);
-    if (semanticError) {
-      return { status: "provider_error", message: semanticError };
+    // geçerli ama anlamsal olarak BOZUK bir çıktı sessizce
+    // "unsupported"a düşürülmez — LLM'in kendi sözleşmesini ihlal
+    // ettiği bu durum, Phase 4E-3'te RETRY EDİLEBİLİR sayılır.
+    const violation = checkSemanticCompleteness(intent);
+    if (violation) {
+      return { ok: false, retryable: true, message: describeSemanticViolation(violation), repair: { kind: "semantic_violation", violation } };
     }
-    return this.continueFromIntent(intent, input, context);
+    return { ok: true, intent };
   }
 
   /**

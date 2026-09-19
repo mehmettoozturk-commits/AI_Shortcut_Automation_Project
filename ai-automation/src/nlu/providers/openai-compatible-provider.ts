@@ -19,7 +19,7 @@
  */
 
 import OpenAI from "openai";
-import type { NluProvider } from "../ports.js";
+import type { NluProvider, RepairHint } from "../ports.js";
 import type { ConversationContext, IntentResult } from "../types.js";
 import { LlmPlanOutputJsonSchema, LlmPlanOutputSchema, systemPrompt, toIntentResult, userPrompt } from "./llm-schema.js";
 import { LlmProviderError } from "./errors.js";
@@ -75,13 +75,15 @@ export class OpenAICompatibleIntentProvider implements NluProvider {
       options.client ?? (new OpenAI({ apiKey: options.apiKey, baseURL: options.baseURL }) as unknown as OpenAICompatibleChatClient);
   }
 
-  async plan(input: string, context?: ConversationContext): Promise<IntentResult> {
+  async plan(input: string, context?: ConversationContext, repair?: RepairHint): Promise<IntentResult> {
     let response: { choices: Array<{ message: { content?: string | null } }> };
+    let system = `${systemPrompt()}\n\n${schemaInstruction()}`;
+    if (repair) system = `${system}\n\n${repair.instruction}`;
     try {
       response = await this.client.chat.completions.create({
         model: this.model,
         messages: [
-          { role: "system", content: `${systemPrompt()}\n\n${schemaInstruction()}` },
+          { role: "system", content: system },
           { role: "user", content: userPrompt(input, context) },
         ],
         response_format: { type: "json_object" },
@@ -91,24 +93,26 @@ export class OpenAICompatibleIntentProvider implements NluProvider {
         max_tokens: 2000,
       });
     } catch (err) {
-      throw new LlmProviderError(`${this.providerLabel} isteği başarısız oldu.`, err);
+      // Ağ/istek hatası — Phase 4E-3: RETRY EDİLMEZ.
+      throw new LlmProviderError(`${this.providerLabel} isteği başarısız oldu.`, err, false);
     }
 
     const content = response.choices[0]?.message.content;
     if (!content) {
-      throw new LlmProviderError(`${this.providerLabel} geçerli/şemaya uygun bir JSON üretemedi.`);
+      // Model içerik ÜRETTİ ama boş — Phase 4E-3: RETRY EDİLEBİLİR.
+      throw new LlmProviderError(`${this.providerLabel} geçerli/şemaya uygun bir JSON üretemedi.`, undefined, true);
     }
 
     let parsed: unknown;
     try {
       parsed = JSON.parse(content);
     } catch (err) {
-      throw new LlmProviderError(`${this.providerLabel} çıktısı geçerli JSON değil.`, err);
+      throw new LlmProviderError(`${this.providerLabel} çıktısı geçerli JSON değil.`, err, true);
     }
 
     const validated = LlmPlanOutputSchema.safeParse(parsed);
     if (!validated.success) {
-      throw new LlmProviderError(`${this.providerLabel} çıktısı beklenen şemaya uymuyor.`, validated.error);
+      throw new LlmProviderError(`${this.providerLabel} çıktısı beklenen şemaya uymuyor.`, validated.error, true);
     }
 
     return toIntentResult(validated.data, input);

@@ -279,6 +279,21 @@ export function hardenTemporalAmbiguity(result: IntentResult): IntentResult {
 }
 
 /**
+ * Rule-based sağlayıcının GERÇEKTEN anladığı ama registry'de HENÜZ
+ * hiçbir capability'nin karşılamadığı semantikler (örn. "eve gelince" —
+ * `location_arrive`, bkz. `rule-based.ts`). Bunlar `buildSemanticCatalog()`'a
+ * GİRMEZ (o yalnızca gerçek capability'lerden türer — bkz. üstteki not),
+ * ama LLM'e HİÇ verilmeyen bu semantikler yine de MEŞRU bir NLU
+ * çıktısıdır: registry onları çözemeyince zaten kendi `unsupported`
+ * akışına düşerler (bkz. `plan-builder.ts`). Bu listeye eklenmemeleri,
+ * `checkSemanticCompleteness()`'ın bunları YANLIŞLIKLA "LLM hata yaptı"
+ * (`provider_error`) sanmasına yol açardı — Phase 4E-3'te gerçek bir
+ * regresyon olarak yakalandı ("Eve gelince ışıkları aç." `planAsync()`
+ * üzerinden hatalı biçimde provider_error dönüyordu).
+ */
+const KNOWN_UNBACKED_SEMANTICS = new Set(["location_arrive"]);
+
+/**
  * Phase 4E-1 — Semantic completeness / malformed-semantic validation.
  * Boru hattı: LLM → Schema (Zod, `LlmPlanOutputSchema`) → BURASI →
  * Registry. Şema açısından geçerli ama anlamsal olarak BOZUK bir çıktıyı
@@ -301,24 +316,81 @@ export function hardenTemporalAmbiguity(result: IntentResult): IntentResult {
  *
  * `"unmapped:"` öneki İSTİSNA — bu, `RuleBasedIntentExtractor`'ın
  * kasıtlı, test edilmiş bir kuralı (registry'de karşılığı olmayan ama
- * GERÇEKTEN anlaşılan bir eylemi işaretlemek için); bu fonksiyon yalnızca
- * ASYNC (LLM) yolunda çalıştığı için pratikte hiç üretilmez, ama gelecekte
- * bir sağlayıcı bu convention'ı taklit ederse kırılmasın diye korunur.
+ * GERÇEKTEN anlaşılan bir eylemi işaretlemek için).
+ *
+ * Phase 4E-3: sonuç artık YAPILANDIRILMIŞ bir ihlal nesnesi (`code` +
+ * varsa `value`) döner, çıplak bir string DEĞİL — `describeSemanticViolation()`
+ * bunu (kullanıcıya/loglara giden, spesifik) bir mesaja çevirir,
+ * `buildRepairInstruction()` ise (MODELE GERİ giden, JENERİK — kötü
+ * değeri ASLA yankılamayan) bir talimata çevirir. İkisinin AYRI
+ * olmasının nedeni: eğer model yanlışlıkla gerçek bir capability id
+ * üretseydi, o değeri "düzeltmesi için" modele AYNEN geri göndermek
+ * capability id sızıntısı olurdu.
  */
-export function checkSemanticCompleteness(result: IntentResult): string | null {
+export type SemanticCompletenessViolation =
+  | { code: "unknown_trigger_semantic"; value: string }
+  | { code: "unknown_action_semantic"; value: string }
+  | { code: "missing_action_for_create_automation" };
+
+export function checkSemanticCompleteness(result: IntentResult): SemanticCompletenessViolation | null {
   const known = new Set(buildSemanticCatalog().map((c) => c.semantic));
-  const isKnownSemantic = (semantic: string) => known.has(semantic) || semantic.startsWith("unmapped:");
+  const isKnownSemantic = (semantic: string) =>
+    known.has(semantic) || KNOWN_UNBACKED_SEMANTICS.has(semantic) || semantic.startsWith("unmapped:");
 
   if (result.trigger && !isKnownSemantic(result.trigger.type)) {
-    return `LLM bilinmeyen/geçersiz bir semantik tetikleyici üretti: "${result.trigger.type}".`;
+    return { code: "unknown_trigger_semantic", value: result.trigger.type };
   }
   for (const step of result.steps) {
     if (!isKnownSemantic(step.type)) {
-      return `LLM bilinmeyen/geçersiz bir semantik eylem üretti: "${step.type}".`;
+      return { code: "unknown_action_semantic", value: step.type };
     }
   }
   if (result.intent === "create_automation" && result.trigger && result.steps.length === 0) {
-    return "LLM bir tetikleyici üretti ama hiçbir eylem üretmedi (create_automation en az bir eylem gerektirir).";
+    return { code: "missing_action_for_create_automation" };
   }
   return null;
+}
+
+/** `provider_error` mesajı / loglar için — spesifik olabilir, MODELE geri gönderilmez. */
+export function describeSemanticViolation(violation: SemanticCompletenessViolation): string {
+  switch (violation.code) {
+    case "unknown_trigger_semantic":
+      return `LLM bilinmeyen/geçersiz bir semantik tetikleyici üretti: "${violation.value}".`;
+    case "unknown_action_semantic":
+      return `LLM bilinmeyen/geçersiz bir semantik eylem üretti: "${violation.value}".`;
+    case "missing_action_for_create_automation":
+      return "LLM bir tetikleyici üretti ama hiçbir eylem üretmedi (create_automation en az bir eylem gerektirir).";
+  }
+}
+
+/**
+ * Phase 4E-3 — tek seferlik repair/retry denemesi için MODELE geri
+ * gönderilecek talimat. Kasıtlı olarak JENERİK: kötü değeri (`violation.value`)
+ * ASLA içermez — yalnızca "ne tür" bir hata yaptığını, capability id
+ * sızdırmadan anlatır (bkz. `SemanticCompletenessViolation` üstündeki not).
+ */
+export function buildRepairInstruction(reason: { kind: "malformed_output" } | { kind: "semantic_violation"; violation: SemanticCompletenessViolation }): string {
+  const lines = ["ÖNEMLİ — ÖNCEKİ DENEMEN GEÇERSİZDİ, TEKRAR DENE:"];
+  if (reason.kind === "malformed_output") {
+    lines.push("Yanıtın istenen JSON şemasına uymuyordu ya da boştu. Yalnızca geçerli, tam bir JSON nesnesi döndür.");
+  } else {
+    switch (reason.violation.code) {
+      case "unknown_trigger_semantic":
+      case "unknown_action_semantic":
+        lines.push(
+          "Bilinmeyen/geçersiz bir semantik isim kullandın.",
+          "Yalnızca yukarıda listelenen semantik tetikleyici/eylem isimlerini KULLAN.",
+          'Capability id veya "[trigger] "/"[action] " gibi bir önek ASLA ekleme — yalnızca çıplak semantik ismi yaz.'
+        );
+        break;
+      case "missing_action_for_create_automation":
+        lines.push(
+          "Bir tetikleyici ürettin ama hiçbir eylem (steps) üretmedin.",
+          "create_automation niyeti EN AZ bir eylem içermek ZORUNDADIR."
+        );
+        break;
+    }
+  }
+  lines.push("Kullanıcının isteğini yeniden değerlendir ve YALNIZCA geçerli semantik alanlarla tekrar yanıtla.");
+  return lines.join("\n");
 }

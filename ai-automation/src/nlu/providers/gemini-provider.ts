@@ -19,7 +19,7 @@
  */
 
 import { GoogleGenAI } from "@google/genai";
-import type { NluProvider } from "../ports.js";
+import type { NluProvider, RepairHint } from "../ports.js";
 import type { ConversationContext, IntentResult } from "../types.js";
 import { LlmPlanOutputJsonSchema, LlmPlanOutputSchema, systemPrompt, toIntentResult, userPrompt } from "./llm-schema.js";
 import { LlmProviderError } from "./errors.js";
@@ -44,37 +44,39 @@ export class GeminiIntentProvider implements NluProvider {
     this.client = options.client ?? (new GoogleGenAI({ apiKey: options.apiKey ?? resolveApiKey() }) as unknown as GeminiClient);
   }
 
-  async plan(input: string, context?: ConversationContext): Promise<IntentResult> {
+  async plan(input: string, context?: ConversationContext, repair?: RepairHint): Promise<IntentResult> {
     let response: { text?: string };
     try {
       response = await this.client.models.generateContent({
         model: this.model,
         contents: userPrompt(input, context),
         config: {
-          systemInstruction: systemPrompt(),
+          systemInstruction: repair ? `${systemPrompt()}\n\n${repair.instruction}` : systemPrompt(),
           responseMimeType: "application/json",
           responseJsonSchema: LlmPlanOutputJsonSchema,
         },
       });
     } catch (err) {
-      throw new LlmProviderError("LLM isteği başarısız oldu.", err);
+      // Ağ/istek hatası — Phase 4E-3: RETRY EDİLMEZ.
+      throw new LlmProviderError("LLM isteği başarısız oldu.", err, false);
     }
 
     const text = response.text;
     if (!text) {
-      throw new LlmProviderError("LLM geçerli/şemaya uygun bir JSON üretemedi.");
+      // Model içerik ÜRETTİ ama boş — Phase 4E-3: RETRY EDİLEBİLİR.
+      throw new LlmProviderError("LLM geçerli/şemaya uygun bir JSON üretemedi.", undefined, true);
     }
 
     let parsed: unknown;
     try {
       parsed = JSON.parse(text);
     } catch (err) {
-      throw new LlmProviderError("LLM çıktısı geçerli JSON değil.", err);
+      throw new LlmProviderError("LLM çıktısı geçerli JSON değil.", err, true);
     }
 
     const validated = LlmPlanOutputSchema.safeParse(parsed);
     if (!validated.success) {
-      throw new LlmProviderError("LLM çıktısı beklenen şemaya uymuyor.", validated.error);
+      throw new LlmProviderError("LLM çıktısı beklenen şemaya uymuyor.", validated.error, true);
     }
 
     return toIntentResult(validated.data, input);

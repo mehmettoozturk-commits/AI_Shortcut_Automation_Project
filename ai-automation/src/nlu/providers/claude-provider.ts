@@ -28,7 +28,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
-import type { NluProvider } from "../ports.js";
+import type { NluProvider, RepairHint } from "../ports.js";
 import type { ConversationContext, IntentResult } from "../types.js";
 import { LlmPlanOutputSchema, systemPrompt, toIntentResult, userPrompt } from "./llm-schema.js";
 import { LlmProviderError } from "./errors.js";
@@ -57,28 +57,31 @@ export class ClaudeIntentProvider implements NluProvider {
     this.client = options.client ?? (new Anthropic({ apiKey: options.apiKey ?? resolveApiKey() }) as unknown as ClaudeMessagesClient);
   }
 
-  async plan(input: string, context?: ConversationContext): Promise<IntentResult> {
+  async plan(input: string, context?: ConversationContext, repair?: RepairHint): Promise<IntentResult> {
     let response: { parsed_output: unknown };
     try {
       response = await this.client.messages.parse({
         model: this.model,
         max_tokens: 4096,
-        system: systemPrompt(),
+        system: repair ? `${systemPrompt()}\n\n${repair.instruction}` : systemPrompt(),
         messages: [{ role: "user", content: userPrompt(input, context) }],
         output_config: { format: zodOutputFormat(LlmPlanOutputSchema) },
       });
     } catch (err) {
-      throw new LlmProviderError("LLM isteği başarısız oldu.", err);
+      // Ağ/istek hatası — Phase 4E-3: RETRY EDİLMEZ (bkz. errors.ts).
+      throw new LlmProviderError("LLM isteği başarısız oldu.", err, false);
     }
 
     const parsed = response.parsed_output;
     if (parsed === null || parsed === undefined) {
-      throw new LlmProviderError("LLM geçerli/şemaya uygun bir JSON üretemedi.");
+      // Model içerik ÜRETTİ (istek başarılıydı) ama boş/şemasız —
+      // Phase 4E-3: RETRY EDİLEBİLİR.
+      throw new LlmProviderError("LLM geçerli/şemaya uygun bir JSON üretemedi.", undefined, true);
     }
 
     const validated = LlmPlanOutputSchema.safeParse(parsed);
     if (!validated.success) {
-      throw new LlmProviderError("LLM çıktısı beklenen şemaya uymuyor.", validated.error);
+      throw new LlmProviderError("LLM çıktısı beklenen şemaya uymuyor.", validated.error, true);
     }
 
     return toIntentResult(validated.data, input);

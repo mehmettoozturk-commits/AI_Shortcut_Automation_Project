@@ -62,5 +62,21 @@ export interface NluPlanner {
  * sözleşmeye (capability id YOK, yalnızca semantik isim) uyar.
  */
 export interface NluProvider {
-  plan(input: string, context?: ConversationContext): Promise<IntentResult>;
+  plan(input: string, context?: ConversationContext, repair?: RepairHint): Promise<IntentResult>;
+}
+
+/**
+ * Phase 4E-3 — tek seferlik repair/retry denemesinde sağlayıcıya
+ * verilen talimat. `NluPipeline.planAsync()` bunu, ilk denemenin NEDEN
+ * geçersiz olduğuna göre (`buildRepairInstruction()`, bkz.
+ * providers/llm-schema.ts) üretir.
+ *
+ * ⚠️ `instruction` capability id İÇEREMEZ — modelin zaten gördüğü
+ * semantik katalog dışında hiçbir platforma özel bilgi verilmez. Ayrıca
+ * modelin ÖNCEKİ (geçersiz) çıktısının KENDİSİ de burada AYNEN
+ * EKLENMEZ — geçersiz bir semantik yanlışlıkla gerçek bir capability
+ * id'ye denk gelmiş olsaydı bile, bu id modele asla geri gönderilmez.
+ */
+export interface RepairHint {
+  instruction: string;
 }
