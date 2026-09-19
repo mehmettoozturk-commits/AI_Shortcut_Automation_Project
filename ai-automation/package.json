@@ -10,7 +10,7 @@
     "test:watch": "vitest",
     "bundle": "esbuild src/ui/app.ts --bundle --format=iife --target=es2020 --minify --outfile=web/app.bundle.js",
     "build:web": "npm run bundle && node scripts/build-web.mjs",
-    "serve": "tsx src/api/serve.ts"
+    "serve": "tsx --env-file-if-exists=.env src/api/serve.ts"
   },
   "devDependencies": {
     "@types/node": "^22.9.0",
@@ -21,6 +21,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.127.0",
+    "@google/genai": "^2.23.0",
+    "openai": "^7.19.0",
     "zod": "^3.23.8"
   }
 }

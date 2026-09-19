@@ -12,8 +12,17 @@
  * statik hardcode taramasına dahil).
  */
 
+// NOT: Projenin geri kalanı zod v3 API'sini (`import { z } from "zod"`)
+// kullanır — bu DEĞİŞMEDİ. Bu dosyadaki şema, `zodOutputFormat`
+// (Anthropic) ve `z.toJSONSchema` (Gemini'nin `responseJsonSchema`'sı
+// için) gerektirdiğinden SADECE burada `zod/v4` kullanılıyor — bilinçli,
+// dar kapsamlı bir istisna (bkz. claude-provider.ts'teki ilk not, Phase
+// 4B). Phase 4D-2: bu şema artık TÜM LLM sağlayıcıları (Claude, Gemini,
+// Groq, NVIDIA NIM) arasında PAYLAŞILIYOR — her biri kendi şeklini icat
+// etmiyor.
+import { z } from "zod/v4";
 import { CAPABILITIES } from "../../capability-registry/registry.js";
-import type { Entities } from "../types.js";
+import type { ConversationContext, Entities, IntentResult, IntentType } from "../types.js";
 
 /** LLM'e gösterilecek TEK bir semantik giriş — capability id İÇERMEZ. */
 export interface SemanticCatalogEntry {
@@ -114,4 +123,110 @@ export function toEntities(raw: Array<{ name: string; value: string }>): Entitie
     }
   }
   return e;
+}
+
+const INTENT_TYPES: [IntentType, ...IntentType[]] = [
+  "create_automation",
+  "modify_automation",
+  "explain_automation",
+  "disable_automation",
+  "enable_automation",
+  "delete_automation",
+  "not_understood",
+];
+
+/**
+ * LLM'in üretmek ZORUNDA olduğu yapı — capability id İÇERMEZ. TÜM
+ * sağlayıcılar (Claude, Gemini, Groq, NVIDIA NIM) bu AYNI şemaya karşı
+ * doğrulanır; her sağlayıcı kendi şeklini icat ETMEZ.
+ */
+export const LlmPlanOutputSchema = z.object({
+  intent: z.enum(INTENT_TYPES),
+  confidence: z.number().min(0).max(1).optional(),
+  trigger: z
+    .object({
+      semantic: z.string(),
+      details: z.record(z.string(), z.unknown()).optional(),
+    })
+    .nullable(),
+  steps: z.array(
+    z.object({
+      semantic: z.string(),
+      message: z.string().nullable().optional(),
+      details: z.record(z.string(), z.unknown()).optional(),
+    })
+  ),
+  entities: z.array(z.object({ name: z.string(), value: z.string() })),
+  missing: z.array(z.object({ field: z.string(), reason: z.string() })),
+});
+
+export type LlmPlanOutput = z.infer<typeof LlmPlanOutputSchema>;
+
+/**
+ * `LlmPlanOutputSchema`'nın standart JSON Schema karşılığı — Gemini'nin
+ * `responseJsonSchema`'sı gibi Zod nesnesi DEĞİL, ham JSON Schema
+ * bekleyen sağlayıcılar için. Zod v4'ün yerleşik `toJSONSchema`'sı
+ * kullanılır; şema burada AYRICA elle yazılmaz.
+ */
+export const LlmPlanOutputJsonSchema = z.toJSONSchema(LlmPlanOutputSchema);
+
+/**
+ * TÜM sağlayıcılar için AYNI sistem promptu — her biri kendi promptunu
+ * icat etmez, davranış farkı yalnızca hangi model/API'nin bu promptu ne
+ * kadar iyi izlediğinden kaynaklanır (Phase 4D-2'nin ölçtüğü tam olarak
+ * bu).
+ */
+export function systemPrompt(): string {
+  const catalog = buildSemanticCatalog();
+  const lines = catalog.map((c) => `- [${c.kind}] ${c.semantic}: ${c.description}`).join("\n");
+  return [
+    "Sen bir otomasyon uygulamasının niyet/varlık (intent/entity) çıkarım katmanısın.",
+    "Kullanıcının Türkçe cümlesini SEMANTİK bir plana çevirirsin.",
+    "",
+    "KESİN KURAL: Yalnızca aşağıdaki semantik isimleri üretebilirsin.",
+    "Bunlar dışında hiçbir platform/sistem id'si (nokta içeren, 'ios.'/'tesla.' gibi",
+    "başlayan herhangi bir şey) ÜRETME — böyle bir şey görmüyorsun, bilmiyorsun.",
+    "",
+    "Bilinen semantik tetikleyiciler/eylemler:",
+    lines,
+    "",
+    "Bir istek bu listedeki hiçbir semantiğe uymuyorsa `steps` boş kalabilir;",
+    "asla uydurma bir semantik isim üretme.",
+    "`missing` alanına, eylemi çalıştırmak için netleşmemiş ama gerekli olan",
+    "alanları ekle (örn. bir araç eylemi için araç belirtilmemişse",
+    '{field: "vehicle", reason: "required_for_vehicle_action"}).',
+  ].join("\n");
+}
+
+export function userPrompt(input: string, context?: ConversationContext): string {
+  const parts: string[] = [];
+  if (context?.conversationTurns.length) {
+    parts.push("Önceki konuşma turları:");
+    for (const t of context.conversationTurns) parts.push(`${t.role}: ${t.text}`);
+  }
+  if (context?.lastIntent) {
+    // Yalnızca SEMANTİK bir ipucu — context.lastIntent.trigger/steps zaten
+    // capability id değil, semantik isim taşır (bkz. types.ts).
+    parts.push(
+      `Önceki tur için üretilmiş semantik plan (yalnızca ipucu, aynen tekrar etme gerekmez): ${JSON.stringify({
+        trigger: context.lastIntent.trigger,
+        steps: context.lastIntent.steps,
+      })}`
+    );
+  }
+  parts.push(`Kullanıcının şimdiki cümlesi: "${input}"`);
+  return parts.join("\n");
+}
+
+/** Doğrulanmış `LlmPlanOutput` → `IntentResult`. Tüm sağlayıcılar bunu paylaşır. */
+export function toIntentResult(out: LlmPlanOutput, sourceText: string): IntentResult {
+  return {
+    intent: out.intent,
+    confidence: out.confidence ?? 0.75,
+    trigger: out.trigger ? { type: out.trigger.semantic, details: out.trigger.details } : undefined,
+    steps: out.steps.map((s) => ({ type: s.semantic, message: s.message, details: s.details })),
+    entities: toEntities(out.entities),
+    missing: out.missing,
+    sourceText,
+  };
 }

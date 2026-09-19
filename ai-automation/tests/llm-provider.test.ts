@@ -15,6 +15,13 @@ import { describe, expect, it } from "vitest";
 import { CAPABILITIES } from "../src/capability-registry/registry.js";
 import { buildSemanticCatalog, toEntities } from "../src/nlu/providers/llm-schema.js";
 import { ClaudeIntentProvider, type ClaudeMessagesClient } from "../src/nlu/providers/claude-provider.js";
+import { GeminiIntentProvider, type GeminiClient } from "../src/nlu/providers/gemini-provider.js";
+import {
+  OpenAICompatibleIntentProvider,
+  type OpenAICompatibleChatClient,
+} from "../src/nlu/providers/openai-compatible-provider.js";
+import { createGroqProvider } from "../src/nlu/providers/groq-provider.js";
+import { createNvidiaProvider } from "../src/nlu/providers/nvidia-provider.js";
 import { LlmProviderError } from "../src/nlu/providers/errors.js";
 import { emptyContext } from "../src/nlu/types.js";
 
@@ -117,5 +124,101 @@ describe("ClaudeIntentProvider — yapılandırılmış çıktıyı IntentResult
     };
     const provider = new ClaudeIntentProvider({ client });
     await expect(provider.plan("x", emptyContext())).rejects.toBeInstanceOf(LlmProviderError);
+  });
+});
+
+/**
+ * Phase 4D-2 — ücretsiz sağlayıcılar: Gemini (kendi SDK'sı) ve
+ * OpenAI-uyumlu (Groq/NVIDIA NIM, tek implementasyonu paylaşır). Hiçbiri
+ * gerçek ağ çağrısı yapmaz — sahte istemciler enjekte edilir. Amaç:
+ * Claude ile AYNI şema/eşleme/hata sözleşmesine uyduklarını kanıtlamak.
+ */
+function fakeGeminiClient(text: string | undefined): GeminiClient {
+  return { models: { generateContent: async () => ({ text }) } };
+}
+
+describe("GeminiIntentProvider — Claude ile AYNI şemayı/eşlemeyi kullanır", () => {
+  const validJson = JSON.stringify({
+    intent: "create_automation",
+    trigger: { semantic: "vehicle_departure" },
+    steps: [{ semantic: "vehicle_sentry_mode" }],
+    entities: [{ name: "vehicle", value: "Tesla Model Y" }],
+    missing: [],
+  });
+
+  it("geçerli bir JSON metnini semantik IntentResult'a dönüştürür", async () => {
+    const provider = new GeminiIntentProvider({ client: fakeGeminiClient(validJson) });
+    const intent = await provider.plan("Arabadan inince Tesla Model Y'nin Sentry Mode'unu aç", emptyContext());
+    expect(intent.trigger?.type).toBe("vehicle_departure");
+    expect(intent.steps[0]?.type).toBe("vehicle_sentry_mode");
+    expect(intent.trigger?.type).not.toContain(".");
+  });
+
+  it("boş/undefined metin LlmProviderError fırlatır", async () => {
+    const provider = new GeminiIntentProvider({ client: fakeGeminiClient(undefined) });
+    await expect(provider.plan("x", emptyContext())).rejects.toBeInstanceOf(LlmProviderError);
+  });
+
+  it("geçersiz JSON metni LlmProviderError fırlatır", async () => {
+    const provider = new GeminiIntentProvider({ client: fakeGeminiClient("{ bozuk") });
+    await expect(provider.plan("x", emptyContext())).rejects.toBeInstanceOf(LlmProviderError);
+  });
+
+  it("şemaya uymayan bir JSON da LlmProviderError fırlatır", async () => {
+    const provider = new GeminiIntentProvider({ client: fakeGeminiClient(JSON.stringify({ intent: "gecersiz" })) });
+    await expect(provider.plan("x", emptyContext())).rejects.toBeInstanceOf(LlmProviderError);
+  });
+});
+
+function fakeOpenAICompatibleClient(content: string | null | undefined): OpenAICompatibleChatClient {
+  return { chat: { completions: { create: async () => ({ choices: [{ message: { content } }] }) } } };
+}
+
+describe("OpenAICompatibleIntentProvider — Groq/NVIDIA NIM'in paylaştığı ortak implementasyon", () => {
+  const validJson = JSON.stringify({
+    intent: "create_automation",
+    trigger: { semantic: "vehicle_departure" },
+    steps: [{ semantic: "vehicle_sentry_mode" }],
+    entities: [],
+    missing: [],
+  });
+
+  it("geçerli bir JSON içeriğini semantik IntentResult'a dönüştürür", async () => {
+    const provider = new OpenAICompatibleIntentProvider({
+      client: fakeOpenAICompatibleClient(validJson),
+      baseURL: "https://example.invalid/v1",
+      model: "test-model",
+      providerLabel: "Test",
+    });
+    const intent = await provider.plan("Arabadan inince Tesla Model Y'nin Sentry Mode'unu aç", emptyContext());
+    expect(intent.trigger?.type).toBe("vehicle_departure");
+    expect(intent.steps[0]?.type).toBe("vehicle_sentry_mode");
+  });
+
+  it("boş içerik LlmProviderError fırlatır (sağlayıcı adı mesajda geçer)", async () => {
+    const provider = new OpenAICompatibleIntentProvider({
+      client: fakeOpenAICompatibleClient(null),
+      baseURL: "https://example.invalid/v1",
+      model: "test-model",
+      providerLabel: "Test",
+    });
+    await expect(provider.plan("x", emptyContext())).rejects.toMatchObject({ message: expect.stringContaining("Test") });
+  });
+
+  it("şemaya uymayan bir JSON da LlmProviderError fırlatır", async () => {
+    const provider = new OpenAICompatibleIntentProvider({
+      client: fakeOpenAICompatibleClient(JSON.stringify({ intent: "gecersiz" })),
+      baseURL: "https://example.invalid/v1",
+      model: "test-model",
+      providerLabel: "Test",
+    });
+    await expect(provider.plan("x", emptyContext())).rejects.toBeInstanceOf(LlmProviderError);
+  });
+
+  it("createGroqProvider ve createNvidiaProvider, aynı implementasyonu doğru sabit değerlerle kurar", async () => {
+    const groq = createGroqProvider({ client: fakeOpenAICompatibleClient(validJson) });
+    const nvidia = createNvidiaProvider({ client: fakeOpenAICompatibleClient(validJson) });
+    expect((await groq.plan("x", emptyContext())).trigger?.type).toBe("vehicle_departure");
+    expect((await nvidia.plan("x", emptyContext())).trigger?.type).toBe("vehicle_departure");
   });
 });

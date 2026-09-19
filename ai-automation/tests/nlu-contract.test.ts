@@ -81,9 +81,13 @@ describe("Registry source-of-truth: capability id'leri AI katmanında hardcode D
       "src/nlu/rule-based.ts",
       "src/nlu/pipeline.ts",
       "src/nlu/plan-builder.ts",
-      // Phase 4B: LLM sağlayıcısı da bu değişmeze uyar — capability
-      // id'leri LLM'e prompt/context olarak dahi verilmez.
+      // Phase 4B/4D-2: her LLM sağlayıcısı bu değişmeze uyar —
+      // capability id'leri LLM'e prompt/context olarak dahi verilmez.
       "src/nlu/providers/claude-provider.ts",
+      "src/nlu/providers/gemini-provider.ts",
+      "src/nlu/providers/openai-compatible-provider.ts",
+      "src/nlu/providers/groq-provider.ts",
+      "src/nlu/providers/nvidia-provider.ts",
       "src/nlu/providers/llm-schema.ts",
       "src/nlu/providers/rule-based-provider.ts",
     ]) {
