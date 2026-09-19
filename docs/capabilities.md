@@ -244,3 +244,12 @@ Sözleşmenin işe yaradığının kanıtı bu.
    olabilir ama artık ürün kararları için gerçek cihaz kanıtı yeterli.
 6. **WhatsApp** — MASTER_SPEC §22'de geçiyor ama Shortcuts'ta böyle bir
    tetikleyici doğrulanmadı; matrise hiç eklenmedi (tahmin yapmamak için).
+7. **Şablon içeriği eksik (Phase 3C-2, 2026-09-19) — İÇERİK BOŞLUĞU,
+   KOD EKSİKLİĞİ DEĞİL:** `Capability.template` alanı ve onu okuyan
+   gerçek `TemplateBackedSetupService` (Swift) yazıldı, ama registry'deki
+   15 capability'nin HİÇBİRİNDE gerçek bir Apple/iCloud şablonu yok.
+   Birinin Shortcuts uygulamasında her eylem (Tesla Sentry Mode dahil)
+   için elle bir şablon oluşturup "iCloud Bağlantısını Kopyala" ile
+   aldığı linki registry'ye eklemesi gerekiyor. O yapılana kadar gerçek
+   `SetupService` her plan için dürüstçe `.noTemplateAvailable` döner —
+   bu bir hata değil, MASTER_SPEC §18'in gerektirdiği dürüstlük.

@@ -82,6 +82,48 @@ yazılmıştı) birebir koda döktü — isimlendirme (`confirmShortcutAdded`/
 `confirmTriggerLinked`/`confirmGuidedSetupDone`) implementasyon
 sırasında netleşti, ux.md güncellendi.
 
+**Phase 3C-1 (2026-09-19) — Tesla parameter contract:** Test 5'in
+kanıtladığı "parametre sabitlenmeli" kısıtı, `Capability.parameters`
+(name/type/required/allowed/defaultValue) + `capability-validator.ts`
+ile makine tarafından doğrulanan bir sözleşmeye çevrildi. Eksik/geçersiz
+parametreli bir eylem artık reddediliyor. Swift yalnızca decode ediyor,
+Tesla'nın şeması tekrar yazılmadı. TS: 193/193, Swift: 20/20.
+
+**Phase 3C-2 (2026-09-19) — gerçek `SetupService`/`ShortcutsHandoff`
+sınırı:** `Platform/ShortcutsHandoff.swift`, Phase 3B'den ÖNCE (hiçbir
+cihaz testi olmadan) yazılmıştı ve artık YANLIŞ olduğu kanıtlanmış üç
+varsayım içeriyordu — hepsi düzeltilmeden SİLİNDİ:
+
+1. "import-shortcut imzasız içeriği de aktarır" → Test 1 bunu çürüttü.
+2. "doğru mekanizma import-shortcut URL şemasıdır" → Test 1b: düz bir
+   iCloud paylaşım linkini (Universal Link) açmak gerekiyor, sarmalamak
+   DEĞİL.
+3. "x-callback-url sonucu bize bildirir" → Test 7 bunun hiç
+   tetiklenmediğini kanıtladı.
+
+Yeni tasarım: `ShortcutsHandoff.open(_:) -> Bool` yalnızca "OS bu URL'i
+işleyebildi mi" der, kullanıcının ne yaptığına dair HİÇBİR bilgi taşımaz
+— gerçek implementasyon (`UIKitShortcutsHandoff`, `#if canImport(UIKit)`
+arkasında) `UIApplication.shared.open` çağırır; yalnızca gerçek cihaz
+BUILD'iyle doğrulandı (XCTest'te çalıştırılamaz, canlı UIApplication
+yok). `SetupService.prepare()` artık `PrepareResult` (`.ready(url:,
+name:)` / `.noTemplateAvailable(reason:)`) döner; gerçek implementasyon
+`TemplateBackedSetupService`, registry'nin yeni `template` alanını
+(Apple/iCloud şablon linki) okur.
+
+**İÇERİK BOŞLUĞU (kod eksikliği DEĞİL):** 2026-09-19 itibarıyla
+registry'deki 15 capability'nin HİÇBİRİNDE gerçek bir `template` yok —
+birinin Shortcuts uygulamasında her eylem için elle bir şablon
+oluşturup iCloud bağlantısını registry'ye eklemesi gerekiyor. O yapılana
+kadar `TemplateBackedSetupService` HER plan için dürüstçe
+`.noTemplateAvailable` döner. `BuilderMachine`'e `pendingHandoff` (private,
+TS'deki `BuilderStep`'in şeklini bozmamak için state'in DIŞINDA tutulan
+bir alan) ve yeni bir `shortcutsHandoff` bağımlılığı eklendi;
+`handOffToShortcuts()` artık `async` ve OS açamazsa (gerçekten bilinen
+bir hata) `setup_failed` üretir. TS: 193/193 (değişmedi — bu Swift/iOS'a
+özgü bir iş). Swift: 26/26 (20 + 6 yeni), gerçek iPhone hedefinde BUILD
+SUCCEEDED.
+
 ## 1. Neden iki fazlı (3A / 3B)
 
 Faz 1.5 ve Faz 2'de kurduğumuz disiplin — bir şeyi doğrulamadan
