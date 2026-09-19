@@ -129,6 +129,19 @@ hardcode edilmez — bu bir testle korunur.
    çözümü backend registry'nin işi. Bu artık `tests/nlu-semantic-only.
    test.ts` ile çalışma zamanında kilitli (19 test).
 
+### Phase 4A — `POST /plan` API sözleşmesi (2026-09-19)
+
+`src/api/` — `NluPipeline`'ı (hâlâ kural tabanlı; LLM DEĞİL) gerçek bir
+HTTP sınırının arkasına koyar. Sözleşme (`contract.ts`) mevcut NLU
+tiplerinin birebir Zod karşılığı — API'ye özel ayrı bir şekil icat
+edilmedi. `npm run serve` ile `http://localhost:3000/plan` üzerinden
+elle denenebilir. Ayrıntı ve tasarım kararları: `docs/api.md`.
+
+Not: bu README'nin geri kalanındaki test sayıları (158/177) ve "Swift
+derlenmedi" ifadesi artık ESKİ — o zamandan beri Phase 3B/3C tamamlandı,
+Swift gerçek cihazda derleniyor/test ediliyor. Güncel sayılar ve durum
+`docs/phase3b-validation-plan.md`'nin kapanış/checkpoint bölümlerinde.
+
 ### "Tek dokunuş" iddiası geri çekildi
 
 `shortcuts://import-shortcut` ve Personal Automation'a programatik
