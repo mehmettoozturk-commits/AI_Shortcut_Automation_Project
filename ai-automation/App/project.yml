@@ -1,0 +1,53 @@
+name: AutomationApp
+options:
+  bundleIdPrefix: com.aishortcut
+  deploymentTarget:
+    iOS: "16.0"
+packages:
+  AutomationCorePackage:
+    path: ../ios-bridge
+targets:
+  AutomationApp:
+    type: application
+    platform: iOS
+    sources:
+      - Sources/AutomationApp
+    dependencies:
+      - package: AutomationCorePackage
+        product: AutomationCore
+      - package: AutomationCorePackage
+        product: AutomationUI
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.aishortcut.AutomationApp
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGN_IDENTITY: ""
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_CFBundleDisplayName: "AI Otomasyon"
+        ENABLE_PREVIEWS: YES
+  AutomationAppUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - UITests
+    dependencies:
+      - target: AutomationApp
+    settings:
+      base:
+        CODE_SIGNING_REQUIRED: NO
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGN_IDENTITY: ""
+        GENERATE_INFOPLIST_FILE: YES
+schemes:
+  AutomationApp:
+    build:
+      targets:
+        AutomationApp: all
+        AutomationAppUITests: [test]
+    test:
+      targets:
+        - AutomationAppUITests
+    run:
+      config: Debug
