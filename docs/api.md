@@ -262,3 +262,107 @@ Test kapsamı: `tests/api-server.test.ts`'e 422 (`izin verilmemişse...`
 testi artık durum kodunu da doğruluyor) ve `trigger` alanı için
 assertion'lar eklendi; `tests/api-contract.test.ts`'in "unsupported"
 fixture'ı yeni alanı içerecek şekilde güncellendi.
+
+## 10. Hızlı referans — `POST /plan` sözleşmesi (Phase 4D checkpoint)
+
+Bu bölüm §0-§9'da anlatılanları TEK bir yerde özetler; ayrıntı/gerekçe
+için ilgili bölüme bakın. Şekiller `src/api/contract.ts`'in Zod
+karşılığıyla birebir.
+
+### İstek
+
+```jsonc
+POST /plan
+{
+  "text": "Arabadan inince Tesla Model Y'nin Sentry Mode'unu aç",
+  "conversation": null,          // ilk turda yok; sonraki turlarda bir
+                                  // önceki yanıtın `conversation` alanı
+                                  // AYNEN geri gönderilir (§2)
+  "platform": "ios",             // varsayılan "ios"
+  "grantedPermissions": ["bluetooth", "tesla_account"]
+}
+```
+
+### Yanıt — dört "başarı" durumu (hepsi HTTP 200 veya 422, ASLA 5xx)
+
+| `status` | Ne zaman | Taşıdığı ek alanlar |
+|---|---|---|
+| `"plan"` | Semantik plan TAM ve registry'ye çözüldü | `plan` (capability id'leri İÇEREN, doğrulanmış taslak), `validation` (§4) |
+| `"needs_clarification"` | Eksik TEK bir bilgi var (§3, docs/ux.md §7.4) | `question` (id/soru metni/seçenekler) |
+| `"unsupported"` | Semantik geçerli ama registry'de karşılığı yok/kullanılamıyor | `capability`, `trigger` (Phase 4C, §9), `alternatives`, `reason` |
+| `"not_understood"` | Sağlayıcı hiçbir semantiğe eşleyemedi | (ek alan yok) |
+
+Dördünde de `intent` (LLM'in/kural tabanlı sağlayıcının SEMANTİK çıktısı
+— capability id ASLA içermez, bkz. §10.2) ve `conversation` (bir sonraki
+istekte aynen geri gönderilecek, opak taşınabilir durum) bulunur.
+
+### HTTP durum kodu ↔ anlam (üç farklı "sorun", tek bir "başarı")
+
+| HTTP | Ne zaman | Body |
+|---|---|---|
+| **200** | `plan` (validation.ok:true) / `needs_clarification` / `unsupported` / `not_understood` — "isteği anladım, cevap bu" | Yukarıdaki tablo |
+| **400** | İstek gövdesi/şeması geçersiz (istemci hatası) | `{error, issues?}` |
+| **422** | Semantik olarak TAM bir plan ama Schema/Capability/Permission/Safety zincirinden geçemedi (§4, §9) | `status:"plan"` gövdesi AYNEN, yalnızca `validation.ok:false` |
+| **502** | LLM sağlayıcısı hiç çalışamadı — ağ hatası/geçersiz JSON (`provider_error`, §10.1) | `{status:"provider_error", message, conversation}` |
+
+### 10.1 `provider_error` — `not_understood` ile KARIŞTIRILMAZ
+
+`not_understood`, sağlayıcının (kural tabanlı veya LLM) BAŞARIYLA
+çalışıp "bu niyeti tanımadım" dediği geçerli bir sonuçtur.
+`provider_error` sağlayıcının HİÇ çalışamadığını gösterir (ağ hatası,
+sağlayıcının geçersiz/şemaya uymayan JSON üretmesi) — bkz. §8.5.
+
+### 10.2 Semantic output → registry resolution (değişmez, tekrar)
+
+```
+Kullanıcı cümlesi → NluProvider (kural tabanlı veya LLM) → SEMANTİK
+IntentResult (yalnızca "vehicle_departure"/"vehicle_sentry_mode" gibi
+isimler, NOKTA İÇERMEZ) → plan-builder.ts + Capability Registry →
+capability id'ler ("ios.bluetooth.disconnected"/"tesla.sentry_mode.
+toggle") → DraftAutomationPlan
+```
+
+Capability id'leri **LLM'e prompt/context olarak dahi verilmez** —
+yalnızca `buildSemanticCatalog()`'un ürettiği `{semantic, kind,
+description}` üçlüsü görülür (§8.2). Bu, hem statik kaynak taramasıyla
+(`tests/nlu-contract.test.ts`) hem çalışma zamanı testleriyle
+(`tests/llm-provider.test.ts`, `tests/nlu-semantic-only.test.ts`) hem de
+gerçek bir SwiftUI ekranında (Phase 4D-1, `HTTPBackedPlannerTests`/
+`AutomationAppUITests`) kilitli.
+
+## 11. Temporal ambiguity — Türkçe saat belirsizliği (Phase 4D-3)
+
+Bir `time` tetikleyicisi için saat ifadesi 12 saatlik formatta VE bir
+gün bölümü (sabah/öğle/öğleden sonra/akşam/gece) VEYA 24 saatlik format
+içermiyorsa, sistem SESSİZCE bir saat seçmez — clarification ister.
+Bu, iki katmanla korunur:
+
+1. **Prompt** (`systemPrompt()`, `src/nlu/providers/llm-schema.ts`) —
+   LLM'e açık "SAAT KURALI" talimatı: böyle bir durumda `missing`e
+   `{field: "time_of_day", reason: "am_pm_ambiguous"}` eklemesi
+   söylenir. Bu bir talimattır, GARANTİ değil.
+2. **Deterministik güvenlik ağı** (`hardenTemporalAmbiguity`,
+   `NluPipeline.planAsync()` içinde uygulanır — tek bir paylaşılan
+   yardımcıya değil, HANGİ `NluProvider` olursa olsun çıktısını
+   yakalayan pipeline seviyesine gömülü) — gerçek bir NVIDIA NIM smoke
+   testinde bir modelin "9'da bana hatırlat." için ne clarification
+   sorduğu ne bir saat uydurduğu, şema açısından geçerli ama saat
+   bilgisi TAMAMEN EKSİK bir plan ürettiği gözlemlendi. Bu katman,
+   `sourceText`'i modele GÜVENMEDEN kural tabanlı `normalizeTime()` ile
+   YENİDEN değerlendirir.
+
+### Örnekler (gerçek davranış, `tests/nlu.test.ts` + `tests/temporal-hardening.test.ts`'te kilitli)
+
+| Girdi | Sonuç |
+|---|---|
+| `"9'da bana hatırlat."` | `needs_clarification` ("Sabah 9 mu, akşam 9 mu?") — gün bölümü yok |
+| `"akşam 9'da bana hatırlat."` | `21:00` — "akşam" gün bölümünü belirtiyor |
+| `"sabah 9'da bana hatırlat."` | `09:00` |
+| `"21'de bana hatırlat."` | `21:00` — 24 saatlik format zaten kesin |
+| `"öğlen 12'de bana hatırlat."` | `12:00` |
+| `"gece 12'de bana hatırlat."` | `00:00` — gece yarısı |
+
+Son ikisi (`öğlen`/`gece` + saat 12) Phase 4D-3'te düzeltilen GERÇEK bir
+öncesi hatayı temsil ediyor: `normalizeTime()` "gece"yi "akşam" ile aynı
+kovaya koyuyordu, bu da "gece 12'de" için 00:00 yerine 12:00 üretiyordu
+(bkz. `src/nlu/turkish.ts`).
