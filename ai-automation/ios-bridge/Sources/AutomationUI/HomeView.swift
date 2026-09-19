@@ -3,6 +3,12 @@
 // Ses girişi (🎙️) bu fazın kapsamında değil — buton görsel olarak
 // duruyor ama devre dışı; kapsam dışı olduğunu açıkça belirtiyoruz,
 // sessizce "çalışıyormuş gibi" davranmıyoruz (CLAUDE.md ilkesi).
+//
+// Phase 5A İş 0 — "Otomasyonlarım" listesi eklendi. Kaynak
+// `viewModel.automations` → `AutomationRepository.list()` — bu View
+// kendi kopyasını TUTMAZ, her görünüşte `refreshAutomations()` ile
+// yeniden okur (bkz. docs/phase5a-e2e-validation-plan.md Test 3:
+// uygulama kapat/aç sonrası kalıcılığın GÖRÜNÜR kanıtı budur).
 
 import AutomationCore
 import SwiftUI
@@ -50,8 +56,39 @@ struct HomeView: View {
                     .foregroundStyle(.red)
                     .accessibilityIdentifier("notUnderstoodNote")
             }
+
+            if !viewModel.automations.isEmpty {
+                automationsList
+            }
         }
         .padding()
+        .task { await viewModel.refreshAutomations() }
+    }
+
+    private var automationsList: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Otomasyonlarım")
+                .font(.headline)
+                .accessibilityIdentifier("automationsListTitle")
+
+            ForEach(viewModel.automations) { automation in
+                HStack {
+                    Text(automation.name)
+                    Spacer()
+                    Text(statusLabel(automation.installStatus))
+                        .foregroundStyle(.secondary)
+                }
+                .accessibilityIdentifier("automationRow-\(automation.id)")
+            }
+        }
+    }
+
+    private func statusLabel(_ status: InstallStatus) -> String {
+        switch status {
+        case .installed: return "Kuruldu"
+        case .pendingUser: return "Beklemede"
+        case .failed: return "Başarısız"
+        }
     }
 
     private func send() {

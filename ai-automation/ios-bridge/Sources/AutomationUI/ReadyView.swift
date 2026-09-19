@@ -1,7 +1,6 @@
-// Phase 4D-1 — `.previewConfirm`: son önizleme. Kasıtlı olarak
-// `create()`/kurulum akışına BAĞLANMADI (bkz. AutomationRootView'ın
-// yorumu) — bu ekran yalnızca "otomasyon hazır, eksik izin şu" bilgisini
-// gösterir.
+// Phase 4D-1 — `.previewConfirm`: son önizleme.
+// Phase 5A İş 0 — "Otomasyonu Oluştur" artık gerçekten `create()`'e
+// bağlı (kurulum akışının geri kalanı da bağlandı, bkz. AutomationRootView).
 
 import AutomationCore
 import SwiftUI
@@ -26,9 +25,10 @@ struct ReadyView: View {
                 Text("• \(disclosure)")
             }
 
-            Text("Bu otomasyonu hazırlamak için Kestirmeler'de küçük bir adım gerekiyor — bu adım bu sürümde henüz bağlı değil.")
-                .foregroundStyle(.secondary)
-                .accessibilityIdentifier("setupNotConnectedNote")
+            Button("Otomasyonu Oluştur") {
+                Task { await viewModel.createAutomation() }
+            }
+            .accessibilityIdentifier("createAutomationButton")
 
             Button("✎ Değiştir") { viewModel.edit() }
                 .accessibilityIdentifier("reviseButton")

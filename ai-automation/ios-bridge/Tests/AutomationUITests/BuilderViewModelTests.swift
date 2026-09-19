@@ -17,16 +17,17 @@ final class BuilderViewModelTests: XCTestCase {
     }
 
     func makeViewModel(registry: CapabilityRegistry) -> BuilderViewModel {
+        let repository = InMemoryAutomationRepository()
         let machine = BuilderMachine(
             registry: registry,
             planner: MockPlanner(registry: registry),
             permissions: MockPermissionService(granted: ["bluetooth", "tesla_account"]),
             setup: MockSetupService(),
             shortcutsHandoff: MockShortcutsHandoff(),
-            repository: InMemoryAutomationRepository(),
+            repository: repository,
             device: DeviceContext(osVersion: 26, hasCarPlay: false)
         )
-        return BuilderViewModel(machine: machine, registry: registry)
+        return BuilderViewModel(machine: machine, registry: registry, repository: repository)
     }
 
     func testTriggerSummary_usesDisplayDescription_notDescription_notCapabilityId() throws {
@@ -81,5 +82,60 @@ final class BuilderViewModelTests: XCTestCase {
             XCTAssertFalse(cap.displayDescription.isEmpty, "\(cap.id): displayDescription boş")
             XCTAssertFalse(cap.displayDescription.contains(cap.id), "\(cap.id): displayDescription capability id içeriyor")
         }
+    }
+
+    /// Phase 5A İş 0 — `BuilderMachineTests.testFullInstallFlow_setupToInstalled`'ın
+    /// AYNI zincirini, artık `BuilderViewModel`'in yeni geçiş metotları
+    /// (createAutomation/prepareHandoff/handOffToShortcuts/
+    /// confirmShortcutAdded/confirmTriggerLinked) ÜZERİNDEN sürer. Asıl
+    /// kanıtlanan şey: `automations`/`refreshAutomations()` GERÇEKTEN
+    /// `machine`'in yazdığı AYNI repository örneğinden okuyor — ikinci,
+    /// senkron olmayan bir kopya DEĞİL (bkz. docs/phase5a-e2e-validation-plan.md
+    /// Test 3'ün "tek kaynak" gereksinimi).
+    func testViewModel_fullInstallFlow_automationsListReflectsSharedRepository() async throws {
+        let registry = try makeRegistry()
+        let repository = InMemoryAutomationRepository()
+        let machine = BuilderMachine(
+            registry: registry,
+            planner: MockPlanner(registry: registry),
+            permissions: MockPermissionService(granted: ["bluetooth", "tesla_account"]),
+            setup: MockSetupService(),
+            shortcutsHandoff: MockShortcutsHandoff(),
+            repository: repository,
+            device: DeviceContext(osVersion: 26, hasCarPlay: false)
+        )
+        let viewModel = BuilderViewModel(machine: machine, registry: registry, repository: repository)
+
+        await viewModel.refreshAutomations()
+        XCTAssertTrue(viewModel.automations.isEmpty, "başlangıçta hiçbir kayıt olmamalı")
+
+        viewModel.start()
+        viewModel.updateText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
+        await viewModel.submit()
+        await viewModel.confirmUnderstanding()
+        await viewModel.createAutomation()
+        await viewModel.prepareHandoff()
+        await viewModel.handOffToShortcuts()
+        viewModel.confirmShortcutAdded()
+        await viewModel.confirmTriggerLinked()
+
+        guard case .installed(let automation) = viewModel.step else {
+            return XCTFail("installed bekleniyordu, gerçek: \(viewModel.step)")
+        }
+
+        await viewModel.refreshAutomations()
+        XCTAssertEqual(viewModel.automations.count, 1)
+        XCTAssertEqual(viewModel.automations.first?.id, automation.id)
+        XCTAssertEqual(viewModel.automations.first?.installStatus, .installed)
+
+        viewModel.showSuccess()
+        guard case .success = viewModel.step else { return XCTFail("success bekleniyordu") }
+        viewModel.close()
+        guard case .idle = viewModel.step else { return XCTFail("idle bekleniyordu") }
+
+        // Otomasyonlarım listesi, akıştan çıkıldıktan SONRA da kalıcı —
+        // `close()` kaydı SİLMEZ (bkz. BuilderMachine.close() yorumu).
+        await viewModel.refreshAutomations()
+        XCTAssertEqual(viewModel.automations.count, 1)
     }
 }

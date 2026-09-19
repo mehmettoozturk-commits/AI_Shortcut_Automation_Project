@@ -113,7 +113,7 @@ final class AutomationAppUITests: XCTestCase {
         vehicleOption.tap()
 
         // Şimdi previewConfirm'e ulaşmalı (eksik izin notu içerebilir).
-        XCTAssertTrue(app.staticTexts["setupNotConnectedNote"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["createAutomationButton"].waitForExistence(timeout: 10))
     }
 
     /// Ekrandaki HİÇBİR statik metin bir capability id gibi görünmüyor

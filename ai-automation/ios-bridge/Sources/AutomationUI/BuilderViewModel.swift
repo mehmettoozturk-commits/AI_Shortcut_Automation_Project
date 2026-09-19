@@ -13,13 +13,21 @@ import Foundation
 @MainActor
 public final class BuilderViewModel: ObservableObject {
     @Published public private(set) var step: BuilderStep
+    /// Phase 5A İş 0 — "Otomasyonlarım" listesinin TEK kaynağı. `machine`
+    /// içindeki repository ile AYNI örnek (constructor'dan enjekte
+    /// edilir) — ikinci bir kaynak/kopya oluşturulmaz, aksi halde
+    /// `installed` kaydı listede görünüp görünmediği testi bir şey
+    /// KANITLAMAZ (bkz. docs/phase5a-e2e-validation-plan.md Test 3).
+    @Published public private(set) var automations: [Automation] = []
     private let machine: BuilderMachine
     private let registry: CapabilityRegistry
+    private let repository: AutomationRepository
     private var cancellable: AnyCancellable?
 
-    public init(machine: BuilderMachine, registry: CapabilityRegistry) {
+    public init(machine: BuilderMachine, registry: CapabilityRegistry, repository: AutomationRepository) {
         self.machine = machine
         self.registry = registry
+        self.repository = repository
         self.step = machine.step
         self.cancellable = machine.$step.sink { [weak self] newStep in
             self?.step = newStep
@@ -41,6 +49,26 @@ public final class BuilderViewModel: ObservableObject {
     public func answerMissingInfo(_ answer: String) async { await machine.answerMissingInfo(answer) }
     public func skipMissingInfo() async { await machine.skipMissingInfo() }
     public func chooseAlternative(_ capabilityId: String) { machine.chooseAlternative(capabilityId) }
+
+    // MARK: - Kurulum akışı (Phase 5A İş 0 — daha önce ScopeBoundaryView'e düşen durumlar)
+
+    public func createAutomation() async { await machine.create() }
+    public func prepareHandoff() async { await machine.prepareHandoff() }
+    public func handOffToShortcuts() async { await machine.handOffToShortcuts() }
+    public func confirmShortcutAdded() { machine.confirmShortcutAdded() }
+    public func confirmTriggerLinked() async { await machine.confirmTriggerLinked() }
+    public func confirmGuidedSetupDone() async { await machine.confirmGuidedSetupDone() }
+    public func reportInstallFailed(reason: String) async { await machine.reportInstallFailed(reason: reason) }
+    public func retrySetup() async { await machine.retrySetup() }
+    public func showSuccess() { machine.showSuccess() }
+
+    /// `HomeView` her göründüğünde çağrılır — "Otomasyonlarım"'ın
+    /// kaynağı gerçekten `repository.list()`'tir, ViewModel'in kendi
+    /// belleğinde tuttuğu ayrı bir liste DEĞİL (bkz. Test 3: uygulama
+    /// kapat/aç sonrası bu çağrı, dosyadan YENİDEN okur).
+    public func refreshAutomations() async {
+        automations = await repository.list()
+    }
 
     // MARK: - Semantik → insan dili (capability id ASLA dışarı sızmaz)
 

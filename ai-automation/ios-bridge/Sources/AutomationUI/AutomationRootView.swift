@@ -1,7 +1,7 @@
 // Phase 4D-1 — kök View: `BuilderStep`'e göre doğru ekranı seçer.
-//
-// Kasıtlı olarak DAR kapsam: `.setup` ve sonrası (Shortcuts kurulumu,
-// `installed`, `success`) bu fazda BAĞLANMADI — bkz. `ScopeBoundaryView`.
+// Phase 5A İş 0 — `.setup` ve sonrası artık gerçek ekranlara bağlı
+// (bkz. SetupView/UserAssistedImportView/WaitingForUserView/
+// LinkingTriggerView/InstalledView/SetupFailedView).
 
 import AutomationCore
 import SwiftUI
@@ -44,23 +44,20 @@ public struct AutomationRootView: View {
             MissingInfoView(viewModel: viewModel, draft: draft, question: question)
         case .previewConfirm(let draft, let missingPermissions, let disclosures):
             ReadyView(viewModel: viewModel, draft: draft, missingPermissions: missingPermissions, disclosures: disclosures)
-        case .setup, .userAssistedImport, .waitingForUser, .linkingTrigger, .installed, .success, .setupFailed:
-            ScopeBoundaryView(viewModel: viewModel)
+        case .setup(let draft, let setup):
+            SetupView(viewModel: viewModel, draft: draft, setup: setup)
+        case .userAssistedImport(let draft, let setup):
+            UserAssistedImportView(viewModel: viewModel, draft: draft, setup: setup)
+        case .waitingForUser(let draft, let setup):
+            WaitingForUserView(viewModel: viewModel, draft: draft, setup: setup)
+        case .linkingTrigger(let draft, let setup, let steps):
+            LinkingTriggerView(viewModel: viewModel, draft: draft, setup: setup, steps: steps)
+        case .installed(let automation):
+            InstalledView(viewModel: viewModel, automation: automation)
+        case .success(let automation):
+            SuccessView(viewModel: viewModel, automation: automation)
+        case .setupFailed(let draft, let setup, let reason):
+            SetupFailedView(viewModel: viewModel, draft: draft, setup: setup, reason: reason)
         }
-    }
-}
-
-/// Phase 4D-1'in bilinçli sınırı: kurulum akışı (Phase 3C'de zaten
-/// doğrulandı) bu fazda UI'ya BAĞLANMADI.
-struct ScopeBoundaryView: View {
-    @ObservedObject var viewModel: BuilderViewModel
-
-    var body: some View {
-        VStack(spacing: 16) {
-            Text("Kurulum akışı bu sürümde henüz bağlı değil.")
-                .accessibilityIdentifier("scopeBoundaryNote")
-            Button("Baştan başla") { viewModel.close() }
-        }
-        .padding()
     }
 }

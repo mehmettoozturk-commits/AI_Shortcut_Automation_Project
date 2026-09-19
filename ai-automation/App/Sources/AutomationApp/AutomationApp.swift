@@ -1,10 +1,13 @@
 // Phase 4D-1 — gerçek SwiftUI uygulama kabuğu.
+// Phase 5A İş 0 (2026-09-19) — üç mock, gerçek implementasyonlarla
+// değiştirildi: `TemplateBackedSetupService`, `UIKitShortcutsHandoff`,
+// `FileBackedAutomationRepository`. Hiçbiri burada YENİDEN yazılmadı —
+// Phase 3C'de zaten yazılmış, test edilmiş implementasyonlar dependency
+// graph'a bağlandı (bkz. docs/phase5a-e2e-validation-plan.md "İş 0").
 //
-// Bu dosya yalnızca ÜÇ şeyi bir araya getirir: gerçek `HTTPBackedPlanner`
-// (Phase 4C), gerçek registry, ve `BuilderMachine`'in geri kalan
-// port'ları için hâlâ mock'lar (Setup/ShortcutsHandoff/Repository) —
-// bu fazın kasıtlı sınırı Shortcuts kurulumunu bağlamamak (bkz.
-// docs/ios-bridge.md Phase 4D-1 bölümü).
+// Kalan tek mock: `MockPermissionService` — gerçek bir izin isteme UI'ı
+// henüz yok, bu Phase 5A'nın kasıtlı sınırı dışında (ayrı bir round'un
+// konusu, bkz. altta).
 
 import AutomationCore
 import AutomationUI
@@ -36,16 +39,26 @@ struct AutomationApp: App {
             granted: ["bluetooth", "tesla_account", "notifications", "location_always"]
         )
         let planner = HTTPBackedPlanner(transport: transport, permissions: permissions)
+        let repository = FileBackedAutomationRepository(directory: applicationSupportDirectory())
 
         let machine = BuilderMachine(
             registry: registry,
             planner: planner,
             permissions: permissions,
-            setup: MockSetupService(),
-            shortcutsHandoff: MockShortcutsHandoff(),
-            repository: InMemoryAutomationRepository(),
+            setup: TemplateBackedSetupService(registry: registry),
+            shortcutsHandoff: UIKitShortcutsHandoff(),
+            repository: repository,
             device: DeviceContext(osVersion: 26, hasCarPlay: false)
         )
-        return BuilderViewModel(machine: machine, registry: registry)
+        return BuilderViewModel(machine: machine, registry: registry, repository: repository)
+    }
+
+    /// `~/Library/Application Support/<bundleId>/automations.json` —
+    /// `FileBackedAutomationRepository`'nin kendi doc yorumunda önerdiği
+    /// konum (bkz. Platform/FileBackedAutomationRepository.swift).
+    private static func applicationSupportDirectory() -> URL {
+        let base = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+        let bundleId = Bundle.main.bundleIdentifier ?? "com.aiautomation.app"
+        return base.appendingPathComponent(bundleId, isDirectory: true)
     }
 }

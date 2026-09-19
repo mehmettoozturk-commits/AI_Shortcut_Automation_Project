@@ -233,11 +233,25 @@ arda gelen güvenilirlik katmanı doğurdu:
 
 **TS test durumu: 280/280** (Phase 4C sonrası: 236 + Phase 4D-2: 8 +
 Phase 4D-3: 13 + Phase 4E-1: 12 + Phase 4E-2: 4 + Phase 4E-3: 7)
-**Swift test durumu: 45/45** (değişmedi — 4E-3 bilinçli olarak registry/
-Swift'e dokunmadı)
+**Swift test durumu: 49/49** (Phase 5A İş 0: 45→45 Core + 3→4 UI, yeni
+tam-zincir testi) + gerçek Xcode UI testi 4/4.
 
-Ayrıntı: `docs/api.md` §8-§13, `docs/ios-bridge.md` Phase 4D-1/4E-2
-bölümleri.
+Ayrıntı: `docs/api.md` §8-§13, `docs/ios-bridge.md` Phase 4D-1/4E-2/
+Phase 5A İş 0 bölümleri.
+
+## Phase 5A — Real-device E2E & Persistence (İş 0 tamamlandı, 2026-09-19)
+
+`docs/phase5a-e2e-validation-plan.md`: metin girişinden `installed`'a
+kadar tam zincirin gerçek cihazda kanıtlanması planı. İş 0 (uygulama
+katmanının mock'lardan gerçek implementasyonlara — `TemplateBackedSetupService`/
+`UIKitShortcutsHandoff`/`FileBackedAutomationRepository` — bağlanması
+ve altı yeni SwiftUI ekranı) tamamlandı ve doğrulandı. Testlere
+geçmeden önce ayrı bir İÇERİK boşluğu bulundu (kod değil): registry'de
+ne `guided_manual`+Shortcuts'ta-mevcut bir capability, ne de herhangi
+bir `user_assisted_import` capability'si için gerçek bir Shortcuts
+`template` var — bu yüzden gerçek cihaz testlerinden önce en az bir
+gerçek şablonun elle hazırlanması gerekiyor (bkz. plan dokümanındaki
+"İş 0.5").
 
 Not: bu README'nin geri kalanındaki test sayıları (158/177) ve "Swift
 derlenmedi" ifadesi artık ESKİ — o zamandan beri Phase 3B/3C tamamlandı,

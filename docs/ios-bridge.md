@@ -610,7 +610,7 @@ yayınlar VE registry üzerinden **capability id → insan dili** çevirisini
 yapar (`triggerSummary`/`actionSummaries`) — View'lar hiçbir zaman ham
 `draft.trigger.type`/`step.type` göstermez.
 
-### 2. Kapsam: `.previewConfirm`'de DURUR
+### 2. Kapsam: `.previewConfirm`'de DURUR (Phase 5A İş 0'a kadar)
 
 Ekran akışı tam olarak istenen sırayı izler: Home (`HomeView`) →
 Understanding ("Seni şöyle anladım", ✓/✎ — `UnderstandingView`) →
@@ -628,6 +628,75 @@ AutomationApp.swift`, backend'in Permission Validator'ının (HTTP 422)
 önizlemeyi engellememesi için geniş, sabit bir izin kümesiyle
 (`MockPermissionService`) başlar. Bu kasıtlı bir GEÇİCİ yer tutucu,
 açıkça yorumlanmış durumda.
+
+**Bu sınır Phase 5A İş 0'da kaldırıldı — bkz. altta.**
+
+## Phase 5A İş 0 — gerçek kurulum/kalıcılık zinciri bağlandı (2026-09-19)
+
+`.setup`/`.userAssistedImport`/`.waitingForUser`/`.linkingTrigger`/
+`.installed`/`.success`/`.setupFailed` artık `ScopeBoundaryView`'e
+DÜŞMÜYOR — her biri kendi gerçek SwiftUI ekranına sahip (`SetupView`,
+`UserAssistedImportView`, `WaitingForUserView`, `LinkingTriggerView`,
+`InstalledView`/`SuccessView`, `SetupFailedView`). `ReadyView`'deki
+"Otomasyonu Oluştur" butonu artık gerçekten `BuilderMachine.create()`'i
+tetikliyor.
+
+**Bu iş SADECE wiring'ti, yeni business logic YAZILMADI:**
+`AutomationApp.swift`'teki üç mock, Phase 3C'de zaten yazılmış/test
+edilmiş gerçek implementasyonlarla değiştirildi:
+
+| Mock (Phase 4D-1) | Gerçek (Phase 5A İş 0) |
+|---|---|
+| `MockSetupService` | `TemplateBackedSetupService` |
+| `MockShortcutsHandoff` | `UIKitShortcutsHandoff` |
+| `InMemoryAutomationRepository` | `FileBackedAutomationRepository` (`~/Library/Application Support/<bundleId>/automations.json`) |
+
+`BuilderViewModel` bu genişlemeyle iki şey kazandı: (1) kurulum
+akışının geri kalan geçişleri için ince pass-through metotlar
+(`createAutomation`/`prepareHandoff`/`handOffToShortcuts`/
+`confirmShortcutAdded`/`confirmTriggerLinked`/`confirmGuidedSetupDone`/
+`reportInstallFailed`/`retrySetup`/`showSuccess`); (2) `automations`
+(`@Published`) + `refreshAutomations()` — `HomeView`'daki
+"Otomasyonlarım" listesinin kaynağı. Bilinçli tasarım: `automations`
+kendi kopyasını TUTMAZ, her `refreshAutomations()` çağrısında
+`repository.list()`'i YENİDEN okur — bu yüzden uygulama kapatılıp
+açıldığında (yeni bir `BuilderViewModel`/`FileBackedAutomationRepository`
+örneği kurulduğunda) liste dosyadan gerçekten yeniden inşa edilir; bu,
+Phase 5A'nın kalıcılık testinin (Test 3) dayandığı mekanizmadır.
+
+### İÇERİK BOŞLUĞU (kod eksikliği DEĞİL) — Phase 5A testlerini etkiler
+
+Bu round'da, testleri gerçek cihaza taşımadan önce şu iki registry
+içerik boşluğu tespit edildi (ikisi de `docs/phase5a-e2e-validation-plan.md`
+Test 1/Test 2'yi doğrudan etkiler):
+
+1. **`guided_manual` + `availableInShortcuts: true` kombinasyonuna
+   sahip HİÇBİR capability yok.** Registry'deki tek `guided_manual`
+   girdisi (`tesla.camera_action`) kasıtlı olarak
+   `availableInShortcuts: false` — yani `submit()` bu capability'yi
+   ACTION olarak gördüğünde akış `.setup`'a hiç ulaşmadan `.unsupported`'a
+   düşer (bu doğru davranış, `tesla.camera_action` zaten "Shortcuts'ta
+   native karşılığı yok" örneği için var). Sonuç: Phase 5A Test 1
+   (guided_manual E2E) bugünkü registry içeriğiyle GERÇEK cihazda
+   çalıştırılamaz — ya gerçekten `guided_manual` VE Shortcuts'ta
+   kurulabilir yeni bir capability tanımlanmalı, ya da Test 1 farklı
+   bir capability ile yeniden tasarlanmalı.
+2. **14 `user_assisted_import` capability'sinin HİÇBİRİNDE `template`
+   yok** (`TemplateBackedSetupServiceTests.testNoTemplateAvailable_forRealCapabilitiesToday`
+   bunu zaten doğruluyor). `TemplateBackedSetupService.prepare()` bu
+   yüzden HER zaman `.noTemplateAvailable` döner → `prepareHandoff()`
+   deterministik olarak `.setupFailed`'a düşer. Sonuç: Phase 5A Test 2
+   (Shortcuts handoff) bugün çalıştırılırsa kesin "kaldı" verir — bu
+   bir kod hatası değil, en az bir capability için Shortcuts'ta elle
+   bir şablon hazırlanıp "iCloud Bağlantısını Kopyala" ile alınan
+   linkin registry'ye eklenmesi gerekiyor (bkz.
+   `TemplateBackedSetupService.swift` dosya başı yorumu).
+
+Kod tarafının (ViewModel/View wiring) kendisi hem `swift test`
+(45 Core + 4 UI, hepsi mock/fake registry ile) hem gerçek Xcode UI
+testi (`xcodebuild test`, gerçek rule-based backend + gerçek Simulator,
+4/4) ile doğrulandı — yukarıdaki boşluk yalnızca gerçek cihazda
+`installed`'a ulaşmayı engelliyor, kodun kendisini değil.
 
 ### 3. `App/` — gerçek, çalıştırılabilir Xcode projesi (XcodeGen)
 
