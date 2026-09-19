@@ -106,33 +106,67 @@ cihaz testlerinden ÖNCE, ayrıca küçük bir içerik hazırlığı gerekiyor.
 
 ---
 
-## İş 0.5 — Önkoşul: en az bir gerçek kurulum içeriği (Test 1/Test 2 için)
+## İş 0.5 — Önkoşul: en az bir gerçek kurulum içeriği (Test 2 için)
 
 Bu da bir test değil, İş 0 gibi bir hazırlık — ama kod değil, **içerik**
 hazırlığı (bkz. `TemplateBackedSetupService.swift`'in "İÇERİK BOŞLUĞU
-(kod eksikliği DEĞİL)" notu). Kullanıcının kendi elle yapması gereken
-adımlar:
+(kod eksikliği DEĞİL)" notu).
 
-1. **Test 2 için:** Shortcuts uygulamasında, registry'deki 14
-   `user_assisted_import` capability'sinden biri için (örn.
-   `tesla.sentry_mode.toggle`) basit, tek eylemli gerçek bir kestirme
-   oluştur → "iCloud Bağlantısını Kopyala" ile bir paylaşım linki al →
-   bu linki ve önerilen adı registry'deki o capability'nin `template`
-   alanına (`{ iCloudURL, suggestedName }`) ekle → `contracts/generate.mjs`
-   ile snapshot'ı yenile → Swift tarafına kopyala (bkz. mevcut
-   "Contract snapshot pipeline" disiplini).
-2. **Test 1 için:** Ya registry'de gerçekten `guided_manual` VE
-   `availableInShortcuts: true` olan yeni bir capability tanımlanmalı
-   (gerçek bir Apple/Shortcuts kısıtı bunu gerektiriyorsa), ya da Test 1
-   tamamen çıkarılıp Phase 5A'nın kapsamı yalnızca `user_assisted_import`
-   zinciriyle (Test 2) sınırlandırılmalı — hangisi tercih edileceği bir
-   ÜRÜN kararı, bu doküman bunu dayatmıyor.
+**Test 1 (guided_manual) bilinçli olarak buna dahil DEĞİL** — mevcut
+tek `guided_manual` capability'si (`tesla.camera_action`) kasıtlı olarak
+Shortcuts'ta yok, ve yeni bir `guided_manual` capability sırf bu testi
+yeşile çevirmek için eklenmeyecek. Bu, ayrı bir ürün kararı (A: Test 1'i
+kapsamdan çıkar, B: gerçekten ihtiyaç duyulan bir `guided_manual`
+capability belirle) — Phase 5A bu kararı vermeden **Test 1 BLOCKED
+kalır**, bu bir hata değil.
 
-**Bu iş bitmeden Test 1/Test 2 gerçek cihazda `installed`'a ulaşamaz**
-(Test 3, `installed`'a Test 1 veya 2 üzerinden ulaşmayı varsaydığı için
-o da bu işe bağımlı). Test 4-6 bu boşluktan etkilenmez (Test 5 zaten
-yalnızca `previewConfirm`'e kadar gidiyor, Test 6 Test 1/2'nin bir
-tekrarıdır — aynı önkoşula tabi).
+**Seçilen capability (Test 2 için): `ios.notification.show`**
+(`semantic: "notify"`, `permissions: ["notifications"]`, `riskLevel:
+"low"`). Gerekçe: Tesla hesabı/araç veya eşleştirilmiş bir Bluetooth
+cihazı GEREKTİRMİYOR, tek eylemli (Apple'ın native "Show Notification"
+eylemi — Phase 3B Test 1'de zaten kullanılan AYNI eylem türü), ve amaç
+capability'nin kendisini değil `user_assisted_import → installed`
+zincirinin MEKANİZMASINI kanıtlamak. Bu aynı zamanda Phase 3B Test 1'in
+açık bıraktığı soruyu ("Apple/iCloud tarafından imzalanmış bir shortcut
+aynı `shortcuts://import-shortcut?url=<icloud-link>` yoluyla dener mi?")
+kapatıyor.
+
+### Kullanıcının (fiziksel iPhone + Shortcuts uygulamasında) elle yapması gerekenler
+
+1. Shortcuts uygulamasında yeni bir kestirme oluştur, TEK eylem ekle:
+   **"Show Notification"** (metin: örn. "Test bildirimi").
+2. Kestirmeyi adlandır (örn. "Bildirim Göster") — bu isim
+   `suggestedName` olacak.
+3. Kestirmenin paylaşım menüsünden **"iCloud Bağlantısını Kopyala"**
+   (Copy iCloud Link) ile bir link al.
+4. Bu linki (ve kullandığın adı) bana ilet — ben registry'ye
+   `ios.notification.show`'un `template: { iCloudURL, suggestedName }`
+   alanı olarak ekleyeceğim.
+
+### Ben (kod tarafı) linki aldıktan sonra yapacaklarım
+
+1. `registry.ts`'de `ios.notification.show`'a `template` alanını ekle.
+2. `checkRegistryContract()` + `npx tsx contracts/generate.mjs` ile
+   contract/snapshot'ı doğrula ve yenile.
+3. Snapshot'ı `ios-bridge/Sources/AutomationCore/Resources/`'a kopyala.
+4. TS + Swift + gerçek Xcode UI regression çalıştır, sonuçları raporla.
+5. `git status` ile temiz ağaç doğrula, ayrı bir commit at (örn.
+   `feat: add real Shortcuts template for ios.notification.show`).
+
+**Not:** Template eklenmiş olması `.setupFailed`'ı ORTADAN KALDIRMAZ —
+yalnızca "içerik yok" nedenini eler. Gerçek cihazda import gerçekten
+başarısız olursa (imza/format sorunu vb.) sistem yine dürüstçe
+`.setupFailed`'a düşmeli; `prepareHandoff()`/`handOffToShortcuts()`
+hiçbir aşamada "içe aktarma kesin başarılı" varsaymaz — Phase 3B Test 7
+bulgusu (`shortcuts://import-shortcut` başarı/başarısızlığı OS'tan geri
+bildirilmiyor) burada da geçerli: kullanıcı "Ekledim" demeden `installed`
+asla üretilmez.
+
+**Bu iş bitmeden Test 2, ona bağımlı Test 3 (`installed` sonrası
+kalıcılık), Test 4 (`.waitingForUser`'a ulaşmak `prepareHandoff()`'un
+başarılı olmasını gerektiriyor) ve Test 2'nin gerçek LLM'li tekrarı olan
+Test 6, gerçek cihazda çalıştırılamaz.** Yalnızca Test 5 bu boşluktan
+tamamen bağımsız — o zaten yalnızca `previewConfirm`'e kadar gidiyor.
 
 ---
 
