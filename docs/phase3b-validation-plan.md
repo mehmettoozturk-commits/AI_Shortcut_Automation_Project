@@ -490,6 +490,30 @@ açık iş — "silindi/değişti" durumunu tespit edemiyorsak, MASTER_SPEC
 dürüst bir belirsizlik durumu göstermesi gerekecek. Bu, gerçek native
 adaptör (Phase 3C) yazılırken tasarlanmalı; şimdiden koda dökülmedi.
 
+### Test 8 — kısmi yeniden açılış (Phase 3C-3, 2026-09-19)
+
+`AutomationRepository` artık Swift'te gerçek (dosya-tabanlı,
+`FileBackedAutomationRepository`) — bu, Test 8'in **persistence**
+kısmını (adım 5-6: "uygulamayı kapat/aç, installed olarak geri geliyor
+mu?") gerçek anlamda test edilebilir kıldı, ve doğrudan repository
+testleriyle kanıtlandı (`FileBackedAutomationRepositoryTests.swift`,
+6/6 PASS): aynı dosyaya işaret eden YENİ bir repository örneği
+(gerçek bir restart'ı simüle eder), önceki örneğin yazdığı
+`installed`/`pending_user`/`failed` durumunu doğru koruyor, hiçbir
+kayıt sessizce `installed`'a "yükseltilmiyor".
+
+`BuilderMachine` da artık `create()`'te erken bir `pending_user` kaydı
+oluşturup akış boyunca AYNI kaydı güncelliyor (Test 8'in adım 2/7'si:
+"template yoksa pending_user kalmalı", "başarısız kurulum → failed") —
+bu, TS ve Swift'in ikisinde de testlerle kilitlendi.
+
+**Hâlâ eksik olan** (Test 8'in asıl sorusu — SetupService/gerçek
+Shortcuts entegrasyonu tarafı): adım 1/3/4 ("bir automation oluştur,
+Shortcut template bulunamadığı durumda...") ve Test 7'nin işaret ettiği
+"Shortcuts tek yönlü bir kara kutu" gerçeği hâlâ geçerli — uygulamadan
+aç/kapat yapmanın gerçek Shortcuts durumuna yansıması hâlâ mümkün değil
+(okuma/dinleme API'si yok). Bu kısım "ERTELENDİ" olarak kalıyor.
+
 ---
 
 ## Sonuç matrisi

@@ -124,6 +124,39 @@ bir hata) `setup_failed` üretir. TS: 193/193 (değişmedi — bu Swift/iOS'a
 özgü bir iş). Swift: 26/26 (20 + 6 yeni), gerçek iPhone hedefinde BUILD
 SUCCEEDED.
 
+**Phase 3C-3 (2026-09-19) — gerçek `AutomationRepository`:**
+`FileBackedAutomationRepository` (Swift, JSON dosyası — SwiftData/
+CoreData değil, minimum iOS sürümünü yükseltmemek için) eklendi.
+Repository'nin TEK görevi persistence; native Shortcuts kodu içinde
+YOK (`SetupService`/`ShortcutsHandoff`'ta kalıyor) — bu ayrım ileride
+bir Android portu için sınırı korur.
+
+Davranış değişikliği (TS + Swift, ikisinde de, state machine tutarlılığı
+için): `create()` artık `installStatus: pending_user` ile ERKEN bir
+kayıt oluşturup kaydediyor; bu kaydın id'si akış boyunca taşınıp
+(`currentAutomationId`/`pendingHandoff` ile aynı private-state paterni)
+her geçişte GÜNCELLENİYOR (upsert) — çoğaltılmıyor:
+
+- "Ekledim"/"Bağlayamadım" gibi ara adımlar → `pending_user` kalır.
+- `reportInstallFailed()` (Ekleyemedim/Bağlayamadım, Swift'te ayrıca OS
+  URL'i açamazsa) → `failed`.
+- `.noTemplateAvailable` (içerik eksikliği, KESİN başarısızlık DEĞİL) →
+  `pending_user` kalır, `failed` OLMAZ.
+- `retrySetup()` → `failed`'i yeniden `pending_user`'a döndürür.
+- `confirmTriggerLinked()`/`confirmGuidedSetupDone()` → TEK yol,
+  `installed`.
+
+Bunun için `InMemoryAutomationRepository.save()` (TS + Swift) gerçek
+bir UPSERT'e düzeltildi — eskiden yalnızca prepend yapıyordu (aynı id
+iki kez save() edilirse iki satır oluşurdu); artık `create()` erken
+kayıt oluşturduğu için bu düzeltme zorunluydu.
+
+TS: 201/201 (193 + 8 yeni). Swift: 33/33 (26 + 7 yeni), gerçek iPhone
+hedefinde BUILD SUCCEEDED. `FileBackedAutomationRepositoryTests.swift`
+(6/6), Test 8'in "uygulamayı kapat/aç" senaryosunu doğrudan kanıtlıyor:
+aynı dosyaya işaret eden YENİ bir repository örneği önceki durumu
+doğru koruyor.
+
 ## 1. Neden iki fazlı (3A / 3B)
 
 Faz 1.5 ve Faz 2'de kurduğumuz disiplin — bir şeyi doğrulamadan
