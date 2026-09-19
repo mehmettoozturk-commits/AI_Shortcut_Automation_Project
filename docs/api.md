@@ -84,21 +84,14 @@ karar yeniden değerlendirilebilir; şimdiden o karmaşıklığı almadık.
 
 ## 6. Kapsam dışı (bilinçli olarak Phase 4B/4C'ye bırakıldı)
 
-- **Gerçek LLM çağrısı.** `IntentExtractor`/`EntityExtractor`
-  arayüzleri (`src/nlu/ports.ts`) SENKRON (`extract(): IntentResult`,
-  Promise değil). Gerçek bir LLM sağlayıcısı ağ I/O'su gerektireceği
-  için bu imzaların ASYNC olması gerekecek — bu, `NluPipeline.plan()`
-  ve `NluPlanner` arayüzüne kadar yayılan gerçek bir refactor.
-  Bilinçli olarak Phase 4A'da yapılmadı (henüz gerekmiyor, kural
-  tabanlı çıkarım tamamen senkron).
-- **"LLM geçersiz JSON üretirse retry/clarification" davranışı** —
-  4B'nin konusu; 4A'nın mekanizması (şema doğrulama, hata yanıtları)
-  zaten hazır, LLM'e özgü retry mantığı henüz yok.
 - **Swift/iOS istemcisi (`HTTPBackedPlanner`).** Bu round yalnızca
   backend'i kurdu; iOS tarafında hâlâ `MockPlanner` kullanılıyor.
   Phase 4C'nin konusu.
 - **CORS, kimlik doğrulama, rate limiting** — yerel/dev kullanım için
   gerekli değil; gerçek bir dağıtım öncesi ayrıca ele alınmalı.
+
+(Bu bölümde daha önce listelenen "gerçek LLM çağrısı" ve "LLM JSON
+hatası → retry" maddeleri Phase 4B'de kapatıldı — bkz. §8.)
 
 ## 7. Test kapsamı
 
@@ -113,3 +106,132 @@ karar yeniden değerlendirilebilir; şimdiden o karmaşıklığı almadık.
 
 `npm run serve` ile sunucu `http://localhost:3000/plan`'da elle de
 denenebilir.
+
+## 8. Phase 4B — gerçek LLM sağlayıcısı (2026-09-19)
+
+### 8.0 En önemli cümle
+
+Mevcut senkron `IntentExtractor`/`EntityExtractor`/`NluPlanner`
+arayüzleri (`src/nlu/ports.ts`) **DEĞİŞMEDİ** — hâlâ senkron, hâlâ 221
+Phase 1-4A testi hiçbir satır değişmeden yeşil. Bunun yerine PARALEL,
+YENİ bir async sınır eklendi: `NluProvider.plan(input, context):
+Promise<IntentResult>`. `NluPipeline` artık iki giriş noktası taşıyor:
+senkron `plan()` (değişmedi, varsayılan `RuleBasedIntentExtractor`'ı
+kullanır) ve async `planAsync()` (yeni, varsayılan `RuleBasedProvider`
+— aynı kural tabanlı mantığın async sarmalayıcısı — veya gerçek bir LLM
+sağlayıcısı, `ClaudeIntentProvider`, kullanır). İkisi de niyet
+üretildikten SONRAKİ mantığı (`continueFromIntent` — düzeltme mi/yeni
+plan mı, eksik bilgi var mı) AYNI private metotta paylaşır; bu yüzden
+testler ve production tek bir boru hattını paylaşıyor, iki ayrı
+implementasyon yok.
+
+`POST /plan` artık `pipeline.planAsync()` çağırır (`answerClarification`
+hâlâ senkron — aşağıya bkz., §8.3).
+
+### 8.1 Neden yeni bir arayüz, mevcutları async yapmak yerine
+
+`IntentExtractor.extract()`'ı `Promise<IntentResult>` döndürecek şekilde
+değiştirmek, onu doğrudan senkron çağıran ~30 test bloğunu (dört test
+dosyasına yayılmış) `async`/`await`'e çevirmeyi gerektirirdi — mekanik
+ama geniş, riskli bir değişiklik. Yeni bir `NluProvider` arayüzü
+eklemek, mevcut sözleşmeyi kırmadan (kural tabanlı sağlayıcının kendi
+doğrudan testleri hiç dokunulmadan geçer) aynı hedefe ulaşır: kural
+tabanlı VE LLM sağlayıcısı aynı async sınırdan geçer.
+
+### 8.2 LLM'in ÜRETTİĞİ şey ve KESİNLİKLE ÜRETMEDİĞİ şey
+
+`ClaudeIntentProvider` (`src/nlu/providers/claude-provider.ts`),
+Anthropic TypeScript SDK'sının `client.messages.parse()` +
+`output_config: { format: zodOutputFormat(schema) }` desenini kullanır
+(serbest metin DEĞİL, `response.parsed_output` doğrudan tipli/doğrulanmış
+JSON). Şema (`LlmPlanOutputSchema`) şu şekli zorunlu kılar:
+
+```json
+{
+  "intent": "create_automation",
+  "trigger": { "semantic": "vehicle_departure" },
+  "steps": [{ "semantic": "vehicle_sentry_mode" }],
+  "entities": [{ "name": "vehicle", "value": "Tesla Model Y" }],
+  "missing": []
+}
+```
+
+**Değişmez (bu projenin tamamında tekrarlanan kural):** LLM'e verilen
+sistem promptu, registry'den yalnızca `semantic`/`kind`/`description`
+alanlarını okuyarak türetilmiş bir katalog içerir
+(`buildSemanticCatalog()`, `src/nlu/providers/llm-schema.ts`) —
+capability id'leri (`id` alanı) LLM'e **prompt/context olarak dahi
+verilmez**. Bu, tek bir yerde elle uyulan bir kural değil,
+`tests/nlu-contract.test.ts`'teki statik kaynak taramasıyla
+(capability id'lerinin `src/nlu/providers/*.ts` dosyalarında
+geçmediğini doğrular) ve `tests/llm-provider.test.ts`'teki çalışma
+zamanı testleriyle kilitli.
+
+### 8.3 Neden `answerClarification` hâlâ senkron
+
+Bekleyen bir soruya verilen cevaptan (`"Tesla Model Y."` gibi) entity
+çıkarmak, LLM gerektirmeyen, saf regex tabanlı bir iş
+(`RuleBasedEntityExtractor`) — bunu async bir sınırın arkasına almak
+gereksiz karmaşıklık katardı. Yalnızca YENİ bir isteğin/düzeltmenin
+NİYET SINIFLANDIRMASI (`plan`/`planAsync`) LLM sınırından geçer.
+
+### 8.4 Çok turlu bağlam LLM'e nasıl aktarılır (capability id sızdırmadan)
+
+"Arabadan inince klimayı aç." → "Hangi araç?" → "Tesla Model Y." →
+"Hayır, Model 3." senaryosunda üçüncü tur, `intent: "modify_automation"`
+sınıflandırmasını gerektirir. Bunun için LLM'e önceki turların METNİ ve
+`context.lastIntent` (ÖNCEKİ turun SEMANTİK `IntentResult`'ı — trigger/
+steps zaten semantik isim taşır, capability id DEĞİL) ipucu olarak
+verilir; `context.currentPlan`'daki ÇÖZÜLMÜŞ capability id'leri
+(`plan.trigger.type` gibi) LLM'e ASLA verilmez. Düzeltme algılandıktan
+sonra asıl revizyonu (yalnızca aracın değişmesi, tetikleyici/eylemin
+korunması) hâlâ registry-farkında olmayan, kural tabanlı
+`DefaultPlanRevisionEngine` yapar — bu, Phase 2'den beri değişmedi.
+
+Bu akış hem sahte bir sağlayıcıyla (`tests/pipeline-async.test.ts`) hem
+de gerçek, çalışan bir HTTP sunucusuna karşı (kural tabanlı varsayılan
+sağlayıcıyla, `npm run serve` + üç ardışık `curl` isteği) elle
+doğrulandı: üçüncü turda yalnızca `plan.trigger.device` değişiyor,
+`plan.trigger.type` ve `plan.steps` AYNEN korunuyor.
+
+### 8.5 Hata ayrımı: `provider_error` vs `unsupported`/`not_understood`
+
+`PlanningOutcome`'a (ve `PlanResponseSchema`'ya) yeni bir durum eklendi:
+`provider_error` (LLM ağ hatası, geçersiz/şemaya uymayan JSON).
+Bilinçli olarak `not_understood` ile BİRLEŞTİRİLMEDİ — `not_understood`
+sağlayıcının BAŞARIYLA çalışıp "bu niyeti tanımadım" dediği geçerli bir
+sonuçtur; `provider_error` sağlayıcının HİÇ çalışamadığını gösterir.
+HTTP'de bu ayrım durum koduna da yansır: `provider_error` → 502, diğer
+üç durum (`plan`/`needs_clarification`/`unsupported`/`not_understood`)
+→ 200 (kendi `status` alanlarıyla ayırt edilir).
+
+### 8.6 API anahtarı
+
+`.env` zaten `.gitignore`'da; anahtar hiçbir satırda hardcode edilmedi.
+`serve.ts`, `LLM_API_KEY` (sağlayıcı-bağımsız, ileride başka bir LLM'e
+geçilirse isim değişmesin diye) veya `ANTHROPIC_API_KEY` (SDK'nın kendi
+standart ismi) runtime environment'ta varsa `ClaudeIntentProvider`'ı,
+yoksa (açıkça loglayarak) kural tabanlı varsayılanı kullanır. Bu
+ortamda ikisi de tanımlı değildi; bu yüzden gerçek bir LLM çağrısının
+uçtan uca doğrulaması YAPILMADI — yalnızca sahte (`ClaudeMessagesClient`
+enjekte edilen) istemciyle şema/eşleme mantığı doğrulandı
+(`tests/llm-provider.test.ts`). Gerçek bir anahtarla `npm run serve`
+çalıştırılıp aynı üç `curl` turu tekrarlanarak bu doğrulama
+tamamlanabilir.
+
+### 8.7 Test kapsamı (Phase 4B eklentisi)
+
+- `tests/pipeline-async.test.ts` — `planAsync()`'in varsayılan
+  sağlayıcıyla senkron `plan()` ile birebir aynı sonucu ürettiğini,
+  kilitli çok turlu senaryoyu ve sağlayıcı hatasının ayrı bir durum
+  olarak döndüğünü doğrular.
+- `tests/llm-provider.test.ts` — semantik katalogun capability id
+  içermediğini, `ClaudeIntentProvider`'ın yapılandırılmış çıktıyı
+  doğru eşlediğini, geçersiz/şemasız çıktıda ve ağ hatasında
+  `LlmProviderError` fırlattığını (sahte istemciyle, ağ çağrısı
+  YAPMADAN) doğrular.
+- `tests/api-server.test.ts`'e eklenen test — enjekte edilmiş bir
+  başarısız sağlayıcıyla gerçek bir HTTP isteğinin 502 +
+  `status: "provider_error"` döndürdüğünü doğrular.
+- `tests/nlu-contract.test.ts`'teki statik hardcode taraması artık
+  `src/nlu/providers/*.ts` dosyalarını da kapsıyor.

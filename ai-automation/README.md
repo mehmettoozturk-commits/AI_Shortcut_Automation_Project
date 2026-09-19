@@ -137,6 +137,21 @@ tiplerinin birebir Zod karşılığı — API'ye özel ayrı bir şekil icat
 edilmedi. `npm run serve` ile `http://localhost:3000/plan` üzerinden
 elle denenebilir. Ayrıntı ve tasarım kararları: `docs/api.md`.
 
+### Phase 4B — gerçek LLM sağlayıcısı (2026-09-19)
+
+`src/nlu/providers/` — mevcut senkron `IntentExtractor`/`NluPlanner`
+arayüzleri DEĞİŞMEDEN, paralel bir ASYNC sınır eklendi: `NluProvider`.
+`RuleBasedProvider` (deterministik, testlerde kullanılan varsayılan) ve
+`ClaudeIntentProvider` (gerçek LLM — `client.messages.parse` +
+yapılandırılmış çıktı) aynı sınırdan, `NluPipeline.planAsync()`
+üzerinden geçer. LLM'e capability id ASLA gösterilmez/ürettirilmez —
+yalnızca registry'den türetilmiş semantik katalog. API anahtarı
+`LLM_API_KEY`/`ANTHROPIC_API_KEY` runtime environment'tan okunur, hiçbir
+satırda hardcode edilmedi. Ayrıntı: `docs/api.md` §8.
+
+**TS test durumu: 236/236** (Phase 4A: 177 + 44, Phase 4B: +15)
+typecheck: PASS · build: PASS · web build: PASS
+
 Not: bu README'nin geri kalanındaki test sayıları (158/177) ve "Swift
 derlenmedi" ifadesi artık ESKİ — o zamandan beri Phase 3B/3C tamamlandı,
 Swift gerçek cihazda derleniyor/test ediliyor. Güncel sayılar ve durum
