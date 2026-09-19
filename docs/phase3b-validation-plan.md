@@ -375,6 +375,56 @@ doğru tetikleniyor.
 state'inin NEDEN otomatik ilerlemediğinin tam kanıtı olur — kullanıcı
 beyanına güvenmek zorunda olduğumuzu doğrular).
 
+### Test 7 SONUÇ (2026-09-19, gerçek iPhone 16 Pro) — KALDI, ama beklenen şekilde
+
+**Yöntem:** Planın orijinal adımları yerine (uygulamanın kendisi henüz
+gerçek bir Shortcuts entegrasyonuna sahip olmadığı için — bkz. altta),
+daha temel ve gerçekten test edilebilir bir soru arandı: **iOS,
+`shortcuts://import-shortcut` sırasında başarı/iptal/hata durumunu
+üçüncü taraf bir uygulamaya PROGRAMATİK olarak bildirebiliyor mu?**
+`docs/ios-bridge.md` §3'te `x-callback-url`'in `run-shortcut` için
+doğrulandığı biliniyordu; `import-shortcut` için hiç denenmemişti.
+
+Yerel bir HTTP sunucusu (`/success`, `/cancel`, `/error` uç noktaları,
+her isteği loglayan) kurulup şu URL tetiklendi:
+
+```
+shortcuts://x-callback-url/import-shortcut?url=<imzasız-dosya>&name=...
+  &x-success=http://<mac-ip>:8766/success
+  &x-cancel=http://<mac-ip>:8766/cancel
+  &x-error=http://<mac-ip>:8766/error
+```
+
+**Gözlem:** Telefon yine "Importing unsigned shortcut files is not
+supported" hatasını gösterdi (Test 1 ile tutarlı) — **ama sunucu
+logunda `/success`, `/cancel`, `/error` uç noktalarından HİÇBİRİNE
+istek gelmedi.** iOS, bu başarısızlığı hiçbir x-callback mekanizmasıyla
+çağırana bildirmedi.
+
+**Sonuç:** `import-shortcut` (en azından bu başarısızlık senaryosunda)
+`x-callback-url`'i desteklemiyor veya tetiklemiyor. **Bu KALDI, ama tam
+olarak planın "Kaldı" kriterinin öngördüğü şekilde:** uygulama, kullanıcı
+tarafında ne olduğunu programatik olarak BİLEMİYOR. Bu, `waiting_for_user`/
+`linking_trigger` state'lerinin kullanıcıya doğrudan sorması gereken
+TASARIM KARARINI ("Ekledim mi?", "Bağladım mı?") gerçek cihaz kanıtıyla
+doğruluyor — varsayım değil, kanıtlanmış bir kısıt.
+
+**Önemli sınırlama (dürüstçe belirtilmeli):** Bu test yalnızca
+BAŞARISIZLIK (imzasız red) yolunu kapsadı. Gerçek bir BAŞARILI import
+sırasında (imzalı bir şablonla) `x-success`'in tetiklenip
+tetiklenmediği hâlâ test edilmedi — bunun için ham, doğrudan
+fetch'lenebilir imzalı bir `.shortcut` kaynağına ihtiyaç var (iCloud
+paylaşım linkleri HTML sayfası döndürüyor, ham dosya değil — bkz. Test
+1b'nin metodolojik notu). Bu, ayrı, henüz yapılmamış bir alt-test.
+
+**Ayrıca not:** Planın orijinal Test 7 prosedürü ("uygulamadan tam akışı
+çalıştır, Shortcuts'ta otomasyonun gerçekten orada olduğunu doğrula")
+şu an test edilemez — çünkü uygulamanın kendisi hâlâ Phase 1 mock'ları
+kullanıyor (`MockSetupService`, `InMemoryAutomationRepository`);
+gerçek bir Shortcuts okuma/yazma entegrasyonu yok. Bu bir test
+sonucu değil, mimari bir gerçek: gerçek entegrasyon yazılana kadar bu
+kısım tekrar ziyaret edilmeli.
+
 ---
 
 ### Test 8 — Uygulamadan otomasyon yönetimi (P1)
@@ -398,6 +448,28 @@ silinmiş.
 **Not:** Bu, muhtemelen programatik okuma API'si olmadığı için (Test
 1/2'nin türevi bir kısıt) tam çözülemeyebilir; o zaman dürüst bir
 "bilmiyoruz" durumu tasarlanmalı (MASTER_SPEC §18 ruhuyla tutarlı).
+
+### Test 8 SONUÇ (2026-09-19) — ERTELENDİ (mimari kısıt, Test 7 ile aynı sebep)
+
+**Test edilemez durumda — bu bir "kaldı" değil, önkoşulun eksikliği.**
+Test 8'in sorduğu şey ("uygulamadan aç/kapat yap, gerçek Shortcuts
+durumuyla senkron mu") gerçek bir okuma/yazma entegrasyonu gerektiriyor.
+Şu an `AutomationRepository`/`SetupService` (TS ve Swift, ikisi de)
+Phase 1 mock'ları — `InMemoryAutomationRepository` yalnızca bellek içi
+bir liste tutuyor, gerçek Shortcuts API'sine hiç dokunmuyor. Yani
+`toggleAutomation()` çağrıldığında gerçekte Shortcuts'ta HİÇBİR ŞEY
+değişmiyor; senkronizasyon sorusu henüz anlamlı değil.
+
+Test 7'nin x-callback-url bulgusuyla birleşince ortaya çıkan gerçek
+resim: iOS, üçüncü taraf uygulamalara Shortcuts'ın iç durumunu
+(kurulu mu, aktif mi, silinmiş mi) okuma/dinleme yolu sunmuyor gibi
+görünüyor (resmi olarak aranmadı, ama Test 1/2/7'nin üçü de aynı
+yönde işaret ediyor: Shortcuts tek yönlü bir kara kutu). **Ürün
+sonucu:** `docs/capabilities.md`'ye eklenmesi gereken olası yeni bir
+açık iş — "silindi/değişti" durumunu tespit edemiyorsak, MASTER_SPEC
+§18 gereği uygulamanın "sanıyorum hâlâ aktif, ama emin değilim" gibi
+dürüst bir belirsizlik durumu göstermesi gerekecek. Bu, gerçek native
+adaptör (Phase 3C) yazılırken tasarlanmalı; şimdiden koda dökülmedi.
 
 ---
 
