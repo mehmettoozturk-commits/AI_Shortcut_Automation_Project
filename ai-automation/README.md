@@ -189,8 +189,55 @@ ortamda fiziksel cihaz yok; aynı proje kullanıcının kendi Mac'inde
 gerçek cihazla açılabilir. Ayrıntı: `docs/ios-bridge.md` Phase 4D-1
 bölümü.
 
-Phase 4D-2 (gerçek Claude API smoke test) henüz yapılmadı — bu UI hazır
-olduğuna göre sıradaki adım.
+### Phase 4D-2/4D-3/4E-1/4E-2/4E-3 — gerçek LLM smoke testi ve güvenilirlik katmanları (2026-09-19)
+
+Anthropic anahtarı olmadığından gerçek smoke test ücretsiz sağlayıcılara
+(Google Gemini, Groq, NVIDIA NIM) uyarlanarak yapıldı — `src/nlu/
+providers/gemini-provider.ts`, `openai-compatible-provider.ts` (Groq +
+NVIDIA'nın paylaştığı tek implementasyon), hepsi `LlmPlanOutputSchema`/
+prompt/eşlemeyi Claude ile PAYLAŞIR (`llm-schema.ts`). `serve.ts`,
+`LLM_PROVIDER` ile hangi sağlayıcının kullanılacağını seçer.
+
+Gerçek NVIDIA hesabına karşı çalıştırılan smoke test, üç gerçek, art
+arda gelen güvenilirlik katmanı doğurdu:
+
+- **4D-3 — temporal ambiguity hardening**: bir model, "9'da bana
+  hatırlat." için ne clarification sordu ne saat uydurdu — şema
+  açısından geçerli ama saat bilgisi TAMAMEN eksik bir plan üretti.
+  İki katman eklendi: prompt talimatı + `NluPipeline.planAsync()`'te
+  `sourceText`'i kural tabanlı `normalizeTime()` ile yeniden değerlendiren
+  deterministik bir güvenlik ağı. Bu arada `normalizeTime()`'da gerçek
+  bir öncesi hata da bulundu ve düzeltildi ("gece 12'de" 12:00 yerine
+  artık doğru şekilde 00:00 dönüyor).
+- **4E-1 — semantic completeness validation**: aynı smoke testte iki
+  farklı (temporal olmayan) hata bulundu — model bazen katalog
+  satırının `"[trigger] "` önekini semantik alana kopyalıyor, bazen de
+  `create_automation` için hiç eylem üretmiyor. İkisi de artık
+  `provider_error` olarak raporlanıyor, yanlışlıkla `unsupported`a
+  düşmüyor.
+- **4E-2 — `description` → `displayDescription` ayrımı**: registry,
+  LLM katalogunda/DSL metinlerinde kullanılan teknik `description`'dan
+  AYRI, yalnızca SwiftUI'da (`BuilderViewModel`) gösterilen doğal dilde
+  bir `displayDescription` alanı kazandı. Gerçek Xcode UI testinde
+  doğrulandı: "Seni şöyle anladım" ekranı artık "Telefonunun Bluetooth
+  bağlantısı kesildiğinde" gibi bir dil kullanıyor, "tetiklenir" gibi
+  resmi bir dil DEĞİL.
+- **4E-3 — retry/repair katmanı**: `NluPipeline.planAsync()`, retry
+  edilebilir bir hatadan (semantic completeness ihlali, model boş/
+  şemasız içerik döndürmesi) sonra, capability id İÇERMEYEN jenerik bir
+  talimatla TEK bir repair denemesi yapar; hâlâ hatalıysa `provider_error`
+  döner. Ağ hatası/timeout gibi GERÇEK sistem hataları hiç retry
+  edilmez. `NluPipeline.retryMetrics` (kullanıcıya hiç gösterilmeyen bir
+  iç sayaç) gerçek NVIDIA'ya karşı 10 istekte 8 ilk-deneme, 1 repair,
+  1 kalıcı hata ölçtü.
+
+**TS test durumu: 280/280** (Phase 4C sonrası: 236 + Phase 4D-2: 8 +
+Phase 4D-3: 13 + Phase 4E-1: 12 + Phase 4E-2: 4 + Phase 4E-3: 7)
+**Swift test durumu: 45/45** (değişmedi — 4E-3 bilinçli olarak registry/
+Swift'e dokunmadı)
+
+Ayrıntı: `docs/api.md` §8-§13, `docs/ios-bridge.md` Phase 4D-1/4E-2
+bölümleri.
 
 Not: bu README'nin geri kalanındaki test sayıları (158/177) ve "Swift
 derlenmedi" ifadesi artık ESKİ — o zamandan beri Phase 3B/3C tamamlandı,

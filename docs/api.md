@@ -409,8 +409,87 @@ girdisi art arda denendiğinde, önek sızıntısı ve eksik eylem
 durumlarının İKİSİ de artık `provider_error` olarak net bir mesajla
 raporlanıyor; hiçbiri sessizce `unsupported`a düşmüyor.
 
-Test kapsamı: `tests/semantic-completeness.test.ts` (12 test) —
+Test kapsamı: `tests/semantic-completeness.test.ts` (13 test) —
 `checkSemanticCompleteness()`'ın birim testleri artı `NluPipeline.
 planAsync()` üzerinden uçtan uca doğrulama (önek sızıntısı, boş eylem,
 geçerli plan yanlış pozitif üretmiyor, gerçek `unsupported` hâlâ
 `unsupported` kalıyor).
+
+## 13. Retry/Repair katmanı (Phase 4E-3)
+
+Zincir artık dört katmanlı:
+
+```
+LLM → Schema (Zod) → Semantic completeness (§12) →
+    ┌─ geçerli → devam (Registry)
+    └─ RETRY EDİLEBİLİR bir hata → tek bir repair denemesi →
+           ┌─ geçerli → devam
+           └─ hâlâ hatalı → provider_error
+```
+
+**Amaç modeli "ne pahasına olursa olsun düzeltmek" DEĞİL** — en fazla
+**bir** ek deneme (toplam iki gerçek sağlayıcı çağrısı), yalnızca
+belirli hata türleri için.
+
+### 13.1 Hangi hatalar retry edilir
+
+`LlmProviderError` artık bir `retryable: boolean` taşır (varsayılan
+`false` — GÜVENLİ taraf):
+
+| Hata | `retryable` | Neden |
+|---|---|---|
+| Ağ hatası / istek başarısız | `false` | Gerçek bir sistem hatası; tekrar denemek genelde aynı sonucu verir |
+| Model boş/şemasız içerik döndürdü | `true` | Model YANIT ÜRETTİ ama bozuk — bir sonraki denemede düzelebilir |
+| JSON parse hatası | `true` | Aynı gerekçe |
+| Zod şema doğrulama hatası | `true` | Aynı gerekçe |
+| Semantic completeness ihlali (§12) | `true` | Model semantik sözleşmeyi ihlal etti ama "tekrar dene" ile düzelebilir |
+
+Registry'de gerçekten karşılığı olmayan (`unsupported`) istekler retry
+TETİKLEMEZ — semantic completeness zaten geçer, karar registry'nin
+işidir.
+
+### 13.2 Repair talimatı — capability id ASLA içermez
+
+`buildRepairInstruction()` (`llm-schema.ts`), modelin ÖNCEKİ (geçersiz)
+çıktısının KENDİSİNİ asla yankılamaz — yalnızca JENERİK bir talimat
+üretir ("Bilinmeyen bir semantik isim kullandın, yalnızca listelenen
+isimleri kullan, `[trigger] `/`[action] ` gibi bir önek ekleme" gibi).
+Bunun nedeni: model yanlışlıkla GERÇEK bir capability id üretmiş olsaydı
+bile, o değeri "düzeltmesi için" modele aynen geri göndermek bir
+capability id sızıntısı olurdu — `tests/provider-retry.test.ts`'teki
+her senaryo, repair talimatının `CAPABILITIES` listesindeki HİÇBİR
+id'yi içermediğini doğrular.
+
+### 13.3 Ölçüm — `retryMetrics` (kullanıcıya HİÇ gösterilmez)
+
+`NluPipeline.retryMetrics` (`{firstPassSuccess, repairSuccess,
+providerError}`), API yanıtına asla girmeyen, yalnızca gözlemlenebilirlik
+için var olan bir sayaç. `scripts/retry-smoke-test.mjs`, gerçek bir
+sağlayıcıya karşı birkaç senaryo çalıştırıp bunu raporlar (otomatik test
+paketinin parçası DEĞİL — elle, `LLM_API_KEY`/`LLM_PROVIDER` tanımlıyken
+çalıştırılır).
+
+Gerçek NVIDIA NIM'e karşı 10 istekten oluşan bir örneklemde:
+
+```json
+{ "firstPassSuccess": 8, "repairSuccess": 1, "providerError": 1 }
+```
+
+Yani 10 isteğin 8'i ilk denemede, 1'i repair sonrası başarılı oldu; 1'i
+repair sonrasında da şema hatası vermeye devam etti (`provider_error`).
+Bu, küçük/ücretsiz bir modelin gerçek güvenilirliğini ölçmenin tam
+karşılığı — retry katmanı bunu MASKELEMEDİ, yalnızca kurtarılabilir
+kısmı (10'da 1) gerçekten kurtardı.
+
+### 13.4 Test kapsamı
+
+`tests/provider-retry.test.ts` (6 test), sahte, senaryolu bir
+`NluProvider` ile GERÇEK ağ çağrısı yapmadan deterministik olarak:
+önek sızıntısından repair ile kurtulma, eksik eylemden repair ile
+kurtulma, retryable bir `LlmProviderError`'dan repair ile kurtulma,
+repair sonrası da hatalı kalma (TAM OLARAK 2 çağrı — üçüncü deneme YOK),
+retry'nin geçerli-ama-unsupported istekleri TETİKLEMEDİĞİ, ve
+retryable OLMAYAN bir hatanın hiç retry edilmediği doğrulanır.
+
+**Registry ve Swift tarafına dokunulmadı** — bu katman tamamen
+`NluPipeline` + provider katmanında yaşıyor.
