@@ -83,6 +83,7 @@ describe("PlanResponseSchema — gerçek pipeline çıktılarıyla", () => {
       alternatives: outcome.alternatives,
       intent: outcome.intent,
       reason: outcome.reason,
+      trigger: outcome.trigger,
       conversation: ctx,
     };
     expect(PlanResponseSchema.safeParse(response).success).toBe(true);

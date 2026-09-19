@@ -137,6 +137,15 @@ export type PlanningOutcome =
       alternatives: Array<{ id: string; description: string }>;
       intent: IntentResult;
       reason: string;
+      /**
+       * Phase 4C: tetikleyicinin ÇÖZÜLMÜŞ capability id'si (varsa) —
+       * eylem desteklenmiyor olsa da tetikleyici genelde zaten geçerlidir.
+       * `HTTPBackedPlanner` (Swift) registry'yi HİÇ bilmez; bu alan
+       * olmadan Swift, TS'deki `NluPlannerAdapter`'ın yaptığı gibi
+       * "unsupported eylemi sahte bir plana gömüp BuilderMachine'in
+       * KENDİ registry'sine buldurma" desenini tekrar edemezdi.
+       */
+      trigger: string | null;
     }
   | { status: "needs_clarification"; question: MissingInfoField; intent: IntentResult }
   /**

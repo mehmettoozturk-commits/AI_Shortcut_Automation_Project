@@ -148,6 +148,7 @@ export async function handlePlanRequest(
         alternatives: outcome.alternatives,
         intent: outcome.intent,
         reason: outcome.reason,
+        trigger: outcome.trigger,
         conversation: context,
       };
       break;
@@ -165,7 +166,17 @@ export async function handlePlanRequest(
     return;
   }
 
-  sendJson(res, 200, validatedResponse.data);
+  // Phase 4C: iyi biçimli, semantik olarak eksiksiz bir plan ama
+  // Schema/Capability/Permission/Safety zincirinden GEÇEMEDİ (örn. izin
+  // eksik, riskli eylem onaysız). Bu, isteğin kendisi (400) veya
+  // sağlayıcının çöküşü (502) değil — 422 Unprocessable Entity, "isteği
+  // anladım ama sonucu işleyemem" için doğru HTTP karşılığı. Gövde
+  // AYNI kalır (istemci `validation.issues`'ı okuyup nedeni gösterebilir);
+  // yalnızca durum kodu ayrışır ki istemciler bunu genel bir "hata" ile
+  // karıştırmadan ayrı bir dal olarak ele alabilsin (bkz. Swift
+  // `HTTPBackedPlanner`, docs/ios-bridge.md Phase 4C).
+  const status = validatedResponse.data.status === "plan" && !validatedResponse.data.validation.ok ? 422 : 200;
+  sendJson(res, status, validatedResponse.data);
 }
 
 export function createPlanServer(options: { pipeline?: NluPipeline } = {}) {

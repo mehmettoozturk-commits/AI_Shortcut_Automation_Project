@@ -179,6 +179,8 @@ export const PlanResponseSchema = z.discriminatedUnion("status", [
     alternatives: z.array(z.object({ id: z.string(), description: z.string() })),
     intent: IntentResultSchema,
     reason: z.string(),
+    /** Phase 4C — bkz. src/nlu/types.ts PlanningOutcome "unsupported" yorumu. */
+    trigger: z.string().nullable(),
     conversation: ConversationContextSchema,
   }),
   z.object({

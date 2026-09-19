@@ -164,6 +164,7 @@ export function buildPlan(intent: IntentResult, device: DeviceContext = DEFAULT_
       reason: intent.trigger
         ? `"${intent.trigger.type}" için desteklenen bir tetikleyici bulunamadı.`
         : "Otomasyonun ne zaman çalışacağını anlayamadım.",
+      trigger: null,
     };
   }
 
@@ -174,6 +175,7 @@ export function buildPlan(intent: IntentResult, device: DeviceContext = DEFAULT_
       alternatives: [],
       intent,
       reason: `${intent.entities.application!.value} için doğrulanmış bir tetikleyici yok; bu tetikleyici yalnızca ${triggerCap.supportedApps!.join(", ")} uygulamasını kapsıyor.`,
+      trigger: triggerCap.id,
     };
   }
 
@@ -188,6 +190,7 @@ export function buildPlan(intent: IntentResult, device: DeviceContext = DEFAULT_
         alternatives: [],
         intent,
         reason: "Bu işlemi şu anda otomatik olarak yapamıyorum.",
+        trigger: triggerCap.id,
       };
     }
     if (resolved.kind === "unsupported") {
@@ -197,6 +200,7 @@ export function buildPlan(intent: IntentResult, device: DeviceContext = DEFAULT_
         alternatives: alternativesOf(resolved.capability.id),
         intent,
         reason: `${resolved.capability.description.replace(/\.$/, "")} iPhone Shortcuts entegrasyonunda bulunmuyor.`,
+        trigger: triggerCap.id,
       };
     }
     const params = resolveParameters(resolved.capability, semanticStep.details);
@@ -210,6 +214,7 @@ export function buildPlan(intent: IntentResult, device: DeviceContext = DEFAULT_
       alternatives: [],
       intent,
       reason: "Ne yapmak istediğini anladım ama karşılık gelen bir işlem bulamadım.",
+      trigger: triggerCap.id,
     };
   }
 

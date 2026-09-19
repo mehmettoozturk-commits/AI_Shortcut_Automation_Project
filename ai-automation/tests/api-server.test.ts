@@ -57,11 +57,16 @@ describe("POST /plan — gerçek HTTP sunucusu", () => {
     expect(body.validation.stage).toBe("complete");
   });
 
-  it("izin verilmemişse doğrulama zinciri bunu yakalar (ok: false)", async () => {
+  it("izin verilmemişse doğrulama zinciri bunu yakalar (ok: false, HTTP 422)", async () => {
     const res = await postPlan({
       text: "Arabadan inince Tesla Model Y'nin Sentry Mode'unu aç",
       grantedPermissions: [],
     });
+    // Phase 4C: iyi biçimli/semantik olarak eksiksiz ama zincirden
+    // geçemeyen bir plan artık 200 değil 422 döner (bkz. server.ts) —
+    // istemcinin bunu genel bir hatayla karıştırmadan ayırt edebilmesi
+    // için.
+    expect(res.status).toBe(422);
     const body = await res.json();
     expect(body.status).toBe("plan");
     expect(body.validation.ok).toBe(false);
@@ -76,11 +81,16 @@ describe("POST /plan — gerçek HTTP sunucusu", () => {
     expect(body.conversation.lastMissingField).toBe("vehicle");
   });
 
-  it("desteklenmeyen bir eylem alternatiflerle unsupported döner", async () => {
+  it("desteklenmeyen bir eylem alternatiflerle unsupported döner (HTTP 200)", async () => {
     const res = await postPlan({ text: "Arabadan inince Tesla'nın kamerasını aç" });
+    expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe("unsupported");
     expect(body.alternatives.some((a: { id: string }) => a.id === "tesla.sentry_mode.toggle")).toBe(true);
+    // Phase 4C: tetikleyici çözüldü (Swift HTTPBackedPlanner registry'yi
+    // hiç bilmeden bunu kullanabilsin diye) — capability id İÇERİĞİNİ
+    // Swift YORUMLAMAZ, yalnızca taşır.
+    expect(body.trigger).toBe("ios.bluetooth.disconnected");
   });
 
   it("anlaşılamayan girdi için not_understood döner", async () => {
