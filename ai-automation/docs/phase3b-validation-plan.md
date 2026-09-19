@@ -444,6 +444,52 @@ gerçek bir Shortcuts okuma/yazma entegrasyonu yok. Bu bir test
 sonucu değil, mimari bir gerçek: gerçek entegrasyon yazılana kadar bu
 kısım tekrar ziyaret edilmeli.
 
+### Phase 3C-4 SONUÇ (2026-09-19) — BAŞARILI import yolunda da x-success YOK
+
+Test 7'nin açık bıraktığı soru kapatıldı: **gerçek, başarılı bir
+import'ta da `x-success` tetiklenmiyor.**
+
+**Yöntem:** Test 1b'de zaten çalıştığı kanıtlanmış yol (düz iCloud
+paylaşım linkini — `https://www.icloud.com/shortcuts/<id>` — Safari'de
+Universal Link olarak açmak) tekrar kullanıldı, bu sefer linke
+`x-success`/`x-cancel` query parametreleri eklenerek:
+
+```
+https://www.icloud.com/shortcuts/<id>
+  ?x-success=http://<mac-ip>:8767/success
+  &x-cancel=http://<mac-ip>:8767/cancel
+```
+
+**Gözlem:** İçe aktarma yine tamamen başarılı oldu (kullanıcı "Ekle"ye
+bastı, kestirme kütüphaneye eklendi — Test 1b'nin bire bir tekrarı).
+Ama sunucu logunda `/success` VEYA `/cancel`'dan HİÇBİRİNE istek
+gelmedi.
+
+**Sonuç:** `x-success`/`x-cancel`, Universal Link (bare iCloud linki)
+yoluna eklenen query parametreleri olarak HİÇ okunmuyor/tetiklenmiyor
+— beklenen bir sonuç, çünkü `x-callback-url` sözleşmesi yalnızca
+`scheme://x-callback-url/action?...` biçimindeki özel URL şemaları
+için tanımlı; düz bir `https://` Universal Link'e keyfi query
+parametresi eklemek bu sözleşmeye hiç girmiyor.
+
+**Bu, Test 7 + Phase 3C-4'ün birleşik, artık TAM kapsamlı sonucu:**
+Shortcuts import'unun bilinen HER iKİ yolu da (`shortcuts://
+import-shortcut` özel şeması VE düz iCloud Universal Link'i)
+x-callback ile birleştirilemiyor:
+- `shortcuts://import-shortcut?url=...` → x-callback'i formel olarak
+  destekliyor OLABİLİR ama yalnızca ham/doğrudan fetch'lenebilir bir
+  `.shortcut` kaynağıyla çalışıyor (Test 1b) — imzalı iCloud içeriği bu
+  şekle hiç gelmiyor (o her zaman bir HTML sayfası döndürüyor).
+- Düz iCloud Universal Link'i → gerçekten çalışıyor (Test 1b) ama
+  x-callback sözleşmesine hiç dahil değil.
+
+**Nihai sonuç: hiçbir gerçek/başarılı Shortcuts import senaryosunda
+programatik bir sonuç sinyali alınamıyor — ne başarı ne iptal ne hata
+için.** Bu, "kullanıcıya doğrudan sor" tasarım kararını (waiting_for_user/
+linking_trigger) yalnızca teorik değil, artık HEM başarısız HEM başarılı
+yol için ayrı ayrı test edilmiş, tam kapsamlı bir kanıtla destekliyor.
+Bu konuda başka bir test/araştırma planlanmıyor — soru kapandı.
+
 ---
 
 ### Test 8 — Uygulamadan otomasyon yönetimi (P1)
@@ -595,3 +641,34 @@ ilerleme yok" ilkesi artık varsayım değil, üç ayrı testle (1, 2, 7)
 5. Test 4 (CarPlay) — donanım erişimi olursa.
 6. iOS 16/17/18 davranış boşluğu (`docs/capabilities.md` §1.1) —
    yalnızca iOS 26 test edildi.
+
+---
+
+## Phase 3C Checkpoint (2026-09-19)
+
+Yukarıdaki listenin durumu:
+
+| # | İş | Durum |
+|---|---|---|
+| 1 | Tesla parametre sözleşmesi | ✅ Phase 3C-1 — `Capability.parameters` + `capability-validator.ts` |
+| 2 | Gerçek `SetupService`/`ShortcutsHandoff` | ✅ Phase 3C-2 — `TemplateBackedSetupService`, `UIKitShortcutsHandoff` |
+| 2 (devamı) | Gerçek `AutomationRepository` | ✅ Phase 3C-3 — `FileBackedAutomationRepository`, restart-durability kanıtlı |
+| 3 | `x-success` (başarılı import) araştırması | ✅ Phase 3C-4 — **denendi, hiç tetiklenmedi** (yukarıdaki sonuç) |
+| 4 | Test 6 (ekran metni) | ⏸️ Hâlâ gözlem imkanı yok |
+| 5 | Test 4 (CarPlay) | ⏸️ Hâlâ donanım yok |
+| 6 | iOS 16/17/18 matrisi | ⏸️ Phase 3C-5 — donanım yok (Test 4 ile aynı sebep) |
+
+**Yeni ortaya çıkan mimari gerçek (Phase 3C-2/3/4'ün birleşimi):**
+Shortcuts'ın "tek yönlü kara kutu" olduğu artık yalnızca Test 7'nin tek
+bir bulgusuna değil, **hem başarısız hem başarılı import yoluna ayrı
+ayrı test edilmiş** bir sonuca dayanıyor (Phase 3C-4). Gerçek
+`SetupService`/`ShortcutsHandoff`/`AutomationRepository` sınırı artık
+kodda var, ama içerik boşluğu (gerçek Apple-imzalı şablonlar) ve
+platform-okuma imkansızlığı nedeniyle bu sınır bugün "hazırım ama
+şablon yok" ve "yazdım ama okuyamıyorum" durumlarını DÜRÜSTÇE
+yansıtıyor — sahte bir "çalışıyor" izlenimi vermiyor.
+
+**Kalan gerçek engeller donanım kaynaklı** (Test 4, 6, iOS 16-18
+matrisi) — kod/mimari tarafında şu an aktif bir açık iş yok. Sıradaki
+anlamlı adım muhtemelen içerik üretimi (gerçek Apple-imzalı şablonlar)
+veya donanım erişimi bulununca ertelenen testlerin tamamlanması.
