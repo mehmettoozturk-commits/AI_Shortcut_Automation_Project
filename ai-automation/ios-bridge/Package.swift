@@ -14,7 +14,8 @@ let package = Package(
     name: "AutomationCore",
     platforms: [.iOS(.v16), .macOS(.v13)],
     products: [
-        .library(name: "AutomationCore", targets: ["AutomationCore"])
+        .library(name: "AutomationCore", targets: ["AutomationCore"]),
+        .library(name: "AutomationUI", targets: ["AutomationUI"])
     ],
     targets: [
         .target(
@@ -26,5 +27,11 @@ let package = Package(
             dependencies: ["AutomationCore"],
             resources: [.copy("Fixtures/automation-plan-samples.json")]
         ),
+        // Phase 4D-1: SwiftUI View/ViewModel katmanı — AutomationCore'dan
+        // AYRI bir hedef, çünkü "core" mantık (state machine, registry,
+        // HTTP client) platform sunumundan (SwiftUI) bağımsız kalmalı.
+        // Gerçek bir App hedefi bu paketin dışında (App/) yaşar ve bu
+        // ürünü tüketir.
+        .target(name: "AutomationUI", dependencies: ["AutomationCore"]),
     ]
 )
