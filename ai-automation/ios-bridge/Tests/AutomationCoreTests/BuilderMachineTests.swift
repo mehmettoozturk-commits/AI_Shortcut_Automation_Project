@@ -389,11 +389,13 @@ final class BuilderMachineTests: XCTestCase {
 @MainActor
 final class TemplateBackedSetupServiceTests: XCTestCase {
     func testNoTemplateAvailable_forRealCapabilitiesToday() async throws {
-        // 2026-09-19 itibarıyla registry'deki 15 capability'nin
-        // HİÇBİRİNDE gerçek bir template yok (içerik boşluğu, bkz.
-        // TemplateBackedSetupService.swift'in dosya başı yorumu). Bu
-        // test tam olarak o dürüst davranışı kilitler: sahte bir
-        // "hazır" durumu ASLA üretilmemeli.
+        // 2026-09-19 itibarıyla registry'deki 15 capability'den 14'ünde
+        // (ios.notification.show HARİÇ, bkz.
+        // testTemplateAvailable_forNotificationShow) hâlâ gerçek bir
+        // template yok (içerik boşluğu, bkz. TemplateBackedSetupService.
+        // swift'in dosya başı yorumu). Bu test o dürüst davranışı
+        // kilitler: template yoksa sahte bir "hazır" durumu ASLA
+        // üretilmemeli — burada `tesla.sentry_mode.toggle` ile.
         let registry = try CapabilityRegistry.loadFromBundle()
         let service = TemplateBackedSetupService(registry: registry)
         let draft = DraftAutomationPlan(
@@ -405,6 +407,29 @@ final class TemplateBackedSetupServiceTests: XCTestCase {
         guard case .noTemplateAvailable = result else {
             return XCTFail("Gerçek bir template olmadığı için .noTemplateAvailable bekleniyordu, ready DEĞİL")
         }
+    }
+
+    /// Phase 5A İş 0.5 (2026-09-19) — gerçek, Apple/iCloud tarafından
+    /// imzalanmış TEK şablon (`ios.notification.show`, bkz.
+    /// docs/phase5a-e2e-validation-plan.md). Capability id/parametre
+    /// HARDCODE EDİLMİYOR — sonuç registry'nin kendi `template` alanından
+    /// GERÇEKTEN okunuyor mu diye doğrulanıyor.
+    func testTemplateAvailable_forNotificationShow() async throws {
+        let registry = try CapabilityRegistry.loadFromBundle()
+        let service = TemplateBackedSetupService(registry: registry)
+        let cap = try XCTUnwrap(registry.find("ios.notification.show"))
+        let draft = DraftAutomationPlan(
+            name: "Test",
+            trigger: TriggerDTO(type: "ios.bluetooth.disconnected", device: nil),
+            steps: [.action(type: "ios.notification.show", params: nil)]
+        )
+        let result = await service.prepare(draft)
+        guard case .ready(let url, let suggestedName) = result else {
+            return XCTFail("Gerçek bir template var, .ready bekleniyordu")
+        }
+        XCTAssertEqual(url.absoluteString, cap.template?.iCloudURL)
+        XCTAssertEqual(suggestedName, cap.template?.suggestedName)
+        XCTAssertEqual(url.host, "www.icloud.com")
     }
 
     func testUnknownCapability_isNoTemplateAvailable_notCrash() async throws {

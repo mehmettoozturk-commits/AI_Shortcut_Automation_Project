@@ -148,12 +148,14 @@ export interface Capability {
    * 3B Test 1b'nin kanıtladığı TEK çalışan yol — AI çalışma zamanında
    * `.shortcut` üretemez, bkz. docs/capabilities.md §1.2).
    *
-   * ŞU AN HİÇBİR CAPABILITY'NİN GERÇEK BİR ŞABLONU YOK — bu bir içerik
-   * boşluğu (birinin Shortcuts'ta elle her eylem için bir şablon
-   * oluşturup iCloud bağlantısını buraya eklemesi gerekiyor), kod
-   * eksikliği değil. Alan tanımlı ama boş bırakılıyor; gerçek
-   * `SetupService` (Swift, `TemplateBackedSetupService`) bunu bulamazsa
-   * dürüstçe `setup_failed` üretir, "kuruldu" demez.
+   * Phase 5A İş 0.5 (2026-09-19) itibarıyla yalnızca `ios.notification.show`
+   * gerçek bir şablona sahip (bkz. o girdideki `template` alanı) — geri
+   * kalan 14 capability'de hâlâ İÇERİK BOŞLUĞU var (kod eksikliği
+   * değil): birinin Shortcuts'ta elle o eylem için bir şablon oluşturup
+   * iCloud bağlantısını buraya eklemesi gerekiyor. Alan tanımsız
+   * bırakılan capability'ler için gerçek `SetupService` (Swift,
+   * `TemplateBackedSetupService`) bunu bulamazsa dürüstçe `setup_failed`
+   * üretir, "kuruldu" demez.
    */
   template?: { iCloudURL: string; suggestedName: string };
 

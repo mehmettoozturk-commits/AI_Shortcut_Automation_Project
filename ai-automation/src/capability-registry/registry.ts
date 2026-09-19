@@ -408,6 +408,17 @@ export const CAPABILITIES: Capability[] = [
     // "Use the Show Notification action" sayfasıyla değiştirildi.
     source: "https://support.apple.com/guide/shortcuts/apd2175adcab/ios",
     verifiedAt: VERIFIED,
+    // Phase 5A İş 0.5 (2026-09-19) — gerçek, Apple/iCloud tarafından
+    // imzalanmış TEK şablon. Kullanıcının gerçek iPhone'unda Shortcuts
+    // uygulamasında elle oluşturup "iCloud Bağlantısını Kopyala" ile
+    // paylaştığı, tek eylemli ("Show Notification") bir kestirme.
+    // Amaç bu capability'nin kendisini değil user_assisted_import →
+    // installed zincirinin mekanizmasını kanıtlamak (bkz.
+    // docs/phase5a-e2e-validation-plan.md "İş 0.5").
+    template: {
+      iCloudURL: "https://www.icloud.com/shortcuts/6cce8a476d664f34997734f87f95fc4b",
+      suggestedName: "Bildirim Göster",
+    },
   },
   {
     id: "tesla.sentry_mode.toggle",

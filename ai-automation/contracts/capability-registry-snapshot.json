@@ -427,7 +427,11 @@
     "riskLevel": "low",
     "evidence": "apple_docs",
     "source": "https://support.apple.com/guide/shortcuts/apd2175adcab/ios",
-    "verifiedAt": "2026-09-17"
+    "verifiedAt": "2026-09-17",
+    "template": {
+      "iCloudURL": "https://www.icloud.com/shortcuts/6cce8a476d664f34997734f87f95fc4b",
+      "suggestedName": "Bildirim Göster"
+    }
   },
   {
     "id": "tesla.sentry_mode.toggle",
