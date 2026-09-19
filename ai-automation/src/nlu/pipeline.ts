@@ -15,7 +15,7 @@ import type { WorkflowStep } from "../dsl/schema.js";
 import { buildPlan } from "./plan-builder.js";
 import type { ClarificationEngine, EntityExtractor, IntentExtractor, NluPlanner, NluProvider, PlanRevisionEngine } from "./ports.js";
 import { LlmProviderError } from "./providers/errors.js";
-import { hardenTemporalAmbiguity } from "./providers/llm-schema.js";
+import { checkSemanticCompleteness, hardenTemporalAmbiguity } from "./providers/llm-schema.js";
 import { RuleBasedProvider } from "./providers/rule-based-provider.js";
 import { RuleBasedEntityExtractor, RuleBasedIntentExtractor } from "./rule-based.js";
 import { lower, normalizeTime } from "./turkish.js";
@@ -180,6 +180,17 @@ export class NluPipeline implements NluPlanner {
     // denetlenir. Bu invariant tek bir paylaşılan yardımcı fonksiyona
     // (`toIntentResult`) gömülü değil ki atlanamasın.
     intent = hardenTemporalAmbiguity(intent);
+
+    // Phase 4E-1: LLM → Schema → BURASI → Registry. Şema açısından
+    // geçerli ama anlamsal olarak BOZUK (katalogda olmayan bir semantik
+    // isim, veya create_automation için hiç eylem üretmeme) bir çıktı
+    // sessizce "unsupported"a düşürülmez — bu registry'nin "anladım ama
+    // yapamam" kararı için ayrılmış; burası LLM'in kendi sözleşmesini
+    // ihlal ettiği durumdur.
+    const semanticError = checkSemanticCompleteness(intent);
+    if (semanticError) {
+      return { status: "provider_error", message: semanticError };
+    }
     return this.continueFromIntent(intent, input, context);
   }
 

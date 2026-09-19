@@ -277,3 +277,48 @@ export function hardenTemporalAmbiguity(result: IntentResult): IntentResult {
   }
   return result;
 }
+
+/**
+ * Phase 4E-1 — Semantic completeness / malformed-semantic validation.
+ * Boru hattı: LLM → Schema (Zod, `LlmPlanOutputSchema`) → BURASI →
+ * Registry. Şema açısından geçerli ama anlamsal olarak BOZUK bir çıktıyı
+ * yakalar; bunlar SESSİZCE "unsupported"a düşürülmez (o, registry'nin
+ * "anladım ama yapamam" kararı için ayrılmış) — `provider_error` olarak
+ * raporlanır, çünkü LLM burada kendi sözleşmesini (yalnızca katalogdaki
+ * semantik isimleri üret; create_automation bir eylem gerektirir) ihlal
+ * etmiştir.
+ *
+ * Gerçek bir NVIDIA NIM smoke testinde iki somut örneği gözlemlendi:
+ *   1. Model, katalog satırındaki `"[trigger] "`/`"[action] "` önekini
+ *      semantik alana kopyaladı (`"[trigger] vehicle_departure"`) —
+ *      registry'de böyle bir semantik yok, sessizce "tetikleyici
+ *      bulunamadı" unsupported'ına düşerdi; oysa bu bir PROVIDER
+ *      hatasıdır, business-logic "unsupported" değil.
+ *   2. Model `create_automation` + geçerli bir tetikleyici üretti ama
+ *      `steps` tamamen boştu — "ne yapmak istediğini anladım ama
+ *      karşılık gelen işlem yok" unsupported mesajı YANLIŞ bir çerçeve;
+ *      gerçekte model bir eylem üretmeyi UNUTTU.
+ *
+ * `"unmapped:"` öneki İSTİSNA — bu, `RuleBasedIntentExtractor`'ın
+ * kasıtlı, test edilmiş bir kuralı (registry'de karşılığı olmayan ama
+ * GERÇEKTEN anlaşılan bir eylemi işaretlemek için); bu fonksiyon yalnızca
+ * ASYNC (LLM) yolunda çalıştığı için pratikte hiç üretilmez, ama gelecekte
+ * bir sağlayıcı bu convention'ı taklit ederse kırılmasın diye korunur.
+ */
+export function checkSemanticCompleteness(result: IntentResult): string | null {
+  const known = new Set(buildSemanticCatalog().map((c) => c.semantic));
+  const isKnownSemantic = (semantic: string) => known.has(semantic) || semantic.startsWith("unmapped:");
+
+  if (result.trigger && !isKnownSemantic(result.trigger.type)) {
+    return `LLM bilinmeyen/geçersiz bir semantik tetikleyici üretti: "${result.trigger.type}".`;
+  }
+  for (const step of result.steps) {
+    if (!isKnownSemantic(step.type)) {
+      return `LLM bilinmeyen/geçersiz bir semantik eylem üretti: "${step.type}".`;
+    }
+  }
+  if (result.intent === "create_automation" && result.trigger && result.steps.length === 0) {
+    return "LLM bir tetikleyici üretti ama hiçbir eylem üretmedi (create_automation en az bir eylem gerektirir).";
+  }
+  return null;
+}
