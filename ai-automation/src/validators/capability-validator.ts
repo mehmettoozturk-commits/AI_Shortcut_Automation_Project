@@ -11,7 +11,7 @@
  * since those would mean the AI invented/hallucinated a capability.
  */
 
-import type { AutomationPlan, WorkflowStep } from "../dsl/schema.js";
+import type { AutomationPlan, CapabilityActionStep, WorkflowStep } from "../dsl/schema.js";
 import { flattenSteps } from "../dsl/schema.js";
 import { findCapability } from "../capability-registry/registry.js";
 import type { Platform } from "../domain/types.js";
@@ -23,7 +23,7 @@ export interface CapabilityCheckContext {
 
 import { isAskConfirmationStep, isConditionalStep } from "../dsl/schema.js";
 
-function isCapabilityActionStep(step: WorkflowStep): boolean {
+function isCapabilityActionStep(step: WorkflowStep): step is CapabilityActionStep {
   return !isAskConfirmationStep(step) && !isConditionalStep(step);
 }
 
@@ -99,6 +99,32 @@ export function validateCapabilities(
         path: `steps[${i}]`,
         severity: "warning",
       });
+    }
+
+    // Phase 3C-1 (Phase 3B Test 5 bulgusu): parametreli bir eylem,
+    // gerekli her parametreyi SOMUT bir değerle doldurmak zorunda —
+    // "Ask Each Time"/eksik parametre, eylemin sessizce çalışmasını
+    // engelliyor (gerçek cihazda gözlemlendi, bkz. docs/capabilities.md #4).
+    for (const param of cap.parameters ?? []) {
+      if (!param.required) continue;
+      const value = step.params?.[param.name];
+      if (value === undefined || value === null) {
+        issues.push({
+          code: "missing_required_parameter",
+          message: `"${step.type}" eylemi "${param.name}" parametresini gerektiriyor ama sağlanmamış. Sabit bir değer olmadan bu eylem otomasyon içinde bile interaktif soru sorabilir (Phase 3B Test 5).`,
+          path: `steps[${i}].params.${param.name}`,
+          severity: "error",
+        });
+        continue;
+      }
+      if (param.type === "enum" && !param.allowed?.includes(String(value))) {
+        issues.push({
+          code: "invalid_parameter_value",
+          message: `"${step.type}" eyleminin "${param.name}" parametresi "${String(value)}" olamaz. İzin verilenler: ${param.allowed?.join(", ")}.`,
+          path: `steps[${i}].params.${param.name}`,
+          severity: "error",
+        });
+      }
     }
   });
 

@@ -140,6 +140,15 @@ export function checkRegistryContract(capabilities: Capability[] = CAPABILITIES)
     if (cap.triggerGroup && cap.priority === undefined) {
       add("priority_required", "triggerGroup tanımlıysa priority de tanımlı olmalı");
     }
+
+    // 7b. Parametre şeması (Phase 3C-1, Test 5 bulgusu): enum tipi
+    //     parametreler boş olmayan bir `allowed` listesi taşımalı, yoksa
+    //     "somut değerle doldurulmalı" kuralı anlamsızlaşır.
+    for (const param of cap.parameters ?? []) {
+      if (param.type === "enum" && (!param.allowed || param.allowed.length === 0)) {
+        add("parameter_schema_invalid", `Parametre "${param.name}" enum tipinde ama allowed listesi boş`);
+      }
+    }
   }
 
   // 8. Grup içi priority tekilliği.

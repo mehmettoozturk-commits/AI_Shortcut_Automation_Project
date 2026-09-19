@@ -117,6 +117,35 @@ function alternativesOf(capabilityId: string): Array<{ id: string; description: 
   return supportedAlternativesFor(capabilityId).map((c) => ({ id: c.id, description: c.description }));
 }
 
+/**
+ * Phase 3C-1 (Phase 3B Test 5 bulgusu): parametreli bir eylem, gerekli
+ * her parametreyi SOMUT bir değerle taşımak zorunda (capability-validator.ts
+ * bunu zorunlu kılar). Bu fonksiyon capability id/parametre adını
+ * HARDCODE ETMEZ — semantik detaydan (`SemanticStep.details`) bir değer
+ * varsa onu kullanır, yoksa registry'nin kendi `defaultValue`'suna (veya
+ * onun da yoksa ilk `allowed` değerine) döner. NLU henüz her parametre
+ * için semantik bir detay üretmiyor olabilir; bu, o boşluğu güvenli bir
+ * varsayılanla kapatır.
+ */
+function resolveParameters(
+  cap: Capability,
+  details: Record<string, unknown> | undefined
+): Record<string, unknown> | undefined {
+  if (!cap.parameters || cap.parameters.length === 0) return undefined;
+  const out: Record<string, unknown> = {};
+  for (const param of cap.parameters) {
+    const fromIntent = details?.[param.name];
+    if (fromIntent !== undefined) {
+      out[param.name] = fromIntent;
+      continue;
+    }
+    if (!param.required) continue;
+    const fallback = param.defaultValue ?? param.allowed?.[0];
+    if (fallback !== undefined) out[param.name] = fallback;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 /** Cihaz bağlamı verilmezse muhafazakâr varsayım: CarPlay yok. */
 const DEFAULT_DEVICE: DeviceContext = { osVersion: 26, hasCarPlay: false };
 
@@ -170,7 +199,8 @@ export function buildPlan(intent: IntentResult, device: DeviceContext = DEFAULT_
         reason: `${resolved.capability.description.replace(/\.$/, "")} iPhone Shortcuts entegrasyonunda bulunmuyor.`,
       };
     }
-    steps.push({ type: resolved.capability.id });
+    const params = resolveParameters(resolved.capability, semanticStep.details);
+    steps.push(params ? { type: resolved.capability.id, params } : { type: resolved.capability.id });
   }
 
   if (steps.length === 0) {

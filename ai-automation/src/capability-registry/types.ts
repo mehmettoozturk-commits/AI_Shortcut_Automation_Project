@@ -68,6 +68,30 @@ export type InstallMethod =
   /** Bizim App Intent'imiz; Shortcuts'ta eylem olarak görünür */
   | "app_intent_exposure";
 
+/**
+ * Bir eylemin gerektirdiği parametre. Phase 3B Test 5 (gerçek Tesla +
+ * iPhone 16 Pro) bulgusu: "Nöbetçi Modu" eylemi, parametresi ("Enable"/
+ * "Disable") somut bir değere sabitlenmediği sürece — "Her Seferinde
+ * Sor" bırakılırsa — otomasyon içinde bile interaktif soru sorup sessiz
+ * çalışmıyor. Bu yüzden AI'ın (veya compiler'ın) ürettiği her eylem,
+ * capability'nin gerektirdiği her zorunlu parametreyi SOMUT bir değerle
+ * doldurmak zorunda; "Ask Each Time"/eksik parametre üretilemez.
+ */
+export interface CapabilityParameter {
+  name: string;
+  type: "enum" | "string" | "number" | "boolean";
+  required: boolean;
+  /** Yalnızca `type: "enum"` için: izin verilen somut değerler. */
+  allowed?: string[];
+  /**
+   * NLU bu parametreyi (`SemanticStep.details`'ten) çözemediğinde
+   * kullanılacak güvenli varsayılan. `plan-builder.ts` capability id/
+   * parametre adını HARDCODE ETMEZ — yalnızca bunu okur. Belirtilmezse
+   * ve `type: "enum"` ise `allowed[0]` kullanılır.
+   */
+  defaultValue?: string;
+}
+
 export interface Capability {
   id: string;
   platform: Platform;
@@ -98,6 +122,8 @@ export interface Capability {
    * doldurulur. Yoksa builder genel/doğrulanmamış bir patern kullanır.
    */
   triggerLinkingSteps?: string[];
+  /** Bu eylemin gerektirdiği parametreler (bkz. CapabilityParameter). */
+  parameters?: CapabilityParameter[];
 
   // --- çözümleme ---
   /** Aynı kullanıcı niyetini karşılayan capability'lerin grubu */

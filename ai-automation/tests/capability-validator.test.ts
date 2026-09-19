@@ -64,3 +64,109 @@ describe("validateCapabilities", () => {
     expect(result.issues.some((i) => i.code === "platform_mismatch")).toBe(true);
   });
 });
+
+// Phase 3C-1 — Tesla parameter contract (Phase 3B Test 5 bulgusu):
+// "Nöbetçi Modu" eylemi, parametresi sabit bir değere ayarlanmazsa
+// otomasyon içinde bile interaktif soru sorup sessiz çalışmıyor. Bu
+// yüzden capability-validator, parametreli bir eylemin gerekli her
+// parametresini SOMUT bir değerle taşıdığını zorunlu kılar.
+describe("validateCapabilities — parametre sözleşmesi (Phase 3C-1)", () => {
+  const SENTRY_PLAN = {
+    name: "Arabadan inince Sentry Mode",
+    trigger: { type: "ios.bluetooth.disconnected", device: "Tesla Model Y" },
+    steps: [
+      { type: "ask_confirmation", message: "Sentry Mode'u açmak ister misin?" },
+      {
+        type: "conditional",
+        condition: "answer == yes",
+        then: [{ type: "tesla.sentry_mode.toggle", params: { mode: "enable" } }],
+        else: [],
+      },
+    ],
+  };
+
+  it("gerekli parametre eksikse REDDEDİLİR", () => {
+    const plan = parse({
+      ...SENTRY_PLAN,
+      steps: [
+        { type: "ask_confirmation", message: "Sentry Mode'u açmak ister misin?" },
+        {
+          type: "conditional",
+          condition: "answer == yes",
+          then: [{ type: "tesla.sentry_mode.toggle" }], // params yok
+          else: [],
+        },
+      ],
+    });
+    const result = validateCapabilities(plan, { platform: "ios" });
+    expect(result.ok).toBe(false);
+    expect(result.issues.some((i) => i.code === "missing_required_parameter")).toBe(true);
+  });
+
+  it("parametre 'Ask Each Time' anlamına gelen boş/null değerle REDDEDİLİR", () => {
+    const plan = parse({
+      ...SENTRY_PLAN,
+      steps: [
+        { type: "ask_confirmation", message: "Sentry Mode'u açmak ister misin?" },
+        {
+          type: "conditional",
+          condition: "answer == yes",
+          then: [{ type: "tesla.sentry_mode.toggle", params: { mode: null } }],
+          else: [],
+        },
+      ],
+    });
+    const result = validateCapabilities(plan, { platform: "ios" });
+    expect(result.ok).toBe(false);
+    expect(result.issues.some((i) => i.code === "missing_required_parameter")).toBe(true);
+  });
+
+  it("izin verilmeyen bir parametre değeri REDDEDİLİR (AI 'mode: maybe' üretemez)", () => {
+    const plan = parse({
+      ...SENTRY_PLAN,
+      steps: [
+        { type: "ask_confirmation", message: "Sentry Mode'u açmak ister misin?" },
+        {
+          type: "conditional",
+          condition: "answer == yes",
+          then: [{ type: "tesla.sentry_mode.toggle", params: { mode: "maybe" } }],
+          else: [],
+        },
+      ],
+    });
+    const result = validateCapabilities(plan, { platform: "ios" });
+    expect(result.ok).toBe(false);
+    expect(result.issues.some((i) => i.code === "invalid_parameter_value")).toBe(true);
+  });
+
+  it("geçerli, somut bir parametre değeri KABUL EDİLİR", () => {
+    const result = validateCapabilities(parse(SENTRY_PLAN), { platform: "ios" });
+    expect(result.ok).toBe(true);
+    expect(result.issues.some((i) => i.code === "missing_required_parameter")).toBe(false);
+    expect(result.issues.some((i) => i.code === "invalid_parameter_value")).toBe(false);
+  });
+
+  it("her iki izin verilen değer de (enable/disable) ayrı ayrı kabul edilir", () => {
+    for (const mode of ["enable", "disable"]) {
+      const plan = parse({
+        ...SENTRY_PLAN,
+        steps: [
+          { type: "ask_confirmation", message: "Sentry Mode'u açmak ister misin?" },
+          {
+            type: "conditional",
+            condition: "answer == yes",
+            then: [{ type: "tesla.sentry_mode.toggle", params: { mode } }],
+            else: [],
+          },
+        ],
+      });
+      const result = validateCapabilities(plan, { platform: "ios" });
+      expect(result.ok).toBe(true);
+    }
+  });
+
+  it("parametresiz capability'ler (örn. Bluetooth tetikleyici) bu kontrolden etkilenmez", () => {
+    const result = validateCapabilities(parse(VALID_PLAN), { platform: "ios" });
+    expect(result.issues.some((i) => i.code === "missing_required_parameter")).toBe(false);
+  });
+});

@@ -449,6 +449,18 @@
     ],
     "installMethod": "user_assisted_import",
     "requiresUserSetupStep": true,
+    "parameters": [
+      {
+        "name": "mode",
+        "type": "enum",
+        "required": true,
+        "allowed": [
+          "enable",
+          "disable"
+        ],
+        "defaultValue": "enable"
+      }
+    ],
     "semantic": "vehicle_sentry_mode",
     "nluKeywords": [
       "sentry",

@@ -97,12 +97,16 @@ function buildSteps(actionType: string, isSentry: boolean) {
   const question = isSentry
     ? "Sentry Mode'u açmak ister misin?"
     : "Kamerayı açmak ister misin?";
+  // Phase 3C-1: "aç" niyeti -> mode: "enable". AI/NLU kullanıcının
+  // isteğini yorumlar (aç/kapat), Tesla'ya özgü parametre şemasını
+  // registry belirler (bkz. capability-validator.ts).
+  const step = isSentry ? { type: actionType, params: { mode: "enable" } } : { type: actionType };
   return [
     { type: "ask_confirmation" as const, message: question },
     {
       type: "conditional" as const,
       condition: "answer == yes",
-      then: [{ type: actionType }],
+      then: [step],
       else: [],
     },
   ];

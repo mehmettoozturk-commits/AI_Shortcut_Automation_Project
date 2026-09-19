@@ -427,6 +427,25 @@ export const CAPABILITIES: Capability[] = [
     permissions: ["tesla_account"],
     installMethod: "user_assisted_import",
     requiresUserSetupStep: true,
+    /**
+     * Phase 3B Test 5, Phase 3C-1: eylemin gerçek Shortcuts eyleminde
+     * bir Enable/Disable parametresi var; sabitlenmezse ("Her Seferinde
+     * Sor") otomasyon içinde bile interaktif soru çıkıyor. Compiler bu
+     * parametrenin somut bir değerle geldiğini zorunlu kılar (bkz.
+     * capability-validator.ts).
+     */
+    parameters: [
+      {
+        name: "mode",
+        type: "enum",
+        required: true,
+        allowed: ["enable", "disable"],
+        // NLU henüz "aç"/"kapat" ayrımını semantik detay olarak
+        // üretmiyor (yalnızca "aç" cümleleri test edildi); registry
+        // bu boşluk için açık bir varsayılan sağlıyor.
+        defaultValue: "enable",
+      },
+    ],
     semantic: "vehicle_sentry_mode",
     nluKeywords: ["sentry", "gözcü"],
     riskLevel: "medium",

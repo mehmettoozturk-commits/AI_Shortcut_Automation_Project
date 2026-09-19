@@ -72,6 +72,24 @@ public enum InstallMethod: String, Codable, Sendable {
     case appIntentExposure = "app_intent_exposure"
 }
 
+public enum ParameterType: String, Codable, Sendable {
+    case enumType = "enum"
+    case string
+    case number
+    case boolean
+}
+
+/// Phase 3C-1 (Phase 3B Test 5 bulgusu): bir eylemin gerektirdiği
+/// parametre. Veri yalnızca registry snapshot'ından decode edilir —
+/// Tesla'nın ("mode": enable/disable) şeması burada TEKRAR YAZILMAZ.
+public struct CapabilityParameter: Codable, Sendable, Equatable {
+    public var name: String
+    public var type: ParameterType
+    public var required: Bool
+    public var allowed: [String]?
+    public var defaultValue: String?
+}
+
 public struct OSBehavior: Codable, Sendable, Equatable {
     public var minOSVersion: Int
     public var canRunWithoutAsking: Tristate
@@ -103,6 +121,8 @@ public struct Capability: Codable, Sendable, Identifiable, Equatable {
     /// BAĞLANAMIYOR — kullanıcı bunu Otomasyon sekmesinde elle yapmalı.
     /// Yalnızca gerçek cihazda doğrulanmış tetikleyiciler için doldurulur.
     public var triggerLinkingSteps: [String]?
+    /// Bu eylemin gerektirdiği parametreler (bkz. CapabilityParameter).
+    public var parameters: [CapabilityParameter]?
 
     public var triggerGroup: String?
     public var priority: Int?

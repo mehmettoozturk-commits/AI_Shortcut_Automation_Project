@@ -165,6 +165,23 @@ describe("Compiler contract — registry değişmezleri", () => {
     };
     expect(checkRegistryContract([bad]).some((v) => v.rule === "disclosure_required")).toBe(true);
   });
+
+  // Phase 3C-1: Tesla'nın gerçek registry satırı (mode: enable/disable)
+  // sözleşmeyi ihlal etmiyor; boş `allowed` listesi ihlal SAYILIR.
+  it("Tesla Sentry Mode'un gerçek parametre şeması sözleşmeyi ihlal etmiyor", () => {
+    const tesla = findCapability("tesla.sentry_mode.toggle")!;
+    expect(tesla.parameters?.length).toBeGreaterThan(0);
+    expect(checkRegistryContract([tesla])).toEqual([]);
+  });
+
+  it("enum parametrenin boş 'allowed' listesini yakalar", () => {
+    const cap = findCapability("tesla.sentry_mode.toggle")!;
+    const bad: Capability = {
+      ...cap, id: "bad.emptyenum",
+      parameters: [{ name: "mode", type: "enum", required: true, allowed: [] }],
+    };
+    expect(checkRegistryContract([bad]).some((v) => v.rule === "parameter_schema_invalid")).toBe(true);
+  });
 });
 
 describe("Compiler contract — kurulum yöntemi hesabı", () => {
