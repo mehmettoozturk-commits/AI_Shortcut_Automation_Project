@@ -335,7 +335,26 @@ dosya yazma izni/yol sorunu olabilir — birim testleri bunu yakalamaz
 
 ---
 
-### Test 3 SONUÇ (beklemede)
+### Test 3 SONUÇ (2026-09-19, gerçek iPhone)
+
+**PASS.**
+
+- **Ortam:** Fiziksel iPhone, Test 2'de kurulan "Bildirim Göster"
+  otomasyonu (`installed`) yerinde.
+- **Girdi:** (Yeni girdi yok — Test 2'nin ürettiği kayıt kullanıldı.)
+- **Beklenen:** Uygulama App Switcher'dan tamamen kapatılıp (force
+  quit) yeniden açıldığında, otomasyon Otomasyonlarım listesinde hâlâ
+  görünmeli (`~/Library/Application Support/.../automations.json`'dan
+  gerçekten yeniden okunarak).
+- **Gerçekleşen:** Uygulama force quit edildi, yeniden açıldı, kayıt
+  Otomasyonlarım listesinde görünmeye devam etti.
+- **PASS / FAIL / BLOCKED:** **PASS.**
+- **Kanıt:** Kullanıcı gözlemi, bu oturumda kayıt altına alındı.
+- **Not:** `FileBackedAutomationRepository`'nin gerçek iOS sandbox'ında
+  (Simulator/unit test'ten farklı olarak) dosya yazma/okuma izni ve
+  yolunun doğru çalıştığını kanıtlıyor — Phase 5A İş 0 SONUÇ bölümünde
+  belirtilen "birim testleri bunu yakalamaz" riski gerçek cihazda
+  elendi.
 
 ---
 
@@ -418,7 +437,7 @@ tutarlı, teknik olmayan bir dille kullanıcıya sunulduğu doğrulanır.
 |---|---|---|---|
 | 1 — guided_manual E2E | P0 | BLOCKED (ürün kararı bekliyor) | Kasıtlı, bkz. İş 0.5 notu |
 | 2 — user_assisted_import E2E + handoff | P0 | **PASS** (2026-09-19) | Phase 3B Test 1'in açık sorusunu kapattı |
-| 3 — kalıcılık (installed sonrası kapat/aç) | P0 | beklemede | |
+| 3 — kalıcılık (installed sonrası kapat/aç) | P0 | **PASS** (2026-09-19) | |
 | 4 — kalıcılık (ara durumda kapat/aç) | P1 | beklemede (davranış tespiti) | |
 | 5 — clarification + düzeltme | P1 | beklemede | |
 | 6 — gerçek LLM ile E2E | P1 (opsiyonel) | beklemede | |
