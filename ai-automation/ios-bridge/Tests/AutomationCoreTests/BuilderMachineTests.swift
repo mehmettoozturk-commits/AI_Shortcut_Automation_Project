@@ -69,8 +69,10 @@ final class BuilderMachineTests: XCTestCase {
 
         await machine.handOffToShortcuts()
         guard case .waitingForUser = machine.step else { return XCTFail("waitingForUser bekleniyordu") }
+        // Phase 3C-3: create()'te ERKEN bir pending kayıt oluştu; henüz installed DEĞİL.
         let beforeConfirm = await repo.list()
-        XCTAssertEqual(beforeConfirm.count, 0, "kullanıcı doğrulamadan HİÇBİR ŞEY kaydedilmemeli")
+        XCTAssertEqual(beforeConfirm.count, 1, "erken pending_user kaydı olmalı")
+        XCTAssertEqual(beforeConfirm.first?.installStatus, .pendingUser)
 
         // "Ekledim" — Phase 3B Test 2: bu HENÜZ installed'a götürmez.
         machine.confirmShortcutAdded()
@@ -79,7 +81,8 @@ final class BuilderMachineTests: XCTestCase {
         }
         XCTAssertFalse(steps.isEmpty)
         let beforeTriggerLink = await repo.list()
-        XCTAssertEqual(beforeTriggerLink.count, 0, "tetikleyici bağlanmadan HİÇBİR ŞEY kaydedilmemeli")
+        XCTAssertEqual(beforeTriggerLink.count, 1, "hâlâ aynı kayıt, çoğalmadı")
+        XCTAssertEqual(beforeTriggerLink.first?.installStatus, .pendingUser)
 
         // "Bağladım" — installed'a giden TEK yol.
         await machine.confirmTriggerLinked()
@@ -107,7 +110,8 @@ final class BuilderMachineTests: XCTestCase {
             return XCTFail("30ms sonra hâlâ waitingForUser olmalı — otomatik ilerleme YOK")
         }
         let saved = await repo.list()
-        XCTAssertEqual(saved.count, 0)
+        XCTAssertEqual(saved.count, 1)
+        XCTAssertEqual(saved.first?.installStatus, .pendingUser)
     }
 
     func testShowSuccessRequiresInstalledFirst() async throws {
@@ -141,7 +145,8 @@ final class BuilderMachineTests: XCTestCase {
         machine.confirmShortcutAdded() // "Ekledim"
         guard case .linkingTrigger = machine.step else { return XCTFail("linkingTrigger bekleniyordu") }
         let saved = await repo.list()
-        XCTAssertEqual(saved.count, 0)
+        XCTAssertEqual(saved.count, 1)
+        XCTAssertEqual(saved.first?.installStatus, .pendingUser)
         machine.showSuccess() // installed değil, yok sayılmalı
         guard case .linkingTrigger = machine.step else {
             return XCTFail("showSuccess() linkingTrigger'dan doğrudan atlayabilmemeli")
@@ -166,7 +171,8 @@ final class BuilderMachineTests: XCTestCase {
             return XCTFail("confirmTriggerLinked() yanlış state'den geçiş yapmamalı")
         }
         let saved = await repo.list()
-        XCTAssertEqual(saved.count, 0)
+        XCTAssertEqual(saved.count, 1)
+        XCTAssertEqual(saved.first?.installStatus, .pendingUser)
     }
 
     func testLinkingTrigger_noAutomaticProgression() async throws {
@@ -187,10 +193,13 @@ final class BuilderMachineTests: XCTestCase {
             return XCTFail("30ms sonra hâlâ linkingTrigger olmalı — otomatik ilerleme YOK")
         }
         let saved = await repo.list()
-        XCTAssertEqual(saved.count, 0)
+        XCTAssertEqual(saved.count, 1)
+        XCTAssertEqual(saved.first?.installStatus, .pendingUser)
     }
 
-    /// "Bağlayamadım" — Ekleyemedim ile aynı sahte-başarı yasağı.
+    /// "Bağlayamadım" — Ekleyemedim ile aynı sahte-başarı yasağı. Ama
+    /// artık sessizce kaybolmuyor: kayıt `.failed` olarak GÜNCELLENİR
+    /// (Test 8) — çoğalmadan, AYNI id ile.
     func testReportInstallFailed_fromLinkingTrigger() async throws {
         let registry = try makeRegistry()
         let (machine, repo) = makeMachine(registry: registry)
@@ -202,13 +211,37 @@ final class BuilderMachineTests: XCTestCase {
         await machine.prepareHandoff()
         await machine.handOffToShortcuts()
         machine.confirmShortcutAdded()
-        machine.reportInstallFailed(reason: "Otomasyon tetikleyicisi bağlanamadı.")
+        await machine.reportInstallFailed(reason: "Otomasyon tetikleyicisi bağlanamadı.")
         guard case .setupFailed(_, _, let reason) = machine.step else {
             return XCTFail("setupFailed bekleniyordu")
         }
         XCTAssertEqual(reason, "Otomasyon tetikleyicisi bağlanamadı.")
         let saved = await repo.list()
-        XCTAssertEqual(saved.count, 0)
+        XCTAssertEqual(saved.count, 1)
+        XCTAssertEqual(saved.first?.installStatus, .failed)
+    }
+
+    /// `retrySetup()`, `.failed` bir kaydı yeniden `.pendingUser`'a
+    /// döndürür (aktif yeniden deneme, kalıcı bir "failed" damgası
+    /// değil).
+    func testRetrySetup_resetsFailedRecordToPendingUser() async throws {
+        let registry = try makeRegistry()
+        let (machine, repo) = makeMachine(registry: registry)
+        machine.open()
+        machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
+        await machine.submit()
+        await machine.confirmUnderstanding()
+        await machine.create()
+        await machine.prepareHandoff()
+        await machine.handOffToShortcuts()
+        await machine.reportInstallFailed(reason: "Ekleyemedim")
+        let afterFail = await repo.list()
+        XCTAssertEqual(afterFail.first?.installStatus, .failed)
+        await machine.retrySetup()
+        guard case .setup = machine.step else { return XCTFail("setup bekleniyordu") }
+        let afterRetry = await repo.list()
+        XCTAssertEqual(afterRetry.count, 1)
+        XCTAssertEqual(afterRetry.first?.installStatus, .pendingUser)
     }
 
     func testCameraRequestBecomesUnsupportedWithAlternatives() async throws {
@@ -250,8 +283,11 @@ final class BuilderMachineTests: XCTestCase {
         guard case .setupFailed = machine.step else {
             return XCTFail("setupFailed bekleniyordu (MASTER_SPEC §18: sahte başarı yasağı)")
         }
+        // Phase 3C-3: "template/hazırlık yok" bir içerik eksikliği,
+        // kesin bir başarısızlık değil — kayıt pending_user kalır.
         let saved = await repo.list()
-        XCTAssertEqual(saved.count, 0)
+        XCTAssertEqual(saved.count, 1)
+        XCTAssertEqual(saved.first?.installStatus, .pendingUser)
     }
 
     // MARK: - Phase 3C-2: gerçek SetupService/ShortcutsHandoff sınırı
@@ -271,7 +307,8 @@ final class BuilderMachineTests: XCTestCase {
             return XCTFail("userAssistedImport bekleniyordu, installed DEĞİL")
         }
         let saved1 = await repo.list()
-        XCTAssertEqual(saved1.count, 0)
+        XCTAssertEqual(saved1.count, 1)
+        XCTAssertEqual(saved1.first?.installStatus, .pendingUser)
     }
 
     /// `handOffToShortcuts()` (URL açma başarılı olsa bile) asla
@@ -291,7 +328,8 @@ final class BuilderMachineTests: XCTestCase {
             return XCTFail("waitingForUser bekleniyordu, installed DEĞİL")
         }
         let saved2 = await repo.list()
-        XCTAssertEqual(saved2.count, 0)
+        XCTAssertEqual(saved2.count, 1)
+        XCTAssertEqual(saved2.first?.installStatus, .pendingUser)
     }
 
     /// `shortcutsHandoff.open()` `false` dönerse (OS URL'i işleyemedi —
@@ -312,8 +350,10 @@ final class BuilderMachineTests: XCTestCase {
             return XCTFail("setupFailed bekleniyordu")
         }
         XCTAssertEqual(reason, "Kestirmeler uygulaması açılamadı.")
+        // OS'un URL'i açamaması GERÇEKTEN bilinen bir hata — .failed meşru.
         let saved3 = await repo.list()
-        XCTAssertEqual(saved3.count, 0)
+        XCTAssertEqual(saved3.count, 1)
+        XCTAssertEqual(saved3.first?.installStatus, .failed)
     }
 
     /// `handOffToShortcuts()`, `prepareHandoff()`'ın çözdüğü GERÇEK URL'i

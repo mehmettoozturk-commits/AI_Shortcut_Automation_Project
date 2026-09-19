@@ -17,8 +17,16 @@ public actor InMemoryAutomationRepository: AutomationRepository {
 
     public func list() async -> [Automation] { items }
 
+    /// Phase 3C-3: gerçek bir UPSERT — aynı `id` ile tekrar save()
+    /// çağrısı kaydı GÜNCELLER, çoğaltmaz. `BuilderMachine` artık
+    /// `create()`'te erken bir kayıt oluşturup aynı id'yi akış boyunca
+    /// güncellediği için bu düzeltme zorunlu hale geldi.
     public func save(_ automation: Automation) async {
-        items.insert(automation, at: 0)
+        if let idx = items.firstIndex(where: { $0.id == automation.id }) {
+            items[idx] = automation
+        } else {
+            items.insert(automation, at: 0)
+        }
     }
 
     public func setActive(_ id: String, active: Bool) async {

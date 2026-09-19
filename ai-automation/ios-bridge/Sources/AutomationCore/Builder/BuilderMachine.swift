@@ -37,6 +37,11 @@ public final class BuilderMachine: ObservableObject {
     /// kavramı yok) bilerek private tutuluyor.
     private var pendingHandoff: (url: URL, suggestedName: String)?
 
+    /// Phase 3C-3: `create()`'te bir kez üretilir, akış boyunca AYNI
+    /// kayda güncelleme (upsert) yapmak için taşınır — `pendingHandoff`
+    /// ile aynı patern, `BuilderStep`'in şeklini bozmamak için private.
+    private var currentAutomationId: String?
+
     public init(
         registry: CapabilityRegistry,
         planner: Planner,
@@ -67,8 +72,13 @@ public final class BuilderMachine: ObservableObject {
         step = .capturing(text: prefillText, draft: nil, notUnderstood: false)
     }
 
-    /// ✕ — akıştan tamamen çıkış, hiçbir şey kaydedilmez.
+    /// ✕ — akıştan tamamen çıkış. `create()`'ten beri bir `pendingUser`
+    /// kaydı oluştuysa SİLİNMEZ (kullanıcı yarım kalan girişimini
+    /// Otomasyonlarım listesinde dürüstçe görebilmeli) — yalnızca akışın
+    /// kendi bağlantısı (`currentAutomationId`) sıfırlanır ki bir
+    /// sonraki `create()` YENİ bir kayıt üretsin.
     public func close() {
+        currentAutomationId = nil
         step = .idle
     }
 
@@ -188,6 +198,12 @@ public final class BuilderMachine: ObservableObject {
     /// ask_confirmation adımının ve Safety Validator'ın aradığı
     /// kullanıcı onayının gerçek dünya karşılığıdır. Kurulum YAPMAZ;
     /// yalnızca kurulum paketini hazırlar.
+    ///
+    /// Phase 3C-3: burada `installStatus: .pendingUser` ile ERKEN bir
+    /// kayıt oluşturulur — yarım kalan/başarısız bir girişim de
+    /// Otomasyonlarım listesinde dürüstçe görünsün diye (Test 8). Bu
+    /// kaydın id'si (`currentAutomationId`) akış boyunca taşınır;
+    /// sonraki her geçiş AYNI kaydı GÜNCELLER (upsert).
     public func create() async {
         guard case .previewConfirm(let draft, let missingPermissions, _) = step else { return }
         for permission in missingPermissions {
@@ -198,9 +214,18 @@ public final class BuilderMachine: ObservableObject {
                 return
             }
         }
-        step = .setup(draft: draft, setup: resolveSetupKind(draft))
+        let setupKind = resolveSetupKind(draft)
+        let id = idGenerator()
+        currentAutomationId = id
+        let pending = buildAutomation(draft, setup: setupKind, installStatus: .pendingUser, id: id)
+        await repository.save(pending)
+        step = .setup(draft: draft, setup: setupKind)
     }
 
+    /// Phase 3C-3: `.noTemplateAvailable` durumunda kayıt `failed`
+    /// OLARAK GÜNCELLENMEZ, `pendingUser` kalır (create()'te zaten öyle
+    /// kaydedilmişti) — bu bir veri/içerik eksikliği, kesin bir
+    /// başarısızlık değil (bkz. docs/capabilities.md açık iş #7).
     public func prepareHandoff() async {
         guard case .setup(let draft, let setupKind) = step else { return }
         switch await setup.prepare(draft) {
@@ -227,6 +252,12 @@ public final class BuilderMachine: ObservableObject {
         else { return }
         let opened = await shortcutsHandoff.open(handoff.url)
         guard opened else {
+            // OS'un URL'i açamaması GERÇEKTEN bilinen bir hata (örn.
+            // Shortcuts kurulu değil) — kayıt `.failed` olarak güncellenir.
+            if let id = currentAutomationId {
+                let failed = buildAutomation(draft, setup: setupKind, installStatus: .failed, id: id)
+                await repository.save(failed)
+            }
             step = .setupFailed(draft: draft, setup: setupKind, reason: "Kestirmeler uygulaması açılamadı.")
             return
         }
@@ -249,7 +280,8 @@ public final class BuilderMachine: ObservableObject {
     /// tek adımlı yol).
     public func confirmTriggerLinked() async {
         guard case .linkingTrigger(let draft, let setupKind, _) = step else { return }
-        let automation = buildAutomation(draft, setup: setupKind, installStatus: .installed)
+        let id = currentAutomationId ?? idGenerator()
+        let automation = buildAutomation(draft, setup: setupKind, installStatus: .installed, id: id)
         await repository.save(automation)
         step = .installed(automation: automation)
     }
@@ -259,23 +291,43 @@ public final class BuilderMachine: ObservableObject {
     /// bir `linkingTrigger` adımına gerek yok, tek onay yeterli.
     public func confirmGuidedSetupDone() async {
         guard case .setup(let draft, let setupKind) = step, isGuidedManual(setupKind) else { return }
-        let automation = buildAutomation(draft, setup: setupKind, installStatus: .installed)
+        let id = currentAutomationId ?? idGenerator()
+        let automation = buildAutomation(draft, setup: setupKind, installStatus: .installed, id: id)
         await repository.save(automation)
         step = .installed(automation: automation)
     }
 
-    public func reportInstallFailed(reason: String = "Kestirme kurulamadı.") {
+    /// Kullanıcı kurulamadığını/bağlayamadığını bildirdi (GERÇEKTEN
+    /// BİLİNEN bir başarısızlık — "Apple'dan cevap gelmedi" ile
+    /// KARIŞTIRILMAMALI). Phase 3C-3: `create()`'teki `pendingUser`
+    /// kaydı burada `failed` olarak güncellenir — sahte başarı
+    /// üretilmez, ama girişim de sessizce kaybolmaz (Test 8).
+    public func reportInstallFailed(reason: String = "Kestirme kurulamadı.") async {
+        let draft: DraftAutomationPlan
+        let setupKind: SetupKind
         switch step {
         case .waitingForUser(let d, let s), .userAssistedImport(let d, let s):
-            step = .setupFailed(draft: d, setup: s, reason: reason)
+            draft = d; setupKind = s
         case .linkingTrigger(let d, let s, _):
-            step = .setupFailed(draft: d, setup: s, reason: reason)
-        default: break
+            draft = d; setupKind = s
+        default: return
         }
+        if let id = currentAutomationId {
+            let failed = buildAutomation(draft, setup: setupKind, installStatus: .failed, id: id)
+            await repository.save(failed)
+        }
+        step = .setupFailed(draft: draft, setup: setupKind, reason: reason)
     }
 
-    public func retrySetup() {
+    /// setup_failed -> tekrar dene (hazırlık aşamasına döner). Kayıt
+    /// varsa yeniden denendiği için `pendingUser`'a döner (bir önceki
+    /// `failed` durum kalıcı değil, yeniden deneme aktif bir girişimdir).
+    public func retrySetup() async {
         guard case .setupFailed(let draft, let setupKind, _) = step else { return }
+        if let id = currentAutomationId {
+            let pending = buildAutomation(draft, setup: setupKind, installStatus: .pendingUser, id: id)
+            await repository.save(pending)
+        }
         step = .setup(draft: draft, setup: setupKind)
     }
 
@@ -396,10 +448,15 @@ public final class BuilderMachine: ObservableObject {
         ]
     }
 
-    private func buildAutomation(_ draft: DraftAutomationPlan, setup: SetupKind, installStatus: InstallStatus) -> Automation {
+    /// Phase 3C-3: `id` artık parametre — akış boyunca aynı otomasyon
+    /// kaydını GÜNCELLEMEK (upsert) için, her çağrıda yeni bir id
+    /// üretilmiyor.
+    private func buildAutomation(
+        _ draft: DraftAutomationPlan, setup: SetupKind, installStatus: InstallStatus, id: String
+    ) -> Automation {
         let timestamp = now()
         return Automation(
-            id: idGenerator(),
+            id: id,
             userId: "local",
             name: draft.name,
             platform: platform,
