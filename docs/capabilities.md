@@ -218,6 +218,16 @@ Sözleşmenin işe yaradığının kanıtı bu.
 
 1. **iOS 16/17/18 doğrulaması** — Bluetooth/Wi-Fi/Mesaj davranışının hangi
    sürümde değiştiği bilinmiyor. Şu an muhafazakâr varsayım yapılıyor.
+   **Phase 3C-5 (2026-09-19) — ERTELENDİ (donanım yok, Test 4 ile aynı
+   sebep):** Bu aralığı gerçek cihazda test etmek için iOS 16/17/18
+   çalıştırabilen bir iPhone/iPad gerekiyor. Elimizdeki tek gerçek cihaz
+   (iPhone 16 Pro) donanım-yazılım eşleşmesi gereği yalnızca iOS 18+
+   çalıştırabiliyor — eskiye düşürülemez; daha önce eşleştirilmiş bir
+   iPhone 6s (iPhone8,1) var ama şu an bağlı değil ve o model zaten
+   iOS 15'te kalmış (16'ya bile ulaşmıyor). **Bu bir kod/registry hatası
+   değil** — mevcut `"unverified"` işaretlemesi (Tristate modelinin tam
+   olarak öngördüğü gibi: "bilmiyoruz" ≠ "çalışmıyor") zaten doğru ve
+   dürüst; bu boşluk yalnızca uygun donanım bulununca kapatılabilir.
 2. **Programatik kurulum** (§1.2) — 2026-09-18'de gerçek cihazda
    tamamen teyit edildi (Test 1 + Test 1b): sıfırdan/imzasız shortcut
    üretimi çalışmıyor, Apple-imzalı önceden hazırlanmış şablon
