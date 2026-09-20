@@ -159,7 +159,45 @@ edilmemeli.
 
 ---
 
-### Test 5B-2 SONUÇ (beklemede)
+### Test 5B-2 SONUÇ (2026-09-20)
+
+**Ölçüldü — kesin sonuç, tahmin değil.**
+
+```text
+provider unreachable (70sn gecikmeli GERÇEK yerel HTTP sunucusu)
+        ↓
+HTTPBackedPlanner (gerçek URLSessionPlanTransport, URLSession.shared)
+        ↓
+tam 60.09 saniyede NSURLErrorTimedOut (Error -1001)
+        ↓
+PlannerError.plannerUnreachable
+        ↓
+.notUnderstood → kullanıcı "Anlayamadım" görür
+```
+
+- **Yöntem:** Sahte bir transport DEĞİL — gerçek, kasıtlı 70sn
+  gecikmeli yerel bir Node HTTP sunucusuna karşı GERÇEK
+  `URLSessionPlanTransport` (`HTTPBackedPlannerTimeoutTests.swift`,
+  `RUN_SLOW_TESTS=1` ile korunuyor, rutin `swift test`'i yavaşlatmıyor
+  — varsayılan koşuda `XCTSkip`).
+- **4 soru:**
+  - Kullanıcıya ne gösteriliyor? → ~60 saniye sonra "Anlayamadım,
+    başka türlü ifade eder misin?" (network/timeout ile GERÇEK "AI
+    anlamadı" arasında ayrım YOK — Phase 5A Test 2'de de gözlemlenen
+    aynı belirsizlik).
+  - State ne oluyor? → `.capturing(notUnderstood: true)`.
+  - Repository'ye ne yazılıyor? → Hiçbir şey (bu aşamada `create()`
+    çağrılmadı).
+  - Yanlışlıkla installed oluyor mu? → Hayır.
+- **Sonuç:** Kullanıcı SÜRESİZ beklemiyor — tam olarak ~60 saniye
+  bekleyip net (ama belirsiz kaynaklı) bir "Anlayamadım" görüyor. Bu
+  **P0 UX bug'ı değil** (sonsuz asılı kalma yok), ama iki gerçek
+  iyileştirme fırsatı var: (1) 60 saniye, hızlı bir NVIDIA yanıtına
+  göre (Test 6'da 22sn de gördük) kullanıcıya UZUN gelebilir — bir
+  "düşünülüyor" göstergesi faydalı olur; (2) network/timeout hatası ile
+  gerçek "AI anlamadı" hâlâ AYNI mesajla gösteriliyor — bu ayrım Phase
+  5A Test 2'de de not edilmişti.
+- **Kod DEĞİŞTİRİLMEDİ** — yalnızca ölçüldü, UX backlog'a taşındı.
 
 ---
 
@@ -245,7 +283,7 @@ capability'siyle test edilebilir)? Yanlışlıkla installed oluyor mu
 | Test | Öncelik | Sonuç |
 |---|---|---|
 | 5B-1 — mevcut failure-path regresyonu | P0 | **PASS** (2026-09-20) — 49/49 failure-path testi yeşil, installed'a yanlışlıkla ulaşan: 0 |
-| 5B-2 — istemci timeout gap'i | P0 | beklemede |
+| 5B-2 — istemci timeout gap'i | P0 | **Ölçüldü** (2026-09-20) — ~60.09sn'de timeout, süresiz bekleme YOK, P0 bug değil |
 | 5B-3 — conversation leakage kapsamı | P1 | beklemede |
 | 5B-4 — gerçek network kaybı (cihaz) | P1 | beklemede |
 | 5B-5 — Shortcuts'tan gerçek geri çıkış (cihaz) | P1 | beklemede |
