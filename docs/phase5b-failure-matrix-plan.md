@@ -93,7 +93,40 @@ bu ayrı, acil bir konu olur).
 
 ---
 
-### Test 5B-1 SONUÇ (beklemede)
+### Test 5B-1 SONUÇ (2026-09-20)
+
+```text
+5B-1 SONUÇ
+- TS: 280/280
+- Swift: 51/51 (47 AutomationCore + 4 AutomationUI)
+- Gerçek Xcode UI testi (Simulator, rule-based backend): 5/5
+- Failure-path olarak etiketlenmiş testler: 49/49
+  (provider-retry.test.ts: 6, HTTPBackedPlannerTests failure-specific: 5,
+   TemplateBackedSetupServiceTests: 2, BuilderMachineTests (Swift)
+   failure/rejection-specific: 8, builder-machine.test.ts (TS) wrong-
+   state/reject/close/revise: 14, semantic-completeness.test.ts: 13,
+   FileBackedAutomationRepositoryTests.testPendingOrFailedRecord_isNotSilentlyRestoredAsInstalled: 1)
+- installed'a yanlışlıkla ulaşan: 0
+- Yeni bug: Yok
+- Working tree: clean (App/*.xcodeproj, *.xcscheme hariç — bunlar
+  kişisel Team ID/LAN IP taşıdığı için kasıtlı olarak commit edilmiyor,
+  bkz. Phase 5A)
+- Commit: (bu doküman güncellemesiyle birlikte)
+```
+
+**Yeni kod/davranış eklenmedi — yalnızca mevcut testler koştu.**
+Kırmızı çıkan tek bir test yok; Ön analiz tablosundaki 14 "✅ otomatik"
+satırın tamamı bu taramada da doğrulandı.
+
+**Kritik invariant açıkça doğrulandı: hiçbir failure-path `installed`
+durumuna ulaşmıyor.** Bunun somut kanıtı, yukarıdaki 49 testin arasında
+tam olarak bu soruyu soran satırlar: `testShowSuccessRequiresInstalledFirst`,
+`testShortcutAddedWithoutTriggerLinked_cannotReachInstalled`,
+`testInstallFailureDoesNotFakeSuccess`, `testPrepareHandoffNeverReachesInstalled`,
+`testHandOffToShortcutsNeverReachesInstalled` (Swift) ve TS'deki
+"Bağladım ama Ekledim yok: YOK SAYILIR", "confirmGuidedSetupDone():
+yanlış state'den YOK SAYILIR", "confirmTriggerLinked() yanlış
+state'lerden YOK SAYILIR" testleri — hepsi yeşil.
 
 ---
 
@@ -211,7 +244,7 @@ capability'siyle test edilebilir)? Yanlışlıkla installed oluyor mu
 
 | Test | Öncelik | Sonuç |
 |---|---|---|
-| 5B-1 — mevcut failure-path regresyonu | P0 | beklemede |
+| 5B-1 — mevcut failure-path regresyonu | P0 | **PASS** (2026-09-20) — 49/49 failure-path testi yeşil, installed'a yanlışlıkla ulaşan: 0 |
 | 5B-2 — istemci timeout gap'i | P0 | beklemede |
 | 5B-3 — conversation leakage kapsamı | P1 | beklemede |
 | 5B-4 — gerçek network kaybı (cihaz) | P1 | beklemede |
