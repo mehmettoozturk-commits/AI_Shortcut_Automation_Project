@@ -382,7 +382,37 @@ kalıcılaştırılması) olduğu belgelenir.
 
 ---
 
-### Test 4 SONUÇ (beklemede)
+### Test 4 SONUÇ (2026-09-20, Simulator — mimari sebeple cihazdan bağımsız)
+
+**N/A — gözlem testi (PASS/FAIL yok, kasıtlı olarak).**
+
+- **Ortam:** iPhone 17 Simulator, rule-based backend (localhost paylaşımı
+  sayesinde LAN/signing derdi yok). Fiziksel cihazda değil — bkz. "Not".
+- **Girdi:** "Pil yüzde 20'ye düşünce bana haber ver" →
+  previewConfirm → "Otomasyonu Oluştur" → setup → "Kestirmelere Aktar"
+  → userAssistedImport → "Kestirmeler'e Aktar" (handOff denendi).
+- **Beklenen:** Davranış tespiti; PASS/FAIL yok.
+- **Gerçekleşen:** `.waitingForUser`'a ulaşıldı. `app.terminate()` +
+  yeniden `launch()` sonrası uygulama **doğrudan Home/idle ekranına
+  döndü** — kaldığı ara duruma (waitingForUser/setupFailed) DÖNMEDİ.
+- **PASS / FAIL / BLOCKED:** N/A — gözlem testi.
+- **Kanıt:** Otomatik XCUITest
+  (`AutomationAppUITests.testForceQuitMidSetup_observesRestartBehavior`),
+  konsol çıktısı: `reachedWaitingForUser=true, backToHome=true,
+  resumedMidSetup=false`.
+- **Not:** Bu, fiziksel cihazda AYRICA teyit edilmedi ve edilmesine
+  gerek görülmedi — çünkü ölçülen davranış Shortcuts'ın cihaz
+  davranışı değil, `BuilderMachine.step`'in kendisi: `@Published`,
+  yalnızca bellekte tutulan bir state, hiçbir yerde (dosya/repository)
+  persist edilmiyor (yalnızca `pendingUser`/`installed`/`failed`
+  otomasyon KAYITLARI kalıcı — akışın KENDİSİ değil). Bu yüzden restart
+  sonrası HER ZAMAN idle'a dönmesi, cihazdan bağımsız, saf Swift state
+  yönetiminin doğal sonucu. **Bu bir bug olarak sınıflandırılmadı** —
+  mevcut mimarinin beklenen sonucu. Ancak kullanıcı açısından yarım
+  kalmış bir kurulumun sessizce kaybolması, ileride ayrı bir UX/ürün
+  kararı olarak ele alınabilir (örn. "yarım kalan otomasyon" bildirimi,
+  ya da `step`'in de kalıcılaştırılması) — Phase 5A kapsamında kod
+  DEĞİŞTİRİLMEDİ, yalnızca gözlem kaydedildi.
 
 ---
 
@@ -438,7 +468,7 @@ tutarlı, teknik olmayan bir dille kullanıcıya sunulduğu doğrulanır.
 | 1 — guided_manual E2E | P0 | BLOCKED (ürün kararı bekliyor) | Kasıtlı, bkz. İş 0.5 notu |
 | 2 — user_assisted_import E2E + handoff | P0 | **PASS** (2026-09-19) | Phase 3B Test 1'in açık sorusunu kapattı |
 | 3 — kalıcılık (installed sonrası kapat/aç) | P0 | **PASS** (2026-09-19) | |
-| 4 — kalıcılık (ara durumda kapat/aç) | P1 | beklemede (davranış tespiti) | |
+| 4 — kalıcılık (ara durumda kapat/aç) | P1 | **N/A — gözlemlendi** (2026-09-20, Simulator) | step in-memory, restart→idle. Bug değil. |
 | 5 — clarification + düzeltme | P1 | beklemede | |
 | 6 — gerçek LLM ile E2E | P1 (opsiyonel) | beklemede | |
 
