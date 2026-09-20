@@ -436,7 +436,48 @@ karıştırıyor.
 
 ---
 
-### Test 5 SONUÇ (beklemede)
+### Test 5 SONUÇ (2026-09-20, gerçek iPhone)
+
+**PASS — E2E akış; görsel correction doğrulaması gözlemlenemedi.**
+
+- **Ortam:** Fiziksel iPhone, rule-based backend.
+- **Girdi:** "Arabadan inince klimayı aç." → Tesla Model Y → "✎ Değiştir"
+  → Tesla Model 3.
+- **Beklenen:** Correction sonrası yalnızca araç değişmeli; trigger/
+  action korunmalı.
+- **Gerçekleşen:** Akış kesintisiz tamamlandı. ReadyView'a ulaşıldı.
+  Ancak ReadyView trigger/action/araç özeti göstermediği için
+  correction'ın sonucu kullanıcı arayüzünden görsel olarak
+  doğrulanamadı.
+- **PASS / FAIL / BLOCKED:** PASS — E2E akış; görsel correction
+  doğrulaması gözlemlenemedi.
+- **Kanıt:** `testMultiTurnCorrection_onlyVehicleChanges` otomatik
+  testi; fiziksel cihazda akışın başarıyla ReadyView'a ulaşması.
+- **Not:** `ReadyView` bir UX eksikliği nedeniyle seçilen araç,
+  tetikleyici ve eylemi göstermiyor — bu Test 5 kapsamında kod
+  DEĞİŞTİRİLMEDİ, yalnızca gözlemlendi (bkz. UX backlog altta).
+
+**Ayrı, Test 5 sırasında keşfedilen ikinci bir bulgu:** `BuilderMachine`
+`close()`/`open()`'da `planner`'ın konuşma bağlamını HİÇ sıfırlamıyor
+(`Planner` protokolü `resetConversation()`'ı bile tanımıyor — yalnızca
+`HTTPBackedPlanner`'da var, hiç çağrılmıyor). Gerçek cihazda, önceki bir
+denemenin (örn. Test 2/4) yanıtları uygulama process'i canlı kaldığı
+sürece sonraki, alakasız bir otomasyon denemesine sessizce sızabiliyor
+— bir manuel "arka plana at/geri getir" bunu SIFIRLAMIYOR, yalnızca
+gerçek bir process sonlandırma (force quit ya da Xcode Stop→Run)
+sıfırlıyor. Bu oturumda ampirik olarak doğrulandı (aynı girdi, gerçekten
+taze bir process'te doğru soruyu sordu). **Kod DEĞİŞTİRİLMEDİ** — bu da
+ayrı bir UX/mimari backlog maddesi (altta).
+
+### UX backlog (Phase 5A'da kod değişikliği yapılmadı, yalnızca kaydedildi)
+
+- `ReadyView`, kullanıcıya son otomasyonun **ne zaman / ne yapacağını /
+  hangi cihazla** çalışacağını göstermeli (şu an yalnızca "Otomasyon
+  hazır." + izin/disclosure metni gösteriyor).
+- `BuilderMachine.close()`/`open()`, yeni bir otomasyon denemesine
+  başlarken `planner`'ın konuşma bağlamını sıfırlamalı (`Planner`
+  protokolüne bir `resetConversation()` eklenip çağrılması gerekebilir)
+  — aksi halde alakasız denemeler arasında cevap sızıntısı riski var.
 
 ---
 
@@ -469,7 +510,7 @@ tutarlı, teknik olmayan bir dille kullanıcıya sunulduğu doğrulanır.
 | 2 — user_assisted_import E2E + handoff | P0 | **PASS** (2026-09-19) | Phase 3B Test 1'in açık sorusunu kapattı |
 | 3 — kalıcılık (installed sonrası kapat/aç) | P0 | **PASS** (2026-09-19) | |
 | 4 — kalıcılık (ara durumda kapat/aç) | P1 | **N/A — gözlemlendi** (2026-09-20, Simulator) | step in-memory, restart→idle. Bug değil. |
-| 5 — clarification + düzeltme | P1 | beklemede | |
+| 5 — clarification + düzeltme | P1 | **PASS** (E2E; görsel correction doğrulaması BLOCKED) | 2026-09-20, ayrıca 2 UX bulgusu |
 | 6 — gerçek LLM ile E2E | P1 (opsiyonel) | beklemede | |
 
 ---
