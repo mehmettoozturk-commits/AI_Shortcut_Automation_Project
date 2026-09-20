@@ -242,7 +242,24 @@ durumuna hiç ulaşılamıyor.
 
 ---
 
-### Test 1 SONUÇ (beklemede)
+### Test 1 SONUÇ (2026-09-20) — OUT OF SCOPE
+
+```text
+Test 1 — guided_manual E2E
+Status: OUT OF SCOPE
+Reason: Current production registry has no executable guided_manual +
+Shortcuts capability.
+```
+
+**Ürün kararı: A — kapsamdan çıkar.** "BLOCKED" değil bilinçli olarak
+**OUT OF SCOPE** — çünkü bekleyen bir teknik iş yok: mevcut tek
+`guided_manual` capability (`tesla.camera_action`) kasıtlı olarak
+Shortcuts'ta yok, ve sırf bu testi yeşile çevirmek için yeni bir
+`guided_manual` capability eklemek yanlış bir motivasyon olurdu.
+Registry'de gerçekten `guided_manual` + Shortcuts'ta mevcut bir
+capability ihtiyacı doğarsa (gerçek bir Apple/Shortcuts kısıtından),
+bu AYRI bir ürün/capability kararı olarak ele alınır — Phase 5A'nın
+bir eksiği olarak değil.
 
 ---
 
@@ -545,7 +562,7 @@ tutarlı, teknik olmayan bir dille kullanıcıya sunulduğu doğrulanır.
 
 | Test | Öncelik | Sonuç | Not |
 |---|---|---|---|
-| 1 — guided_manual E2E | P0 | BLOCKED (ürün kararı bekliyor) | Kasıtlı, bkz. İş 0.5 notu |
+| 1 — guided_manual E2E | P0 | **OUT OF SCOPE** (2026-09-20) | Ürün kararı: A — kapsamdan çıkar |
 | 2 — user_assisted_import E2E + handoff | P0 | **PASS** (2026-09-19) | Phase 3B Test 1'in açık sorusunu kapattı |
 | 3 — kalıcılık (installed sonrası kapat/aç) | P0 | **PASS** (2026-09-19) | |
 | 4 — kalıcılık (ara durumda kapat/aç) | P1 | **N/A — gözlemlendi** (2026-09-20, Simulator) | step in-memory, restart→idle. Bug değil. |
@@ -570,8 +587,10 @@ tutarlı, teknik olmayan bir dille kullanıcıya sunulduğu doğrulanır.
 ## Phase 5A Kapanış Özeti (2026-09-20)
 
 Test 2, 3, 5, 6 gerçek fiziksel iPhone'da **PASS**; Test 4 Simulator'da
-gözlemlendi (**N/A**, mimari sebeple cihazdan bağımsız); Test 1 kasıtlı
-olarak **BLOCKED** kaldı (ürün kararı bekliyor, bkz. İş 0.5). Metin
+gözlemlendi (**N/A**, mimari sebeple cihazdan bağımsız); Test 1 ürün
+kararıyla (A: kapsamdan çıkar) **OUT OF SCOPE** olarak kapatıldı —
+mevcut registry'de gerçekten çalıştırılabilir bir `guided_manual` +
+Shortcuts capability'si yok, ve sırf test geçsin diye biri eklenmedi. Metin
 girişinden `installed`/`success`'e ve Otomasyonlarım'a kadar TAM zincir
 — hem rule-based hem gerçek NVIDIA çıktısıyla — gerçek cihazda kanıtlandı.
 
@@ -592,9 +611,10 @@ niteliğinde, mimari bir çöküş değil) — ama Phase 5'in ileriki
 fazlarında (özellikle 5E release gate) ele alınıp alınmayacağına karar
 verilmesi gerekiyor.
 
-**Sonraki adım:** Test 1 için ürün kararı (A: kapsamdan çıkar, B: yeni
-bir `guided_manual` capability tanımla) ve/veya Phase 5B/5C/5D/5E'ye
-geçiş.
+**Sonraki adım:** Phase 5B — Failure Matrix (bkz.
+`docs/phase5b-failure-matrix-plan.md`). 5C (NVIDIA soak), 5D
+(capability coverage), 5E (release gate) bilinçli olarak henüz
+başlatılmadı — sıralama kararı: 5A → 5B → 5C → 5D → 5E.
 
 ## Kapsam dışı (Phase 5'in diğer alt fazları — ayrı dokümanlar)
 
