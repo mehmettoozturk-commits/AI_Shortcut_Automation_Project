@@ -232,7 +232,54 @@ davranışı KANITLAR — Phase 5B'de kod DEĞİŞTİRİLMEZ, yalnızca bulgu
 
 ---
 
-### Test 5B-3 SONUÇ (beklemede)
+### Test 5B-3 SONUÇ (2026-09-20) — **P0'A YÜKSELTİLDİ**
+
+**Kanıtlandı — yalnızca "leakage var" değil, `installed`'a kadar
+KESİNTİSİZ ulaşıyor.**
+
+```text
+Attempt 1: "Arabadan inince klimayı aç." -> araç sorusuna kadar gider
+        ↓
+Kullanıcı ✕ ile TERK EDER (close())
+        ↓
+Attempt 2: "Pil yüzde 20'ye düşünce bana haber ver" (TAMAMEN ALAKASIZ)
+        ↓
+KANIT 1: backend'e giden istek hâlâ Attempt 1'in conversation'ını taşıyor
+        ↓
+Anlama -> Onayla -> Oluştur -> Setup -> Aktar -> Ekledim -> Bağladım
+        ↓
+KANIT 2: installed'a KESİNTİSİZ ulaşıldı, repository'ye installStatus=installed yazıldı
+```
+
+- **Yöntem:** `ConversationLeakageTests.swift`
+  (`testAbandonedAttempt_leaksConversationIntoUnrelatedNewAttempt_reachesInstalled`)
+  — sahte, önceden hazırlanmış bir `PlanHTTPTransport` ile GERÇEK
+  `HTTPBackedPlanner` + gerçek `BuilderMachine`, iki bağımsız deneme
+  arasında `close()`/`open()` ile.
+- **4 soru:**
+  - Kullanıcıya ne gösteriliyor? → Normal akış — hiçbir uyarı/hata
+    görünmüyor, kullanıcı bir şeyin yanlış gittiğini FARK EDEMEZ.
+  - State ne oluyor? → Beklenen sırayla ilerliyor (`.understanding` →
+    `.previewConfirm` → ... → `.installed`) — leak'i tespit eden HİÇBİR
+    ara kontrol yok.
+  - Repository'ye ne yazılıyor? → Gerçek bir `Automation` kaydı,
+    `installStatus: .installed`.
+  - **Yanlışlıkla installed oluyor mu? → EVET, KANITLANDI.** (Bu testte
+    attempt 2'nin KENDİ backend yanıtı zaten temiz/eksiksizdi — yani bu
+    spesifik senaryoda SONUÇ yanlış değildi; ama kanıtlanan şey akışın
+    bunu ENGELLEYECEK hiçbir mekanizmaya sahip olmadığı. Gerçek riskli
+    senaryo: backend, sızan `conversation`'ı gerçekten bir "devam" olarak
+    yorumlayıp attempt 2'yi attempt 1'in YARIM KALAN cevaplarıyla
+    karıştırırsa — bu durumda YANLIŞ bir otomasyon sessizce
+    `installed` olabilir.)
+- **Ürün kararı:** Bu bulgu Phase 5A'nın "UX backlog" notundan **P0**'a
+  yükseltiliyor — plan dokümanının kendi kriteri gereği ("yanlışlıkla
+  installed'a ulaşabiliyor mu?" sorusuna cevap EVET). **Kod bu Phase
+  5B round'unda DEĞİŞTİRİLMEDİ** (önce ölç, sonra düzelt prensibi) —
+  ama bu artık "ileride ele alınabilir" değil, ayrı bir düzeltme
+  görevi olarak açılması gereken somut bir bulgu: `BuilderMachine`'e
+  `resetConversation()` çağrısı eklenmesi (Planner protokolüne bu
+  metodun eklenmesi dahil).
 
 ---
 
@@ -284,7 +331,7 @@ capability'siyle test edilebilir)? Yanlışlıkla installed oluyor mu
 |---|---|---|
 | 5B-1 — mevcut failure-path regresyonu | P0 | **PASS** (2026-09-20) — 49/49 failure-path testi yeşil, installed'a yanlışlıkla ulaşan: 0 |
 | 5B-2 — istemci timeout gap'i | P0 | **Ölçüldü** (2026-09-20) — ~60.09sn'de timeout, süresiz bekleme YOK, P0 bug değil |
-| 5B-3 — conversation leakage kapsamı | P1 | beklemede |
+| 5B-3 — conversation leakage kapsamı | **P0** (P1'den yükseltildi) | **Kanıtlandı** (2026-09-20) — installed'a kesintisiz ulaşıyor |
 | 5B-4 — gerçek network kaybı (cihaz) | P1 | beklemede |
 | 5B-5 — Shortcuts'tan gerçek geri çıkış (cihaz) | P1 | beklemede |
 
