@@ -478,6 +478,14 @@ ayrı bir UX/mimari backlog maddesi (altta).
   başlarken `planner`'ın konuşma bağlamını sıfırlamalı (`Planner`
   protokolüne bir `resetConversation()` eklenip çağrılması gerekebilir)
   — aksi halde alakasız denemeler arasında cevap sızıntısı riski var.
+- `PlanHTTPTransport`'ta istemci tarafı özel bir zaman aşımı yok
+  (URLSession varsayılanı kullanılıyor). Gerçek/ücretsiz LLM
+  sağlayıcıları (örn. NVIDIA NIM) 100+ saniyeye varan gecikmeler
+  gösterebiliyor (bkz. Test 6 SONUÇ) — bu, varsayılan zaman aşımını
+  aşıp isteğin sessizce `.notUnderstood`'a düşmesine yol açabilir.
+  Kullanıcıya "düşünülüyor, biraz sürebilir" gibi bir bekleme
+  göstergesi ve/veya daha uzun, açıkça ayarlanmış bir zaman aşımı
+  gerekebilir.
 
 ---
 
@@ -498,7 +506,38 @@ tutarlı, teknik olmayan bir dille kullanıcıya sunulduğu doğrulanır.
 
 ---
 
-### Test 6 SONUÇ (beklemede)
+### Test 6 SONUÇ (2026-09-20, gerçek iPhone, `LLM_PROVIDER=nvidia`)
+
+**PASS.**
+
+- **Ortam:** Fiziksel iPhone + Mac'te `npm run serve` (`.env`'den
+  `LLM_PROVIDER=nvidia`, gerçek NVIDIA NIM), LAN üzerinden.
+- **Girdi:** "Pil yüzde 20'ye düşünce bana haber ver."
+- **Beklenen:** Test 2 ile aynı zincir, bu kez gerçek LLM çıktısıyla:
+  Anlama → Kestirmelere Aktar → Shortcuts import → Ekledim → Bağladım
+  → installed/success.
+- **Gerçekleşen:** İlk gerçek çağrı `provider_error` verdi (Phase
+  4E-3'ün retry/repair katmanının 2 denemeden sonra hâlâ şema dışı
+  çıktıya düştüğü, belgelenmiş/beklenen bir durum). İkinci gerçek
+  çağrı (Mac'ten `curl` ile önceden doğrulandı) başarılı oldu, doğru
+  şekilde `ios.notification.show`'a çözümlendi. Fiziksel cihazda aynı
+  girdiyle tam zincir tamamlandı: Anlama ekranı geldi, kurulum akışı
+  sürdürüldü, **installed/success'e ulaşıldı**, Otomasyonlarım'da
+  göründü.
+- **PASS / FAIL / BLOCKED:** **PASS.**
+- **Kanıt:** Kullanıcı gözlemi (gerçek cihazda tam zincir), bu oturumda
+  kayıt altına alındı; Mac'ten `curl` ile önceki doğrulama.
+- **Not (önemli, ayrı bir bulgu):** Bir Mac-tarafı doğrulama isteği bu
+  oturumda **110 saniye** sürdü (önceki bir istek yalnızca 22 saniyeydi)
+  — NVIDIA'nın ücretsiz/küçük modelinin gecikmesi çok değişken.
+  Kullanıcının ilk denemesinde gördüğü "Anlayamadım" muhtemelen bu
+  yüzdendi: `PlanHTTPTransport`'ta özel bir zaman aşımı YOK (URLSession
+  varsayılanı, tipik ~60sn kullanılıyor) — 60 saniyeyi aşan bir gerçek
+  NVIDIA yanıtı, istemci isteği düşürüp sessizce `.notUnderstood`'a
+  düşebilir (bkz. `HTTPBackedPlanner.plan()`'ın catch-all'ı). **Bu Test
+  6 kapsamında kod DEĞİŞTİRİLMEDİ** — ama bu, gerçek/ücretsiz LLM
+  sağlayıcılarıyla production'a çıkmadan önce ele alınması gereken
+  somut bir gecikme/timeout riski olarak UX backlog'a eklendi (altta).
 
 ---
 
@@ -511,7 +550,7 @@ tutarlı, teknik olmayan bir dille kullanıcıya sunulduğu doğrulanır.
 | 3 — kalıcılık (installed sonrası kapat/aç) | P0 | **PASS** (2026-09-19) | |
 | 4 — kalıcılık (ara durumda kapat/aç) | P1 | **N/A — gözlemlendi** (2026-09-20, Simulator) | step in-memory, restart→idle. Bug değil. |
 | 5 — clarification + düzeltme | P1 | **PASS** (E2E; görsel correction doğrulaması BLOCKED) | 2026-09-20, ayrıca 2 UX bulgusu |
-| 6 — gerçek LLM ile E2E | P1 (opsiyonel) | beklemede | |
+| 6 — gerçek LLM ile E2E | P1 (opsiyonel) | **PASS** (2026-09-20) | 1. deneme provider_error, 2. deneme installed'a ulaştı |
 
 ---
 
@@ -527,6 +566,35 @@ tutarlı, teknik olmayan bir dille kullanıcıya sunulduğu doğrulanır.
 - Tüm sonuçlar `docs/capabilities.md`'deki ilgili capability'lerin
   `evidence` seviyesine işlenir (CLAUDE.md'deki kural: gerçek cihaz
   kanıtı olmadan hiçbir kurulum yöntemi "çalışıyor" varsayılamaz).
+
+## Phase 5A Kapanış Özeti (2026-09-20)
+
+Test 2, 3, 5, 6 gerçek fiziksel iPhone'da **PASS**; Test 4 Simulator'da
+gözlemlendi (**N/A**, mimari sebeple cihazdan bağımsız); Test 1 kasıtlı
+olarak **BLOCKED** kaldı (ürün kararı bekliyor, bkz. İş 0.5). Metin
+girişinden `installed`/`success`'e ve Otomasyonlarım'a kadar TAM zincir
+— hem rule-based hem gerçek NVIDIA çıktısıyla — gerçek cihazda kanıtlandı.
+
+**Bu round'da bulunan, kod DEĞİŞTİRİLMEDEN kaydedilen 4 bulgu** (hepsi
+yukarıdaki ilgili Test SONUÇ/UX backlog bölümlerinde detaylı):
+
+1. `ReadyView` trigger/action/cihaz özeti göstermiyor (Test 5).
+2. `BuilderMachine.close()`/`open()` planner konuşma bağlamını
+   sıfırlamıyor — denemeler arası cevap sızıntısı riski (Test 5).
+3. `PlanHTTPTransport`'ta istemci zaman aşımı yok; yavaş gerçek LLM
+   yanıtları (110sn'ye kadar gözlemlendi) sessizce `.notUnderstood`'a
+   düşebilir (Test 6).
+4. `BuilderMachine.step` in-memory, restart'ta her zaman idle'a döner
+   — ara durumdaki bir kurulum sessizce kaybolur (Test 4).
+
+Bunların hiçbiri Phase 5A'yı kapatmayı engellemiyor (hepsi UX/hardening
+niteliğinde, mimari bir çöküş değil) — ama Phase 5'in ileriki
+fazlarında (özellikle 5E release gate) ele alınıp alınmayacağına karar
+verilmesi gerekiyor.
+
+**Sonraki adım:** Test 1 için ürün kararı (A: kapsamdan çıkar, B: yeni
+bir `guided_manual` capability tanımla) ve/veya Phase 5B/5C/5D/5E'ye
+geçiş.
 
 ## Kapsam dışı (Phase 5'in diğer alt fazları — ayrı dokümanlar)
 
