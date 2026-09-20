@@ -116,6 +116,70 @@ final class AutomationAppUITests: XCTestCase {
         XCTAssertTrue(app.buttons["createAutomationButton"].waitForExistence(timeout: 10))
     }
 
+    /// Phase 5A Test 4 keşfi (Simulator) — force quit ARA bir kurulum
+    /// durumunda (`.setup`/`.userAssistedImport`/`.waitingForUser`)
+    /// olduğunda ne oluyor? Bu, Shortcuts importunun GERÇEKTEN başarılı
+    /// olup olmadığına bakmaz (Simulator'da bu güvenilir değil, bkz.
+    /// docs/phase5a-e2e-validation-plan.md) — yalnızca uygulamanın
+    /// restart sonrası state'inin ne olduğunu gözlemler.
+    func testForceQuitMidSetup_observesRestartBehavior() throws {
+        let app = makeApp()
+        app.launch()
+
+        let field = app.textFields["promptField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("Pil yüzde 20'ye düşünce bana haber ver")
+        app.buttons["sendButton"].tap()
+
+        XCTAssertTrue(app.staticTexts["triggerSummary"].waitForExistence(timeout: 10))
+        app.buttons["confirmButton"].tap()
+
+        XCTAssertTrue(app.buttons["createAutomationButton"].waitForExistence(timeout: 10))
+        app.buttons["createAutomationButton"].tap()
+
+        // `.setup` — ios.notification.show artık gerçek bir template'e
+        // sahip (Phase 5A İş 0.5), bu yüzden userAssistedImport bekleniyor.
+        XCTAssertTrue(app.buttons["prepareHandoffButton"].waitForExistence(timeout: 10), "setup ekranı bekleniyordu")
+        app.buttons["prepareHandoffButton"].tap()
+
+        XCTAssertTrue(app.buttons["handOffButton"].waitForExistence(timeout: 10), "userAssistedImport ekranı bekleniyordu")
+        app.buttons["handOffButton"].tap()
+
+        // Burada UIApplication.shared.open(shortcuts://...) tetiklenir.
+        // Simulator'da gerçek Shortcuts importu GÜVENİLİR DEĞİL — sonuç
+        // .waitingForUser (OS URL'i "açtı") ya da .setupFailed (OS
+        // açamadı) olabilir; ikisi de ARA bir kurulum durumu, Test 4'ün
+        // amacı için ikisi de geçerli.
+        let waitingForUser = app.buttons["confirmShortcutAddedButton"]
+        let setupFailed = app.staticTexts["setupFailedReason"]
+        let reachedMidSetup = waitingForUser.waitForExistence(timeout: 10) || setupFailed.waitForExistence(timeout: 5)
+        XCTAssertTrue(reachedMidSetup, "ne waitingForUser ne setupFailed'e ulaşıldı — akış beklenenden farklı")
+        let reachedWaitingForUser = waitingForUser.exists
+
+        // Force quit simülasyonu: process'i tamamen sonlandır, sonra
+        // YENİDEN başlat (icon'dan açmanın karşılığı — Xcode'un
+        // enjekte ettiği launchEnvironment burada da geçerli kalır
+        // çünkü XCUITest her `launch()` çağrısında onu YENİDEN uygular;
+        // gerçek cihazda ikondan açmanın env var'ı KAYBETMESİYLE
+        // KARIŞTIRILMAMALI — bkz. bu testin sonuç raporu).
+        app.terminate()
+        let relaunched = makeApp()
+        relaunched.launch()
+
+        // Gözlem: idle/Home'a mı dönüyor (promptField), yoksa kaldığı
+        // ara duruma mı (confirmShortcutAddedButton/setupFailedReason)?
+        let backToHome = relaunched.textFields["promptField"].waitForExistence(timeout: 10)
+        let resumedMidSetup = relaunched.buttons["confirmShortcutAddedButton"].exists
+            || relaunched.staticTexts["setupFailedReason"].exists
+
+        XCTAssertTrue(backToHome || resumedMidSetup, "ne Home ne ara durum göründü — beklenmeyen ekran")
+        // Bu XCTAssert'ler DAVRANIŞI zorlamıyor, yalnızca "bir şey
+        // göründü, boş/çökmüş ekran değil" diye kanıtlıyor — gerçek
+        // gözlem (backToHome mü resumedMidSetup mı) konsol çıktısında.
+        print("Phase 5A Test 4 (Simulator) gözlemi: reachedWaitingForUser=\(reachedWaitingForUser), backToHome=\(backToHome), resumedMidSetup=\(resumedMidSetup)")
+    }
+
     /// Ekrandaki HİÇBİR statik metin bir capability id gibi görünmüyor
     /// (nokta içeren "ios."/"tesla." önekli bir dize).
     private func assertNoCapabilityIdVisible(in app: XCUIApplication) {
