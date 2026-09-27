@@ -6,7 +6,10 @@ import {
   MockPlanner,
   MockSetupService,
 } from "../src/builder/mocks.js";
+import type { Planner, PlannerResult } from "../src/builder/ports.js";
 import type { BuilderStep } from "../src/builder/types.js";
+import type { DraftAutomationPlan } from "../src/builder/types.js";
+import { NluPlannerAdapter } from "../src/nlu/pipeline.js";
 
 const SENTRY = "Arabadan inince Tesla'nın Sentry Mode'unu aç";
 const CAMERA = "Arabadan inince Tesla'nın kamerasını aç";
@@ -548,5 +551,84 @@ describe("BuilderMachine — edit() geri dönüşü (docs/ux.md §3.5)", () => {
     await machine.confirmUnderstanding();
     machine.edit();
     expect(machine.step.kind).toBe("understanding");
+  });
+});
+
+describe("BuilderMachine — Phase 5B P0 conversation isolation", () => {
+  /**
+   * Casus planner: plan() çağrılarını iç planner'a DELEGE eder, yalnızca
+   * resetConversation() çağrılarını sayar. Böylece hem "reset çağrıldı mı"
+   * hem "akış davranışı değişti mi" aynı testte görülebilir.
+   */
+  class SpyPlanner implements Planner {
+    resetCount = 0;
+    constructor(private inner: Planner = new MockPlanner()) {}
+    async plan(text: string, existingDraft?: DraftAutomationPlan | null): Promise<PlannerResult> {
+      return this.inner.plan(text, existingDraft);
+    }
+    resetConversation(): void {
+      this.resetCount++;
+    }
+  }
+
+  function makeWith(planner: Planner) {
+    return new BuilderMachine({
+      planner,
+      permissions: new MockPermissionService(["bluetooth", "tesla_account"]),
+      setup: new MockSetupService(true),
+      repository: new InMemoryAutomationRepository(),
+      platform: "ios",
+    });
+  }
+
+  it("Test A — her open() ve close() planner conversation'ını sıfırlar (fresh attempt invariant)", () => {
+    const planner = new SpyPlanner();
+    const machine = makeWith(planner);
+
+    machine.open(); // yeni attempt başlangıcı — reset olmalı
+    expect(planner.resetCount).toBe(1);
+
+    machine.close(); // terk — reset olmalı
+    expect(planner.resetCount).toBe(2);
+
+    machine.open(); // yeni attempt — reset olmalı
+    expect(planner.resetCount).toBe(3);
+  });
+
+  it("Test A2 — terk edilen attempt'in bağlamı yeni attempt'e SIZMAZ (NluPlannerAdapter)", async () => {
+    const adapter = new NluPlannerAdapter();
+    const machine = makeWith(adapter);
+
+    // Attempt A → terk edilecek (bağlam dolar)
+    machine.open();
+    machine.setText("Arabadan inince Sentry Mode'u aç.");
+    await machine.submit();
+    expect(adapter.getContext().originalInput).toContain("Arabadan");
+    expect(adapter.getContext().currentPlan).not.toBeNull();
+
+    machine.close();
+    // FIX kanıtı: close() bağlamı HEMEN sıfırladı
+    expect(adapter.getContext().originalInput).toBe("");
+    expect(adapter.getContext().currentPlan).toBeNull();
+
+    // Attempt B → tamamen alakasız yeni bir otomasyon
+    machine.open();
+    machine.setText("Pil yüzde 20'ye düşünce bana haber ver.");
+    await machine.submit();
+    expect(adapter.getContext().originalInput).not.toContain("Arabadan");
+  });
+
+  it("Test B — aynı attempt içindeki ara adımlar bağlamı SIFIRLAMAZ", async () => {
+    const planner = new SpyPlanner();
+    const machine = makeWith(planner);
+
+    machine.open(); // tek reset burada (attempt başı)
+    machine.setText(SENTRY);
+    await machine.submit();
+    await machine.confirmUnderstanding(); // -> missing_info (araç sorusu)
+
+    // Ara adımlar reset ÇAĞIRMADI — yalnızca open()'daki 1 çağrı sayıldı.
+    expect(machine.step.kind).toBe("missing_info");
+    expect(planner.resetCount).toBe(1);
   });
 });

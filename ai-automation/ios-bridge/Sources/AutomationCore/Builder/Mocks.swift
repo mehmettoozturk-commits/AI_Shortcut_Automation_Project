@@ -112,6 +112,9 @@ public actor MockPlanner: Planner {
         )
         return .plan(draft)
     }
+
+    /// MockPlanner hiçbir konuşma bağlamı TUTMAZ — no-op (Phase 5B P0 sözleşmesi).
+    public nonisolated func resetConversation() {}
 }
 
 private func trimTrailingDotPublic(_ s: String) -> String {

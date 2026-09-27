@@ -91,6 +91,9 @@ export class MockPlanner implements Planner {
     // §7.2: hiçbir şey anlaşılamadı
     return { kind: "not_understood" };
   }
+
+  /** MockPlanner hiçbir konuşma bağlamı TUTMAZ — no-op (Phase 5B P0 sözleşmesi). */
+  resetConversation(): void {}
 }
 
 function buildSteps(actionType: string, isSentry: boolean) {

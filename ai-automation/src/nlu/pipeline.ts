@@ -362,6 +362,16 @@ export class NluPlannerAdapter implements Planner {
     this.context = emptyContext();
   }
 
+  /**
+   * Phase 5B P0 — `Planner` port sözleşmesi: YENİ bir deneme başlarken
+   * (`BuilderMachine.open`) ve akıştan çıkışta (`BuilderMachine.close`)
+   * çağrılır; terk edilmiş bir denemenin bağlamının bir sonrakine
+   * sızmasını engeller.
+   */
+  resetConversation(): void {
+    this.resetContext();
+  }
+
   getContext(): ConversationContext {
     return this.context;
   }

@@ -67,6 +67,10 @@ export class BuilderMachine {
 
   /** FAB veya Ana Sayfa girişi: idle -> capturing */
   open(prefillText = ""): void {
+    // Phase 5B P0 — her YENİ deneme boş bir konuşma bağlamıyla başlar;
+    // capturing state'i oluşturulmadan ÖNCE sıfırlanır (leakage fix —
+    // bkz. tests/builder-machine.test.ts "conversation isolation").
+    this.deps.planner.resetConversation();
     this.transition({ kind: "capturing", text: prefillText, draft: null, notUnderstood: false });
   }
 
@@ -79,6 +83,9 @@ export class BuilderMachine {
    */
   close(): void {
     this.currentAutomationId = null;
+    // Phase 5B P0 — akıştan çıkışta da bağlam sıfırlanır: bir sonraki
+    // attempt kesin olarak fresh başlar (leakage fix).
+    this.deps.planner.resetConversation();
     this.transition({ kind: "idle" });
   }
 

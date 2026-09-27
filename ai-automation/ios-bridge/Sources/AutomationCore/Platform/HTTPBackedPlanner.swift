@@ -80,12 +80,33 @@ public actor HTTPBackedPlanner: Planner {
     /// testte GERÇEK bir backend'e karşı çalıştırılarak keşfedildi).
     private let permissions: PermissionService
 
+    /// Test ortamında / thread-safe erişimde konuşma durumunu saklar.
+    private final class ConversationBox: @unchecked Sendable {
+        private let lock = NSLock()
+        private var _value: AnyCodable?
+        init(value: AnyCodable? = nil) { self._value = value }
+        var value: AnyCodable? {
+            get { lock.lock(); defer { lock.unlock() }; return _value }
+            set { lock.lock(); defer { lock.unlock() }; _value = newValue }
+        }
+        func reset() {
+            lock.lock()
+            _value = nil
+            lock.unlock()
+        }
+    }
+
+    private let conversationBox = ConversationBox()
+
     /// Backend DURUMSUZ (bkz. docs/api.md §2) — konuşma durumu istemcide
     /// tutulur. Bu alan `conversation` JSON'unu OPAK olarak taşır;
     /// `Entities`/`IntentResult`'ın Swift karşılığını yazmaya GEREK YOK
     /// çünkü bu sınıf onları hiç yorumlamaz, yalnızca aynen geri gönderir
     /// (backend'in `hydrate` ettiği TEK doğruluk kaynağı budur).
-    private var conversation: AnyCodable?
+    private var conversation: AnyCodable? {
+        get { conversationBox.value }
+        set { conversationBox.value = newValue }
+    }
 
     /// Son isteğin domain-level hatası (varsa) — `Planner` protokolünün
     /// dar `.notUnderstood`'una ek, gözlemlenebilir bir yan kanal.
@@ -99,8 +120,10 @@ public actor HTTPBackedPlanner: Planner {
 
     /// Yeni bir konuşma başlatır — bağlam sıfırlanır (§ "Otomasyon
     /// Oluştur" akışından tamamen çıkış, BuilderMachine.close() gibi).
-    public func resetConversation() {
-        conversation = nil
+    /// Phase 5B P0: `Planner` protokol sözleşmesi gereği SENKRON ve
+    /// thread-safe'tir (`nonisolated`).
+    public nonisolated func resetConversation() {
+        conversationBox.reset()
     }
 
     public func plan(text: String, existingDraft: DraftAutomationPlan?) async -> PlannerResult {

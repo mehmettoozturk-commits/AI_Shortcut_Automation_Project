@@ -18,6 +18,14 @@ public protocol Planner: Sendable {
     ///   taslak (§7.1). Verilmişse planner planı SIFIRDAN üretmek
     ///   yerine revize etmelidir.
     func plan(text: String, existingDraft: DraftAutomationPlan?) async -> PlannerResult
+
+    /// Phase 5B P0 — conversation isolation. YENİ bir deneme başlarken
+    /// (`BuilderMachine.open`) ve akıştan çıkışta (`BuilderMachine.close`)
+    /// çağrılır; terk edilmiş bir denemenin konuşma bağlamının bir
+    /// sonrakine sızmasını engeller. Senkron sözleşme; actor tabanlı
+    /// planner'lar thread-safe bir kutu (ConversationBox) veya dahili kilit
+    /// ile `nonisolated` olarak karşılar.
+    func resetConversation()
 }
 
 public protocol PermissionService: Sendable {

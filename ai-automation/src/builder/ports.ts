@@ -23,6 +23,15 @@ export interface Planner {
    *   Verilmişse planner, planı sıfırdan üretmek yerine **revize** eder.
    */
   plan(text: string, existingDraft?: DraftAutomationPlan | null): Promise<PlannerResult>;
+
+  /**
+   * Phase 5B P0 — conversation isolation. YENİ bir deneme başlarken
+   * (`BuilderMachine.open`) ve akıştan çıkışta (`BuilderMachine.close`)
+   * çağrılır; terk edilmiş bir denemenin konuşma bağlamının bir
+   * sonrakine sızmasını engeller. Uygulanmayan bir planner bu metodu
+   * no-op olarak karşılayabilir (örn. MockPlanner).
+   */
+  resetConversation(): void;
 }
 
 export interface PermissionService {
