@@ -67,6 +67,7 @@ export class BuilderMachine {
 
   /** FAB veya Ana Sayfa girişi: idle -> capturing */
   open(prefillText = ""): void {
+    this.deps.planner.resetConversation();
     this.transition({ kind: "capturing", text: prefillText, draft: null, notUnderstood: false });
   }
 
@@ -79,6 +80,7 @@ export class BuilderMachine {
    */
   close(): void {
     this.currentAutomationId = null;
+    this.deps.planner.resetConversation();
     this.transition({ kind: "idle" });
   }
 

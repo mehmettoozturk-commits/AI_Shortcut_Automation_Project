@@ -36,7 +36,7 @@ struct SuccessView: View {
                 .accessibilityIdentifier("successMessage")
 
             Button("Bitir") {
-                viewModel.close()
+                Task { await viewModel.close() }
             }
             .accessibilityIdentifier("successCloseButton")
         }

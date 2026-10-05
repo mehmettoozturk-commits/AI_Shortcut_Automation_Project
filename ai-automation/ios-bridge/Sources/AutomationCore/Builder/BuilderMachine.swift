@@ -68,7 +68,8 @@ public final class BuilderMachine: ObservableObject {
 
     // MARK: - idle <-> capturing
 
-    public func open(prefillText: String = "") {
+    public func open(prefillText: String = "") async {
+        await planner.resetConversation()
         step = .capturing(text: prefillText, draft: nil, notUnderstood: false)
     }
 
@@ -77,8 +78,10 @@ public final class BuilderMachine: ObservableObject {
     /// Otomasyonlarım listesinde dürüstçe görebilmeli) — yalnızca akışın
     /// kendi bağlantısı (`currentAutomationId`) sıfırlanır ki bir
     /// sonraki `create()` YENİ bir kayıt üretsin.
-    public func close() {
+    public func close() async {
         currentAutomationId = nil
+        pendingHandoff = nil
+        await planner.resetConversation()
         step = .idle
     }
 

@@ -26,7 +26,7 @@ struct SetupFailedView: View {
             .accessibilityIdentifier("retrySetupButton")
 
             Button("Baştan Başla") {
-                viewModel.close()
+                Task { await viewModel.close() }
             }
             .accessibilityIdentifier("setupFailedCloseButton")
         }

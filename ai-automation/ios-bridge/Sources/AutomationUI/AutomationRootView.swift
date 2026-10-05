@@ -15,11 +15,8 @@ public struct AutomationRootView: View {
 
     public var body: some View {
         content
-            .onAppear {
-                if case .idle = viewModel.step { viewModel.start() }
-            }
-            .onChange(of: isIdle) { idle in
-                if idle { viewModel.start() }
+            .task(id: isIdle) {
+                if isIdle { await viewModel.start() }
             }
     }
 

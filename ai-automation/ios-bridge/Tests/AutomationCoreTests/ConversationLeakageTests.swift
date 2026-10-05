@@ -1,16 +1,3 @@
-// Phase 5B Test 5B-3 — Phase 5A Test 5'te gerçek cihazda ampirik olarak
-// gözlemlenen bulguyu deterministik/tekrarlanabilir hale getirir:
-// `BuilderMachine.close()`/`open()`, `HTTPBackedPlanner`'ın kendi
-// `conversation` alanını HİÇ sıfırlamıyor — bu alan yalnızca actor'ın
-// ÖZEL durumu, `Planner` protokolü `resetConversation()`'ı bile
-// tanımıyor.
-//
-// ÖNCE ÖLÇ, SONRA DÜZELT: bu test bir davranışı DÜZELTMEZ, yalnızca
-// mevcut (muhtemelen hatalı) davranışı kanıtlar — bkz.
-// docs/phase5b-failure-matrix-plan.md Test 5B-3. Beklenen sonuç bu
-// testin PASS olması (leakage'ı KANITLADIĞI için), bir "düzeltme"
-// testi değildir.
-
 import XCTest
 @testable import AutomationCore
 
@@ -40,14 +27,8 @@ private func jsonObject(_ data: Data) -> [String: Any]? {
 
 @MainActor
 final class ConversationLeakageTests: XCTestCase {
-    /// TAM zincir: attempt 1 (araç sorusuna kadar gidip TERK edilir,
-    /// `close()`) → attempt 2 (TAMAMEN alakasız, farklı bir otomasyon)
-    /// → `installed`'a kadar sürülür. Kanıtlanan: (1) attempt 2'nin
-    /// backend'e gönderdiği istek, attempt 1'in `conversation`'ını
-    /// TAŞIYOR (leak GERÇEK), (2) `BuilderMachine`'in kendisinde bunu
-    /// engelleyen/uyaran HİÇBİR mekanizma yok — akış `installed`'a
-    /// kadar KESİNTİSİZ ilerliyor.
-    func testAbandonedAttempt_leaksConversationIntoUnrelatedNewAttempt_reachesInstalled() async throws {
+    /// Abandon a clarification, start an unrelated attempt, and install it in isolation.
+    func testAbandonedAttempt_newAttemptHasFreshConversation_reachesInstalled() async throws {
         let registry = try CapabilityRegistry.loadFromBundle()
 
         // Attempt 1: "Arabadan inince klimayı aç." -> araç sorusu.
@@ -101,7 +82,7 @@ final class ConversationLeakageTests: XCTestCase {
         )
 
         // --- Attempt 1: araç sorusuna kadar git, sonra TERK ET ---
-        machine.open()
+        await machine.open()
         machine.setText("Arabadan inince klimayı aç.")
         await machine.submit()
         guard case .understanding = machine.step else { return XCTFail("understanding bekleniyordu") }
@@ -109,23 +90,19 @@ final class ConversationLeakageTests: XCTestCase {
         guard case .missingInfo = machine.step else { return XCTFail("missingInfo (araç sorusu) bekleniyordu") }
 
         // Kullanıcı cevaplamadan vazgeçti — ✕ ile çıktı.
-        machine.close()
+        await machine.close()
         guard case .idle = machine.step else { return XCTFail("idle bekleniyordu") }
 
         // --- Attempt 2: TAMAMEN alakasız yeni bir otomasyon ---
-        machine.open()
+        await machine.open()
         machine.setText("Pil yüzde 20'ye düşünce bana haber ver")
         await machine.submit()
 
-        // KANIT 1: attempt 2'nin backend'e gönderdiği istek, attempt
-        // 1'in (TERK EDİLMİŞ, cevaplanmamış) conversation'ını taşıyor.
+        // The new request must carry no conversation from the abandoned attempt.
         let bodies = await transport.receivedBodies
         XCTAssertEqual(bodies.count, 2)
         let sentConversation2 = jsonObject(bodies[1])?["conversation"] as? [String: Any]
-        XCTAssertEqual(
-            sentConversation2?["marker"] as? String, "attempt1-abandoned",
-            "LEAK KANITLANDI: close()+open() sonrası YENİ bir deneme, ESKİ (terk edilmiş) denemenin conversation'ını gönderiyor"
-        )
+        XCTAssertNil(sentConversation2, "A new attempt must not send the abandoned conversation")
 
         // --- Akış devam ediyor mu, yoksa bir yerde durup uyarıyor mu? ---
         guard case .understanding = machine.step else { return XCTFail("understanding bekleniyordu") }
@@ -141,14 +118,122 @@ final class ConversationLeakageTests: XCTestCase {
         guard case .linkingTrigger = machine.step else { return XCTFail("linkingTrigger bekleniyordu") }
         await machine.confirmTriggerLinked()
 
-        // KANIT 2: hiçbir ara adım leak'i tespit edip durmadı —
-        // `installed`'a KESİNTİSİZ ulaşıldı.
+        // The isolated attempt still completes the installation flow.
         guard case .installed(let automation) = machine.step else {
-            return XCTFail("installed bekleniyordu — leak akışı DURDURMUYOR")
+            return XCTFail("installed bekleniyordu")
         }
         XCTAssertEqual(automation.installStatus, .installed)
         let saved = await repository.list()
         XCTAssertEqual(saved.count, 1)
         XCTAssertEqual(saved.first?.installStatus, .installed)
+    }
+
+    func testSameAttempt_clarificationAndCorrectionPreserveConversationThroughInstall() async throws {
+        let turn1Response = jsonData("""
+        {
+          "status": "needs_clarification",
+          "conversation": {
+            "marker": "turn1",
+            "currentPlan": {
+              "name": "Klimayı/ön ısıtmasını başlatır",
+              "trigger": { "type": "ios.bluetooth.disconnected", "device": null, "params": {} },
+              "steps": [ { "type": "tesla.climate.start" } ],
+              "missing": [ { "id": "vehicle", "kind": "device_or_person", "question": "Hangi aracı kullanalım?", "options": ["Tesla Model Y", "Tesla Model 3"], "optional": false } ],
+              "answers": {}
+            }
+          }
+        }
+        """)
+        let turn2Response = jsonData("""
+        {
+          "status": "plan",
+          "plan": {
+            "name": "Klimayı/ön ısıtmasını başlatır",
+            "trigger": { "type": "ios.bluetooth.disconnected", "device": "Tesla Model Y", "params": {} },
+            "steps": [ { "type": "tesla.climate.start" } ],
+            "missing": [],
+            "answers": { "vehicle": "Tesla Model Y" }
+          },
+          "validation": { "stage": "complete", "ok": true, "issues": [] },
+          "conversation": { "marker": "turn2" }
+        }
+        """)
+        let turn3Response = jsonData("""
+        {
+          "status": "plan",
+          "plan": {
+            "name": "Klimayı/ön ısıtmasını başlatır",
+            "trigger": { "type": "ios.bluetooth.disconnected", "device": "Tesla Model 3", "params": {} },
+            "steps": [ { "type": "tesla.climate.start" } ],
+            "missing": [],
+            "answers": { "vehicle": "Tesla Model 3" }
+          },
+          "validation": { "stage": "complete", "ok": true, "issues": [] },
+          "conversation": { "marker": "turn3" }
+        }
+        """)
+        let transport = ScriptedTransport(responses: [
+            PlanHTTPResult(statusCode: 200, body: turn1Response),
+            PlanHTTPResult(statusCode: 200, body: turn2Response),
+            PlanHTTPResult(statusCode: 200, body: turn3Response),
+        ])
+        let planner = HTTPBackedPlanner(transport: transport, permissions: MockPermissionService(granted: ["bluetooth", "tesla_account"]))
+
+        let registry = try CapabilityRegistry.loadFromBundle()
+        let repository = InMemoryAutomationRepository()
+        let machine = BuilderMachine(
+            registry: registry, planner: planner,
+            permissions: MockPermissionService(granted: ["bluetooth", "tesla_account"]),
+            setup: MockSetupService(), shortcutsHandoff: MockShortcutsHandoff(),
+            repository: repository, device: DeviceContext(osVersion: 26, hasCarPlay: false)
+        )
+        await machine.open()
+        machine.setText("Arabadan inince klimayı aç.")
+        await machine.submit()
+        guard case .understanding(let draft1) = machine.step else { return XCTFail("understanding expected") }
+        XCTAssertEqual(draft1.missing.first?.id, "vehicle")
+
+        machine.revise()
+        machine.setText("Tesla Model Y.")
+        await machine.submit()
+        guard case .understanding(let draft2) = machine.step else { return XCTFail("understanding expected") }
+        XCTAssertEqual(draft2.trigger.device, "Tesla Model Y")
+        XCTAssertEqual(draft2.trigger.type, "ios.bluetooth.disconnected")
+        XCTAssertEqual(draft2.steps, [.action(type: "tesla.climate.start", params: nil)])
+
+        machine.revise()
+        machine.setText("Hayır, Model 3.")
+        await machine.submit()
+        guard case .understanding(let draft3) = machine.step else { return XCTFail("understanding expected") }
+        XCTAssertEqual(draft3.trigger.device, "Tesla Model 3")
+        // Tetikleyici ve eylem KORUNUR — yalnızca araç değişti.
+        XCTAssertEqual(draft3.trigger.type, "ios.bluetooth.disconnected")
+        XCTAssertEqual(draft3.steps, [.action(type: "tesla.climate.start", params: nil)])
+
+        // Bağlam gerçekten TAŞINDI mı? 2. istek, 1. yanıtın `conversation`
+        // alanını AYNEN içermeli; 3. istek 2. yanıtınkini.
+        let bodies = await transport.receivedBodies
+        XCTAssertEqual(bodies.count, 3)
+        let sentConversation2 = jsonObject(bodies[1])?["conversation"] as? [String: Any]
+        let turn1Conversation = jsonObject(turn1Response)?["conversation"] as? [String: Any]
+        XCTAssertEqual(sentConversation2?["marker"] as? String, turn1Conversation?["marker"] as? String)
+        XCTAssertEqual(sentConversation2?["marker"] as? String, "turn1")
+
+        let sentConversation3 = jsonObject(bodies[2])?["conversation"] as? [String: Any]
+        XCTAssertEqual(sentConversation3?["marker"] as? String, "turn2")
+
+        // İlk istek (turn 1) henüz hiçbir konuşma taşımamalı.
+        XCTAssertNil(jsonObject(bodies[0])?["conversation"])
+        await machine.confirmUnderstanding()
+        await machine.create()
+        await machine.prepareHandoff()
+        await machine.handOffToShortcuts()
+        machine.confirmShortcutAdded()
+        await machine.confirmTriggerLinked()
+        guard case .installed(let automation) = machine.step else { return XCTFail("installed expected") }
+        XCTAssertEqual(automation.installStatus, .installed)
+        let records = await repository.list()
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?.installStatus, .installed)
     }
 }

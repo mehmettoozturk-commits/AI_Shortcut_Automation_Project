@@ -73,6 +73,7 @@ public actor MockSetupService: SetupService {
 /// akışı TS tarafında kalıp Swift yalnızca native adaptörü üstlenir —
 /// bu açık bir mimari karardır, bkz. docs/ios-bridge.md "Açık işler" #2.
 public actor MockPlanner: Planner {
+    public func resetConversation() async {}
     private let registry: CapabilityRegistry
 
     public init(registry: CapabilityRegistry) {
