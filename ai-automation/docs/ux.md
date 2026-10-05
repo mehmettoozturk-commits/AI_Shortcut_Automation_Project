@@ -631,3 +631,24 @@ görülme sırası kullanılır. Opsiyonel tercihler (4. seviye) için kullanıc
 olarak implemente edilir (`nextMissingInfoQuestion(plan) -> Question?`),
 böylece öncelik kuralı UI'dan bağımsız unit test edilebilir.
 
+### 7.5 Yavaş/ağ sorunlu yanıtlar: istemci zaman aşımı (Phase 5B bulgusu)
+
+Swift istemci (`PlanHTTPTransport`) özel bir zaman aşımı TANIMLAMAZ —
+`URLSession.shared` varsayılanı geçerlidir. Phase 5B ölçümleri:
+
+- **Ağ hiç yokken** (Wi-Fi + hücresel kapalı, fiziksel cihaz): iOS
+  "unreachable" hatasını ANINDA döndürür — kullanıcı beklemeden
+  "Anlayamadım, başka türlü ifade eder misin?" görür (§7.2). Süresiz
+  bekleme YOK (5B-4 PASS).
+- **Sunucu yavaş ama erişilebilirken** (kasıtlı gecikmeli yanıt):
+  varsayılan ~60sn'de timeout oluşur; süresiz bekleme YOK (5B-2 ölçümü:
+  ~60.09sn).
+- Gerçek NVIDIA yanıtları 22–110sn arasında değişebiliyor (Phase 5A
+  Test 6); ~60sn üzerindeki yavaş yanıtlar "anlaşılamadı" olarak
+  görünebilir ve gerçek hata (`provider_error`) ayrımı bu durumda
+  kullanıcıya YANSIMAZ.
+
+**Bilinen sınır / düzeltme adayı (henüz uygulanmadı):** explicit
+`timeoutIntervalForRequest` değeri + "sunucu yanıt vermiyor" için ayrı
+bir durum. Release öncesi (5E) ele alınmalı.
+

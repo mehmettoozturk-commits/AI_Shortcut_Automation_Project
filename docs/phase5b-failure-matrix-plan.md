@@ -298,7 +298,46 @@ Yanlışlıkla installed oluyor mu (olmamalı)?
 
 ---
 
-### Test 5B-4 SONUÇ (beklemede)
+### Test 5B-4 SONUÇ — PASS (FİZİKSEL CİHAZ, 2026-09-27)
+
+**Fiziksel cihaz doğrulaması TAMAMLANDI ve PASS:**
+- Gerçek iPhone (iPhone 16 Pro), Wi-Fi + hücresel veri kapatıldı; uygulama
+  Xcode ile kuruldu (PLAN_BACKEND_URL=http://192.168.1.139:3000/plan — Mac
+  LAN IP'si değişmişti, güncellendi).
+- "Pil yüzde 20'ye düşünce bana haber ver" gönderildi.
+- Bekleme süresi: ÇOK KISA (anında) — network-unreachable'da iOS hemen hata
+  döndürür (5B-2'deki ~60sn yalnızca "sunucu yavaş ama erişilebilir"
+  senaryosundaydı).
+- iOS, uygulama DIŞINDA kendi sistem uyarısını gösterdi ("hücresel veriyi
+  aç") — uygulama kodunda böyle bir mesaj YOK (grep ile doğrulandı); iOS'un
+  kendi davranışı, sonucu etkilemiyor.
+- Uygulamada: "Anlayamadım, başka türlü ifade eder misin?" gösterildi; ana
+  ekranda kalındı (`notUnderstood`).
+- Plan/onay ekranı HİÇ açılmadı → create/handoff adımlarına ulaşılamadı →
+  repository'ye yazma İMKÂNSIZ (create() çağrılmadı), installed YOK ✓
+
+**Simulator eşdeğeri (aynı gün, alt-kanıt):** Backend durduruldu (port
+3000 boş), gerçek AutomationApp iPhone 17 Pro Simulator'da (iOS 26.5)
+mevcut UI testiyle koşturuldu (`xcodebuild test`; xcresult + UI hierarchy
+kanıtı: /tmp/5b4-attachments/). `connection refused` → hata hemen döndü;
+davranış fiziksel sonuçla birebir aynı.
+
+**Kanıtlanan (her iki ölçümde ortak):**
+- Gerçek URLSession network failure yolu çalışıyor (unit testler 9/9 PASS:
+  `HTTPBackedPlannerTests`, `testNetworkTimeout_mapsToPlannerUnreachable`).
+- `plannerUnreachable` → `.notUnderstood` eşlemesi doğru.
+- Kullanıcıya "Anlayamadım, başka türlü ifade eder misin?"
+  (`notUnderstoodNote`) gösteriliyor.
+- `previewConfirm` açılmıyor (`triggerSummary`/`confirmButton`/`reviseButton`
+  ekranda yok — UI hierarchy kanıtı).
+- Repository kaydı oluşmuyor (Application Support boş — `automations.json` yok).
+- `installed`'a ulaşılmıyor.
+- UI testi FAIL oldu (beklenen; yalnızca plan ekranının gelmediğini
+  doğruluyordu): uygulama ana ekranda `notUnderstood` durumunda kaldı —
+  hatanın dürüst gösterimi.
+
+**Sonuç:** FİZİKSEL PASS + Simulator eşdeğeri PASS — ağ yokluğunda dürüst
+hata ("Anlayamadım..."), `installed`'a ulaşılamadı, repository'ye yazma yok.
 
 ---
 
@@ -321,7 +360,65 @@ capability'siyle test edilebilir)? Yanlışlıkla installed oluyor mu
 
 ---
 
-### Test 5B-5 SONUÇ (beklemede)
+### Test 5B-5 SONUÇ — PASS (FİZİKSEL CİHAZ, 2026-09-27)
+
+**Fiziksel cihaz doğrulaması TAMAMLANDI ve PASS:**
+- Gerçek iPhone (iPhone 16 Pro); uygulama `devicectl` ile doğru backend
+  adresiyle başlatıldı (PLAN_BACKEND_URL=http://192.168.1.139:3000/plan).
+- "Pil yüzde 20'ye düşünce bana haber ver" → plan → onayla → oluştur →
+  "Kestirmelere Aktar" → Shortcuts açıldı; import TAMAMLANMADI (kullanıcı
+  "Ekle"ye basmadan uygulamaya döndü) → "Ekleyemedim"e basıldı.
+- Ekranda: "Kurulum tamamlanamadı" + "Kestirme Shortcuts'a eklenemedi."
+  (`setupFailedReason`); "Tekrar Dene" ve "Baştan Başla" butonları görünür.
+- "Kuruldu! 🎉" ekranı HİÇ gelmedi → installed YOK ✓
+- Repository dosya kanıtı (cihazdan `devicectl device copy from` ile
+  okundu — Library/Application Support/com.aishortcut.AutomationApp/
+  automations.json): en yeni kayıt `auto-B4792291` (13:39'da güncellendi)
+  → `installStatus: "failed"` ✓ — `installed` DEĞİL, dürüst kayıt.
+  Aynı dosyada bugünkü başarılı denemenin kaydı `auto-B577CB1B` →
+  `installStatus: "installed"` — başarılı yolun da karşı-kanıtı.
+- Başarılı yol 3/3 (aynı gün): "Kestirmelere Aktar → Ekle → Ekledim →
+  Bağladım → Kuruldu!" gerçek cihazda üç kez üst üste sorunsuz tamamlandı
+  — handoff/import zincirinin TEKRARLANABİLİRLİK kanıtı.
+
+**Kanıtlanan zincir (fiziksel):**
+waiting_for_user → "Ekleyemedim" → setup_failed → repository `"failed"` →
+installed YOK ✓
+
+**Simulator eşdeğeri (alt-kanıt, aynı gün):** İki XCUITest koşturuldu
+(backend rule-based, açık; gerçek AutomationApp, iPhone 17 Pro Simulator,
+iOS 26.5), ikisi de PASS:
+- `testReportInstallFailed_reachesSetupFailed_neverInstalled` (5B-5a, 16.7sn)
+- `testRetrySetup_fromSetupFailed_returnsToSetup` (5B-5b, 19.5sn)
+(testler: `App/UITests/AutomationAppUITests.swift`; xcresult kanıtları:
+/tmp/5b5a.xcresult, /tmp/5b5b.xcresult)
+
+**Kanıtlanan zincir (5B-5a):**
+waiting_for_user ("Ekleyemedim" butonu göründü) → "Ekleyemedim" tap →
+setup_failed (`setupFailedReason` = "Kestirme Shortcuts'a eklenemedi.")
+→ repository `installStatus: "failed"` (dosya kanıtı aşağıda) →
+installed GÖRÜNÜMÜ YOK (`installedAutomationName`/`installedDoneButton` yok).
+
+**Repository dosya kanıtı (Test A sonrası, Simulator container):**
+```json
+[{"id":"auto-BD7363DD","installStatus":"failed",
+  "name":"Kullanıcıya bir bildirim gösterir", ...}]
+```
+`installed` DEĞİL, `failed` — dürüst kayıt.
+
+**Retry davranışı (5B-5b):**
+setup_failed → "Tekrar Dene" (`retrySetupButton`) → .setup ekranına dönüş
+(`prepareHandoffButton` yeniden görünür), installed'a ulaşılmadı.
+`retrySetup()` kaydı `pending_user`'a çeker (bir önceki `failed` kalıcı
+değil — yeniden deneme aktif girişimdir). Repository kanıtı (Test B
+sonrası): `auto-C5D20E74 → pending_user`, `auto-BD7363DD → failed`.
+
+**Simulator sonucu:** Shortcuts importu Simulator'da GERÇEKLEŞMEDİ
+(güvenilir değil) — bu senaryoda zaten istenen buydu: kullanıcı hiçbir şey
+yapmadan döndü ve dürüstçe "Ekleyemedim" dedi.
+
+**Sonuç:** FİZİKSEL PASS + Simulator eşdeğeri PASS — "Ekleyemedim" →
+setup_failed → repository=`failed`, installed'a ulaşılmadı.
 
 ---
 
@@ -332,8 +429,8 @@ capability'siyle test edilebilir)? Yanlışlıkla installed oluyor mu
 | 5B-1 — mevcut failure-path regresyonu | P0 | **PASS** (2026-09-20) — 49/49 failure-path testi yeşil, installed'a yanlışlıkla ulaşan: 0 |
 | 5B-2 — istemci timeout gap'i | P0 | **Ölçüldü** (2026-09-20) — ~60.09sn'de timeout, süresiz bekleme YOK, P0 bug değil |
 | 5B-3 — conversation leakage kapsamı | **P0** (P1'den yükseltildi) | **Kanıtlandı** (2026-09-20) — installed'a kesintisiz ulaşıyor |
-| 5B-4 — gerçek network kaybı (cihaz) | P1 | beklemede |
-| 5B-5 — Shortcuts'tan gerçek geri çıkış (cihaz) | P1 | beklemede |
+| 5B-4 — gerçek network kaybı (cihaz) | P1 | **PASS — FİZİKSEL** (2026-09-27) — ağ yokken anında dürüst hata, installed YOK; Simulator eşdeğeri de PASS |
+| 5B-5 — Shortcuts'tan gerçek geri çıkış (cihaz) | P1 | **PASS — FİZİKSEL** (2026-09-27) — "Ekleyemedim" → setup_failed → repository=failed, installed YOK; Simulator eşdeğeri de PASS |
 
 ---
 
@@ -348,5 +445,40 @@ capability'siyle test edilebilir)? Yanlışlıkla installed oluyor mu
   bir düzeltme görevi olarak açılır.
 - Tüm sonuçlar bu dokümana ve gerekirse `docs/ux.md`/`docs/capabilities.md`'ye
   işlenir.
-- Phase 5B kapandığında sıradaki adım Phase 5C (gerçek NVIDIA soak
-  testi) — ayrı bir SPEC/PLAN olarak hazırlanacak.
+- 5B-4 ve 5B-5 fiziksel doğrulamaları TAMAMLANDI ve PASS (2026-09-27);
+  Simulator eşdeğerleri de PASS. **Phase 5B'nin tüm fiziksel kriterleri
+  sağlandı** — P0 Conversation Isolation düzeltmesi ayrı doğrulama
+  kriterleriyle izleniyor.
+
+---
+
+## Phase 5B Kapanış Özeti (2026-09-27)
+
+Beş testin de sonucu netleşti; fiziksel kriterler dahil tüm satırlar kapandı:
+
+| Test | Sonuç |
+|---|---|
+| 5B-1 — failure-path regresyonu | PASS — 49/49 test yeşil, installed'a yanlışlıkla ulaşan: 0 |
+| 5B-2 — istemci timeout ölçümü | Ölçüldü — ~60.09sn'de kesiliyor, süresiz bekleme yok (bulgu: explicit timeout yok → `docs/ux.md` §7.5) |
+| 5B-3 — conversation leakage | KANITLANDI → **P0**; düzeltme `a620616` ile yazıldı, Mac ve fiziksel cihaz doğrulaması bekliyor |
+| 5B-4 — gerçek network kaybı | PASS — FİZİKSEL (anında dürüst hata, installed YOK) + Simulator eşdeğeri |
+| 5B-5 — Shortcuts'tan gerçek geri çıkış | PASS — FİZİKSEL ("Ekleyemedim" → setup_failed → repository=failed, installed YOK) + Simulator eşdeğeri + başarılı yol 3/3 tekrarlanabilirlik |
+
+**Phase 5B'den çıkan açık iş kalemleri (release öncesi kapanmalı):**
+
+1. **P0 Conversation Isolation doğrulaması** — `a620616` düzeltmesi
+   `resetConversation()` çağrılarını TS ve Swift akışına ekledi. Swift build,
+   tam Swift testleri, Xcode UI testleri ve fiziksel iPhone'da araç düzeltmesi
+   ile yeni denemenin temiz konuşma bağlamı doğrulanmadan P0 kapatılamaz.
+2. **İstemci timeout bulgusu** (5B-2) — `docs/ux.md` §7.5'te kayıtlı;
+   explicit timeout + ayrı hata durumu 5E'ye kadar ele alınmalı.
+3. **ReadyView içerik eksikliği** (Phase 5A bulgusu, hâlâ açık) —
+   trigger/action/cihaz özeti gösterilmiyor (Phase 5A Test 5, görsel
+   doğrulama BLOCKED).
+
+**Sonraki adım:** Mac'te Swift build ve testler → Xcode UI testleri →
+gerçek iPhone'da araç düzeltmesi ve konuşma yalıtımı → P0 kapanışı →
+Phase 5C (gerçek NVIDIA soak).
+
+**Redline (değişmez):** Conversation Leakage P0 doğrulanıp kapanmadan 5C başlamaz.
+Phase 5C için ayrı bir SPEC/PLAN hazırlanacak.
