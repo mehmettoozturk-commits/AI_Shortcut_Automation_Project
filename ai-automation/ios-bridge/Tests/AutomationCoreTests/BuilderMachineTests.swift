@@ -36,9 +36,9 @@ final class BuilderMachineTests: XCTestCase {
         return (machine, repo)
     }
 
-    func testOpenTransitionsIdleToCapturing() throws {
+    func testOpenTransitionsIdleToCapturing() async throws {
         let (machine, _) = try makeMachine(registry: makeRegistry())
-        machine.open()
+        await machine.open()
         guard case .capturing(let text, _, let notUnderstood) = machine.step else {
             return XCTFail("capturing bekleniyordu")
         }
@@ -50,7 +50,7 @@ final class BuilderMachineTests: XCTestCase {
         let registry = try makeRegistry()
         let (machine, repo) = makeMachine(registry: registry)
 
-        machine.open()
+        await machine.open()
         machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
         await machine.submit()
         guard case .understanding = machine.step else { return XCTFail("understanding bekleniyordu") }
@@ -96,7 +96,7 @@ final class BuilderMachineTests: XCTestCase {
     func testWaitingForUser_noAutomaticProgression() async throws {
         let registry = try makeRegistry()
         let (machine, repo) = makeMachine(registry: registry)
-        machine.open()
+        await machine.open()
         machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
         await machine.submit()
         await machine.confirmUnderstanding()
@@ -117,7 +117,7 @@ final class BuilderMachineTests: XCTestCase {
     func testShowSuccessRequiresInstalledFirst() async throws {
         let registry = try makeRegistry()
         let (machine, _) = makeMachine(registry: registry)
-        machine.open()
+        await machine.open()
         machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
         await machine.submit()
         await machine.confirmUnderstanding()
@@ -135,7 +135,7 @@ final class BuilderMachineTests: XCTestCase {
     func testShortcutAddedWithoutTriggerLinked_cannotReachInstalled() async throws {
         let registry = try makeRegistry()
         let (machine, repo) = makeMachine(registry: registry)
-        machine.open()
+        await machine.open()
         machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
         await machine.submit()
         await machine.confirmUnderstanding()
@@ -158,7 +158,7 @@ final class BuilderMachineTests: XCTestCase {
     func testTriggerLinkedWithoutShortcutAdded_isNoOp() async throws {
         let registry = try makeRegistry()
         let (machine, repo) = makeMachine(registry: registry)
-        machine.open()
+        await machine.open()
         machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
         await machine.submit()
         await machine.confirmUnderstanding()
@@ -178,7 +178,7 @@ final class BuilderMachineTests: XCTestCase {
     func testLinkingTrigger_noAutomaticProgression() async throws {
         let registry = try makeRegistry()
         let (machine, repo) = makeMachine(registry: registry)
-        machine.open()
+        await machine.open()
         machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
         await machine.submit()
         await machine.confirmUnderstanding()
@@ -203,7 +203,7 @@ final class BuilderMachineTests: XCTestCase {
     func testReportInstallFailed_fromLinkingTrigger() async throws {
         let registry = try makeRegistry()
         let (machine, repo) = makeMachine(registry: registry)
-        machine.open()
+        await machine.open()
         machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
         await machine.submit()
         await machine.confirmUnderstanding()
@@ -227,7 +227,7 @@ final class BuilderMachineTests: XCTestCase {
     func testRetrySetup_resetsFailedRecordToPendingUser() async throws {
         let registry = try makeRegistry()
         let (machine, repo) = makeMachine(registry: registry)
-        machine.open()
+        await machine.open()
         machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
         await machine.submit()
         await machine.confirmUnderstanding()
@@ -247,7 +247,7 @@ final class BuilderMachineTests: XCTestCase {
     func testCameraRequestBecomesUnsupportedWithAlternatives() async throws {
         let registry = try makeRegistry()
         let (machine, _) = makeMachine(registry: registry)
-        machine.open()
+        await machine.open()
         machine.setText("Arabadan inince Tesla Model Y kamerayı aç")
         await machine.submit()
         guard case .unsupported(_, _, let alternatives, let manualSteps) = machine.step else {
@@ -261,7 +261,7 @@ final class BuilderMachineTests: XCTestCase {
     func testTriggerResolutionPrefersCarPlayWhenAvailable() async throws {
         let registry = try makeRegistry()
         let (machine, _) = makeMachine(registry: registry, hasCarPlay: true)
-        machine.open()
+        await machine.open()
         machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
         await machine.submit()
         await machine.confirmUnderstanding()
@@ -274,7 +274,7 @@ final class BuilderMachineTests: XCTestCase {
     func testInstallFailureDoesNotFakeSuccess() async throws {
         let registry = try makeRegistry()
         let (machine, repo) = makeMachine(registry: registry, setupSucceeds: false)
-        machine.open()
+        await machine.open()
         machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
         await machine.submit()
         await machine.confirmUnderstanding()
@@ -297,7 +297,7 @@ final class BuilderMachineTests: XCTestCase {
     func testPrepareHandoffNeverReachesInstalled() async throws {
         let registry = try makeRegistry()
         let (machine, repo) = makeMachine(registry: registry)
-        machine.open()
+        await machine.open()
         machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
         await machine.submit()
         await machine.confirmUnderstanding()
@@ -317,7 +317,7 @@ final class BuilderMachineTests: XCTestCase {
     func testHandOffToShortcutsNeverReachesInstalled() async throws {
         let registry = try makeRegistry()
         let (machine, repo) = makeMachine(registry: registry, handoffSucceeds: true)
-        machine.open()
+        await machine.open()
         machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
         await machine.submit()
         await machine.confirmUnderstanding()
@@ -339,7 +339,7 @@ final class BuilderMachineTests: XCTestCase {
     func testHandOffToShortcutsFailure_whenOSCannotOpenURL() async throws {
         let registry = try makeRegistry()
         let (machine, repo) = makeMachine(registry: registry, handoffSucceeds: false)
-        machine.open()
+        await machine.open()
         machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
         await machine.submit()
         await machine.confirmUnderstanding()
@@ -371,7 +371,7 @@ final class BuilderMachineTests: XCTestCase {
             repository: repo,
             device: DeviceContext(osVersion: 26, hasCarPlay: false)
         )
-        machine.open()
+        await machine.open()
         machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
         await machine.submit()
         await machine.confirmUnderstanding()

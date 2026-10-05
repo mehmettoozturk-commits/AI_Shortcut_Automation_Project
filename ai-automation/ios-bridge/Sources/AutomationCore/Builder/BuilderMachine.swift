@@ -68,11 +68,8 @@ public final class BuilderMachine: ObservableObject {
 
     // MARK: - idle <-> capturing
 
-    public func open(prefillText: String = "") {
-        // Phase 5B P0 — her YENİ deneme boş bir konuşma bağlamıyla
-        // başlar; capturing state'i oluşturulmadan ÖNCE sıfırlanır
-        // (leakage fix — bkz. ConversationLeakageTests Test A).
-        planner.resetConversation()
+    public func open(prefillText: String = "") async {
+        await planner.resetConversation()
         step = .capturing(text: prefillText, draft: nil, notUnderstood: false)
     }
 
@@ -81,11 +78,10 @@ public final class BuilderMachine: ObservableObject {
     /// Otomasyonlarım listesinde dürüstçe görebilmeli) — yalnızca akışın
     /// kendi bağlantısı (`currentAutomationId`) sıfırlanır ki bir
     /// sonraki `create()` YENİ bir kayıt üretsin.
-    public func close() {
+    public func close() async {
         currentAutomationId = nil
-        // Phase 5B P0 — akıştan çıkışta da bağlam sıfırlanır: bir
-        // sonraki attempt kesin olarak fresh başlar (leakage fix).
-        planner.resetConversation()
+        pendingHandoff = nil
+        await planner.resetConversation()
         step = .idle
     }
 

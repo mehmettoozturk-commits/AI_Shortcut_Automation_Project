@@ -359,6 +359,10 @@ export class NluPlannerAdapter implements Planner {
   constructor(private pipeline: NluPipeline = new NluPipeline()) {}
 
   resetContext(): void {
+    this.resetConversation();
+  }
+
+  resetConversation(): void {
     this.context = emptyContext();
   }
 

@@ -36,8 +36,8 @@ public final class BuilderViewModel: ObservableObject {
 
     // MARK: - BuilderMachine'e yönlendirme
 
-    public func start(prefillText: String = "") { machine.open(prefillText: prefillText) }
-    public func close() { machine.close() }
+    public func start(prefillText: String = "") async { await machine.open(prefillText: prefillText) }
+    public func close() async { await machine.close() }
     public func updateText(_ text: String) { machine.setText(text) }
     public func submit() async { await machine.submit() }
     public func confirmUnderstanding() async { await machine.confirmUnderstanding() }

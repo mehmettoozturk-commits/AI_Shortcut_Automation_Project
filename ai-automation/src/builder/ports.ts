@@ -17,6 +17,8 @@ export type PlannerResult =
   | { kind: "not_understood" };
 
 export interface Planner {
+  /** Start a fresh automation attempt without retaining earlier conversation. */
+  resetConversation(): void;
   /**
    * @param text Kullanıcının serbest metni (veya ses→metin çıktısı)
    * @param existingDraft Revizyon durumunda korunan mevcut taslak (§7.1).

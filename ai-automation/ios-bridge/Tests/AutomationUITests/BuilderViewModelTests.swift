@@ -109,7 +109,7 @@ final class BuilderViewModelTests: XCTestCase {
         await viewModel.refreshAutomations()
         XCTAssertTrue(viewModel.automations.isEmpty, "başlangıçta hiçbir kayıt olmamalı")
 
-        viewModel.start()
+        await viewModel.start()
         viewModel.updateText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
         await viewModel.submit()
         await viewModel.confirmUnderstanding()
@@ -130,7 +130,7 @@ final class BuilderViewModelTests: XCTestCase {
 
         viewModel.showSuccess()
         guard case .success = viewModel.step else { return XCTFail("success bekleniyordu") }
-        viewModel.close()
+        await viewModel.close()
         guard case .idle = viewModel.step else { return XCTFail("idle bekleniyordu") }
 
         // Otomasyonlarım listesi, akıştan çıkıldıktan SONRA da kalıcı —

@@ -14,6 +14,8 @@ public enum PlannerResult: Sendable, Equatable {
 }
 
 public protocol Planner: Sendable {
+    /// Clear conversation before starting a new automation attempt.
+    func resetConversation() async
     /// - Parameter existingDraft: Revizyon durumunda korunan mevcut
     ///   taslak (§7.1). Verilmişse planner planı SIFIRDAN üretmek
     ///   yerine revize etmelidir.

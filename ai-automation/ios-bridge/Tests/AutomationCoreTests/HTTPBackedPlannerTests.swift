@@ -230,7 +230,7 @@ final class HTTPBackedPlannerTests: XCTestCase {
             device: DeviceContext(osVersion: 26, hasCarPlay: false)
         )
 
-        machine.open()
+        await machine.open()
         machine.setText("Arabadan inince Tesla canlı kamerayı aç")
         await machine.submit()
 

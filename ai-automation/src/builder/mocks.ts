@@ -24,6 +24,7 @@ import type { Automation } from "../domain/types.js";
  * mock'tur, NLU iddiası taşımaz.
  */
 export class MockPlanner implements Planner {
+  resetConversation(): void {}
   async plan(text: string, existingDraft?: DraftAutomationPlan | null): Promise<PlannerResult> {
     const t = text.toLocaleLowerCase("tr");
 
