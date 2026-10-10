@@ -1,6 +1,6 @@
 # P0 Conversation Isolation — 2026-10-05
 
-Status: implementation prepared; P0 remains open until Mac and physical iPhone validation.
+Status: Mac tests passed; physical correction exposed a stale vehicle parameter. P0 remains open; Phase 5C has not started.
 
 ## Repository checkpoint
 
@@ -53,3 +53,33 @@ On Mac:
 
 Real permissions, safety-validator confirmation semantics, request-size limits,
 and historical Phase 5B documentation synchronization are separate work items.
+
+## Mac and physical iPhone verification (2026-10-05–10)
+
+- Mac `swift build`: passed. `swift test`: 49 passed, 1 optional slow timeout
+  test skipped; `ConversationLeakageTests`: 2/2 passed.
+- Complete AutomationApp XCUITest regression on iPhone 17 Pro Simulator
+  (iOS 26.5): 7/7 passed. The temporary xcresult bundle was generated during
+  the run but is no longer present on disk.
+- Physical iPhone 16 Pro: after leaving the Tesla attempt, a new battery
+  request showed a battery-level trigger and notification action, with no
+  Tesla/climate content in the UI. This is an observed isolation result;
+  the physical HTTP request payload was not captured. The Swift test above
+  asserts that the new request omits the previous `conversation` payload.
+- Physical text correction `Tesla Model Y` → `Hayır, Model 3.` preserved the
+  Bluetooth-disconnect trigger and climate action in the UI. The resulting
+  device record `auto-968977AD` has `trigger.device = "Tesla Model 3"` but
+  `trigger.params.vehicle = "Tesla Model Y"` (status `pending_user`). The
+  plan is internally inconsistent, so the correction criterion fails and
+  P0 stays open. The earlier selection-based change, record `auto-CCCFFC5A`,
+  set `device = "Tesla Model 3"` while leaving `params.vehicle = null`.
+- Cause located without a code change: `plan-builder.ts` copies the original
+  semantic vehicle into both fields; `DefaultPlanRevisionEngine.revise()`
+  updates `trigger.device` and `answers.vehicle`, leaving
+  `trigger.params.vehicle` unchanged. Swift `answerMissingInfo()` likewise
+  updates only `trigger.device`.
+
+Required next: reconcile vehicle fields, add a regression assertion for both
+the text correction and selection paths, rerun Mac/UI tests, and repeat the
+physical correction check. Close P0 only after the stored plan is consistent;
+then begin Phase 5C NVIDIA soak.
