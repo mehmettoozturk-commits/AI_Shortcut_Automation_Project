@@ -83,3 +83,29 @@ Required next: reconcile vehicle fields, add a regression assertion for both
 the text correction and selection paths, rerun Mac/UI tests, and repeat the
 physical correction check. Close P0 only after the stored plan is consistent;
 then begin Phase 5C NVIDIA soak.
+
+## Vehicle consistency fix checkpoint (2026-10-10)
+
+- Commit `48d08db` synchronizes `trigger.device`, `trigger.params.vehicle`,
+  and `answers.vehicle` for text corrections and vehicle clarification answers.
+  The Swift selection path now updates both trigger fields. Regression tests
+  cover both paths. The same commit repairs the duplicate recursive
+  `resetConversation()` implementation discovered when running the isolation
+  suite; `MockPlanner`'s duplicate method was also removed.
+- TypeScript `npm run build` and `npm run build:web` passed. Full `npm test`:
+  286/286 passed across 21 files. `swift build` passed. Full `swift test`:
+  50 passed, 1 optional slow timeout test skipped; `ConversationLeakageTests`
+  3/3 passed.
+- Full XCUITest regression against the deterministic local backend on iPhone
+  17 Pro Simulator (iOS 26.5): 7/7 passed, 0 failed. Result bundle:
+  `/private/tmp/ai-shortcut-xcuitest.WpGNyj/UITests.xcresult`.
+- The corrected build was installed on the physical iPhone 16 Pro. Physical
+  correction and new-attempt isolation are **not yet verified on this build**.
+  The previous two inconsistent Tesla records remain historical test records;
+  this fix does not migrate existing saved plans. The first physical request
+  after installation hit a stopped local backend and produced an error screen;
+  the deterministic backend was restarted, but this is not a passing test.
+
+P0 remains open. Do not start Phase 5C NVIDIA soak until a new physical
+correction record has matching vehicle fields and a fresh attempt is confirmed
+isolated.
