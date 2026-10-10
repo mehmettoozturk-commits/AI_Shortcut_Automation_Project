@@ -68,8 +68,16 @@ export class DefaultPlanRevisionEngine implements PlanRevisionEngine {
     // 3. Araç düzeltmesi
     const e = this.entities.extract(correction, context);
     if (e.vehicle) {
-      plan = { ...plan, trigger: { ...plan.trigger, device: e.vehicle.value } };
-      plan.answers = { ...plan.answers, vehicle: e.vehicle.value };
+      const vehicle = e.vehicle.value;
+      plan = {
+        ...plan,
+        trigger: {
+          ...plan.trigger,
+          device: vehicle,
+          params: { ...(plan.trigger.params ?? {}), vehicle },
+        },
+        answers: { ...plan.answers, vehicle },
+      };
     }
 
     return plan;
@@ -308,10 +316,11 @@ export class NluPipeline implements NluPlanner {
     const extracted = new RuleBasedEntityExtractor().extract(answer, context);
     context.selectedEntities = { ...context.selectedEntities, ...extracted };
 
-    if (field === "vehicle" && extracted.vehicle) {
-      updated.trigger.device = extracted.vehicle.value;
-    } else if (field === "vehicle") {
-      updated.trigger.device = answer;
+    if (field === "vehicle") {
+      const vehicle = extracted.vehicle?.value ?? answer;
+      updated.trigger.device = vehicle;
+      updated.trigger.params = { ...(updated.trigger.params ?? {}), vehicle };
+      updated.answers.vehicle = vehicle;
     } else if (field === "time_of_day") {
       const previous = (updated.trigger.params as { time?: string } | undefined)?.time;
       const hour = previous ? Number(previous.split(":")[0]) % 12 : null;
@@ -362,10 +371,6 @@ export class NluPlannerAdapter implements Planner {
     this.resetConversation();
   }
 
-  resetConversation(): void {
-    this.context = emptyContext();
-  }
-
   /**
    * Phase 5B P0 — `Planner` port sözleşmesi: YENİ bir deneme başlarken
    * (`BuilderMachine.open`) ve akıştan çıkışta (`BuilderMachine.close`)
@@ -373,7 +378,7 @@ export class NluPlannerAdapter implements Planner {
    * sızmasını engeller.
    */
   resetConversation(): void {
-    this.resetContext();
+    this.context = emptyContext();
   }
 
   getContext(): ConversationContext {

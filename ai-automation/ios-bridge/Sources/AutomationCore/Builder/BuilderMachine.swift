@@ -149,6 +149,11 @@ public final class BuilderMachine: ObservableObject {
         updated.answers[question.id] = answer
         if question.kind == .deviceOrPerson {
             updated.trigger.device = answer
+            if question.id == "vehicle" {
+                var params = updated.trigger.params ?? [:]
+                params["vehicle"] = AnyCodable(answer)
+                updated.trigger.params = params
+            }
         }
         await advance(after: updated)
     }

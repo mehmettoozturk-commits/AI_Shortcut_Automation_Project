@@ -236,4 +236,60 @@ final class ConversationLeakageTests: XCTestCase {
         XCTAssertEqual(records.count, 1)
         XCTAssertEqual(records.first?.installStatus, .installed)
     }
+
+    func testVehicleSelection_replacesStaleParameterBeforeSaving() async throws {
+        let response = jsonData("""
+        {
+          "status": "plan",
+          "plan": {
+            "name": "Klimayı/ön ısıtmasını başlatır",
+            "trigger": {
+              "type": "ios.bluetooth.disconnected",
+              "device": null,
+              "params": { "vehicle": "Tesla Model Y" }
+            },
+            "steps": [ { "type": "tesla.climate.start" } ],
+            "missing": [ {
+              "id": "vehicle", "kind": "device_or_person",
+              "question": "Hangi aracı kullanalım?",
+              "options": ["Tesla Model Y", "Tesla Model 3"], "optional": false
+            } ],
+            "answers": {}
+          }
+        }
+        """)
+        let transport = ScriptedTransport(responses: [PlanHTTPResult(statusCode: 200, body: response)])
+        let permissions = MockPermissionService(granted: ["bluetooth", "tesla_account"])
+        let planner = HTTPBackedPlanner(transport: transport, permissions: permissions)
+        let repository = InMemoryAutomationRepository()
+        let machine = BuilderMachine(
+            registry: try CapabilityRegistry.loadFromBundle(), planner: planner,
+            permissions: permissions, setup: MockSetupService(),
+            shortcutsHandoff: MockShortcutsHandoff(), repository: repository,
+            device: DeviceContext(osVersion: 26, hasCarPlay: false)
+        )
+
+        await machine.open()
+        machine.setText("Arabadan inince klimayı aç.")
+        await machine.submit()
+        await machine.confirmUnderstanding()
+        guard case .missingInfo = machine.step else { return XCTFail("missingInfo expected") }
+
+        await machine.answerMissingInfo("Tesla Model 3")
+        guard case .previewConfirm(let draft, _, _) = machine.step else {
+            return XCTFail("previewConfirm expected")
+        }
+        XCTAssertEqual(draft.trigger.type, "ios.bluetooth.disconnected")
+        XCTAssertEqual(draft.steps, [.action(type: "tesla.climate.start", params: nil)])
+        XCTAssertEqual(draft.trigger.device, "Tesla Model 3")
+        XCTAssertEqual(draft.trigger.params?["vehicle"], AnyCodable("Tesla Model 3"))
+
+        await machine.create()
+        let records = await repository.list()
+        XCTAssertEqual(records.count, 1)
+        XCTAssertEqual(records.first?.trigger.device, "Tesla Model 3")
+        XCTAssertEqual(records.first?.trigger.params?["vehicle"], AnyCodable("Tesla Model 3"))
+        let savedJSON = try JSONEncoder().encode(XCTUnwrap(records.first))
+        XCTAssertFalse(String(decoding: savedJSON, as: UTF8.self).contains("Tesla Model Y"))
+    }
 }

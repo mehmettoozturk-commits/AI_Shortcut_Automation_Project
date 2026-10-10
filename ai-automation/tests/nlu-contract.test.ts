@@ -122,6 +122,7 @@ describe("Context preservation: çok turlu akışta önceki bilgiler silinmez", 
     expect(second.status).toBe("plan");
     if (second.status === "plan") {
       expect(second.plan.trigger.device).toBe("Tesla Model Y");
+      expect(second.plan.trigger.params?.vehicle).toBe("Tesla Model Y");
       expect(second.plan.trigger.type).toBe("ios.bluetooth.disconnected");
       expect(JSON.stringify(second.plan.steps)).toContain("tesla.climate.start");
     }
@@ -131,6 +132,10 @@ describe("Context preservation: çok turlu akışta önceki bilgiler silinmez", 
     expect(third.intent.intent).toBe("modify_automation");
     const plan = ctx.currentPlan!;
     expect(plan.trigger.device).toBe("Tesla Model 3");
+    expect(plan.trigger.params?.vehicle).toBe("Tesla Model 3");
+    expect(plan.trigger.device).toBe(plan.trigger.params?.vehicle);
+    expect(plan.answers.vehicle).toBe("Tesla Model 3");
+    expect(JSON.stringify({ trigger: plan.trigger, steps: plan.steps, answers: plan.answers })).not.toContain("Tesla Model Y");
     // Önceki bilgiler korunuyor:
     expect(plan.trigger.type).toBe("ios.bluetooth.disconnected");
     expect(JSON.stringify(plan.steps)).toContain("tesla.climate.start");
