@@ -1,6 +1,6 @@
 # P0 Conversation Isolation — 2026-10-05
 
-Status: Mac tests passed; physical correction exposed a stale vehicle parameter. P0 remains open; Phase 5C has not started.
+Status: P0 closed after Mac, Simulator, and physical iPhone validation on 2026-10-10. Phase 5C is unblocked but has not started.
 
 ## Repository checkpoint
 
@@ -83,3 +83,21 @@ Required next: reconcile vehicle fields, add a regression assertion for both
 the text correction and selection paths, rerun Mac/UI tests, and repeat the
 physical correction check. Close P0 only after the stored plan is consistent;
 then begin Phase 5C NVIDIA soak.
+
+## Vehicle consistency fix and P0 closure (2026-10-10)
+
+- Commit `48d08db` synchronizes vehicle fields on text correction and
+  clarification selection. Full TypeScript tests: 286/286; Swift tests:
+  50 passed, 1 optional skip, including leakage 3/3; XCUITest on iPhone 17
+  Pro Simulator (iOS 26.5): 7/7.
+- On physical iPhone 16 Pro, `Arabadan inince klimayı aç.` retained the
+  Bluetooth-disconnect trigger and Tesla climate action after the final text
+  correction `Hayır, Model 3.`. New record `auto-02DB16B9` has both
+  `trigger.device` and `trigger.params.vehicle` equal to `Tesla Model 3`.
+- After terminating and relaunching the app, a fresh battery request showed
+  only battery-level trigger and notification action, with no Tesla/climate
+  content. Swift leakage tests confirm the previous conversation payload is
+  absent. No Shortcuts import or Tesla action was run for this check.
+
+Conversation Isolation P0 is **closed**. Phase 5C is unblocked, but its
+separate SPEC/PLAN and NVIDIA soak have not run yet.

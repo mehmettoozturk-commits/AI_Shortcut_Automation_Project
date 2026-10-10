@@ -1,6 +1,6 @@
 # P0 Conversation Isolation — 2026-10-05
 
-Status: Mac tests passed; physical correction exposed a stale vehicle parameter. P0 remains open; Phase 5C has not started.
+Status: P0 closed after Mac, Simulator, and physical iPhone validation on 2026-10-10. Phase 5C is unblocked but has not started.
 
 ## Repository checkpoint
 
@@ -109,3 +109,25 @@ then begin Phase 5C NVIDIA soak.
 P0 remains open. Do not start Phase 5C NVIDIA soak until a new physical
 correction record has matching vehicle fields and a fresh attempt is confirmed
 isolated.
+
+## P0 closure (2026-10-10)
+
+- Physical iPhone 16 Pro, corrected build from `48d08db`: the request
+  `Arabadan inince klimayı aç.` produced the Bluetooth-disconnect trigger and
+  Tesla climate action. After vehicle changes and the final text correction
+  `Hayır, Model 3.`, a newly created record `auto-02DB16B9` retained
+  `ios.bluetooth.disconnected` and `tesla.climate.start`; both
+  `trigger.device` and `trigger.params.vehicle` are `Tesla Model 3`.
+- The app was terminated and relaunched with the same local deterministic
+  backend for a fresh attempt. `Pil yüzde 20’ye düşünce bana haber ver`
+  displayed a battery-level trigger and notification action on the physical
+  screen, with no Tesla or climate content. The Swift isolation test confirms
+  the new request omits the previous conversation payload. No new Shortcuts
+  import or real Tesla action was run.
+- Automated validation remained green: TypeScript 286/286, Swift 50 passed
+  and 1 optional skip (including leakage 3/3), XCUITest 7/7. The two older
+  inconsistent device records are historical test artifacts, not evidence of
+  a new failure or migrated records.
+
+Conversation Isolation P0 is **closed**. Phase 5C may begin after its separate
+SPEC/PLAN is prepared; the NVIDIA soak itself has not run yet.
