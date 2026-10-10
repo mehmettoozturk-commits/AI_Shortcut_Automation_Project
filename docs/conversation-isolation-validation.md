@@ -1,6 +1,6 @@
 # P0 Conversation Isolation — 2026-10-05
 
-Status: P0 closed after Mac, Simulator, and physical iPhone validation on 2026-10-10. Phase 5C is unblocked but has not started.
+Status: P0 closed after Mac, Simulator, and physical iPhone validation on 2026-10-10. Phase 5C started and is blocked on NVIDIA HTTP 403; see the Phase 5C plan.
 
 ## Repository checkpoint
 
@@ -131,3 +131,7 @@ isolated.
 
 Conversation Isolation P0 is **closed**. Phase 5C may begin after its separate
 SPEC/PLAN is prepared; the NVIDIA soak itself has not run yet.
+
+Phase 5C subsequently started; its initial run stopped at 2/15 requests
+because NVIDIA chat completion returned HTTP 403. See
+`docs/phase5c-nvidia-soak-plan.md`. This does not reopen P0.
