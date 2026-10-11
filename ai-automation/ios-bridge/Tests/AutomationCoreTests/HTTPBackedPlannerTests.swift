@@ -283,7 +283,7 @@ final class HTTPBackedPlannerTests: XCTestCase {
             "missing": [],
             "answers": {}
           },
-          "validation": { "stage": "permission", "ok": false, "issues": [ { "code": "missing_permission", "message": "Bluetooth izni gerekli." } ] },
+          "validation": { "stage": "permission", "ok": false, "issues": [ { "code": "missing_permission", "path": "ios.bluetooth.disconnected", "message": "Bluetooth izni gerekli." } ] },
           "conversation": {}
         }
         """)
@@ -291,9 +291,57 @@ final class HTTPBackedPlannerTests: XCTestCase {
         let planner = HTTPBackedPlanner(transport: transport, permissions: MockPermissionService(granted: ["bluetooth", "tesla_account"]))
 
         let result = await planner.plan(text: "Arabadan inince Sentry Mode'u aç", existingDraft: nil)
-        XCTAssertEqual(result, .notUnderstood)
+        guard case .validationBlocked(let draft, let issues) = result else {
+            return XCTFail("422 planı kaybetmeden bloke etmeli")
+        }
+        XCTAssertEqual(draft.trigger.type, "ios.bluetooth.disconnected")
+        XCTAssertEqual(issues.map(\.code), ["missing_permission"])
+        XCTAssertEqual(issues.map(\.path), ["ios.bluetooth.disconnected"])
         let lastError = await planner.lastError
         XCTAssertEqual(lastError, .validationFailed(issues: ["Bluetooth izni gerekli."]))
+    }
+
+    func test422DraftIsVisibleButCannotCreateRecord() async throws {
+        let response = jsonData("""
+        {
+          "status": "plan",
+          "plan": {
+            "name": "Sentry Mode",
+            "trigger": { "type": "ios.bluetooth.disconnected", "device": "Tesla Model Y", "params": {} },
+            "steps": [ { "type": "tesla.sentry_mode.toggle" } ],
+            "missing": [],
+            "answers": {}
+          },
+          "validation": { "stage": "capability", "ok": false, "issues": [ { "code": "missing_permission", "path": "ios.bluetooth.disconnected", "message": "Internal ios.bluetooth.disconnected" } ] },
+          "conversation": {}
+        }
+        """)
+        let registry = try makeRegistry()
+        let permissions = MockPermissionService(granted: [], autoGrant: false)
+        let repo = InMemoryAutomationRepository()
+        let machine = BuilderMachine(
+            registry: registry,
+            planner: HTTPBackedPlanner(
+                transport: FakeTransport(responses: [PlanHTTPResult(statusCode: 422, body: response)]),
+                permissions: permissions
+            ),
+            permissions: permissions,
+            setup: MockSetupService(),
+            shortcutsHandoff: MockShortcutsHandoff(),
+            repository: repo,
+            device: DeviceContext(osVersion: 26, hasCarPlay: false)
+        )
+        await machine.open()
+        machine.setText("Arabadan inince Sentry Mode'u aç")
+        await machine.submit()
+        guard case .validationBlocked(let draft, let explanations) = machine.step else {
+            return XCTFail("422 draft'ı görünür bloke durumuna taşımalı")
+        }
+        XCTAssertEqual(draft.trigger.type, "ios.bluetooth.disconnected")
+        XCTAssertFalse(explanations.joined().contains("ios.bluetooth.disconnected"), "Teknik ID UI'a sızmamalı")
+        await machine.create()
+        let saved = await repo.list()
+        XCTAssertTrue(saved.isEmpty, "422 sonrası create() kayıt açmamalı")
     }
 
     func testNetworkTimeout_mapsToPlannerUnreachable() async throws {

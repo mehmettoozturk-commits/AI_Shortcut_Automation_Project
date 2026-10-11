@@ -99,7 +99,17 @@ public final class BuilderMachine: ObservableObject {
 
         let result = await planner.plan(text: text, existingDraft: existingDraft)
 
-        guard case .plan(let draft) = result else {
+        let draft: DraftAutomationPlan
+        switch result {
+        case .plan(let validDraft):
+            draft = validDraft
+        case .validationBlocked(let blockedDraft, let issues):
+            step = .validationBlocked(
+                draft: blockedDraft,
+                explanations: issues.map { safeValidationExplanation(for: $0) }
+            )
+            return
+        case .notUnderstood:
             step = .capturing(text: text, draft: existingDraft, notUnderstood: true)
             return
         }
@@ -129,7 +139,7 @@ public final class BuilderMachine: ObservableObject {
     public func revise() {
         let draft: DraftAutomationPlan?
         switch step {
-        case .understanding(let d): draft = d
+        case .understanding(let d), .validationBlocked(let d, _): draft = d
         case .unsupported(let d, _, _, _): draft = d
         default: return
         }
@@ -424,6 +434,19 @@ public final class BuilderMachine: ObservableObject {
     private func computeMissingPermissions(_ draft: DraftAutomationPlan) async -> [String] {
         let granted = Set(await permissions.grantedPermissions())
         return requiredPermissions(draft).filter { !granted.contains($0) }
+    }
+
+    private func safeValidationExplanation(for issue: PlanValidationIssue) -> String {
+        if issue.code == "missing_permission" {
+            let action = issue.path.flatMap { registry.find($0)?.displayDescription }
+            if let action {
+                return "\(trimTrailingDot(action)) için Kestirmeler veya ilgili uygulamadaki izin/kurulumu kontrol etmen gerekiyor."
+            }
+            return "Bu otomasyon için Kestirmeler veya ilgili uygulamadaki izin/kurulumu kontrol etmen gerekiyor."
+        }
+        // Backend mesajları iç capability ID'leri veya teknik ayrıntılar
+        // içerebilir; doğrudan son kullanıcı arayüzüne taşınmaz.
+        return "Bu plan doğrulama kontrolünden geçmedi; değiştirip yeniden deneyebilirsin."
     }
 
     private func disclosures(for draft: DraftAutomationPlan) -> [String] {

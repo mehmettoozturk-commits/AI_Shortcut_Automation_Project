@@ -1,14 +1,14 @@
 // Phase 4C — `HTTPBackedPlanner`'ın domain-level hata durumları.
 //
-// `Planner` protokolü (Ports.swift) yalnızca `.plan`/`.notUnderstood`
-// biliyor — bu, Phase 1'den beri değişmedi ve değişmeyecek (§7.2).
-// Ama backend'in HTTP hata sözleşmesi (docs/api.md §8, Phase 4C eki)
+// `Planner` protokolü (Ports.swift) `.plan`, `.validationBlocked` ve
+// `.notUnderstood` ayrımını taşır. Backend'in HTTP hata sözleşmesi
+// (docs/api.md §8, Phase 4C eki)
 // dört farklı durumu ayırt ediyor: istek hatası, doğrulama hatası,
 // sağlayıcı (LLM) hatası, ve tamamen ulaşılamama. Bunları tek bir
 // "Bir sorun oluştu" mesajına EZMEMEK için `HTTPBackedPlanner`, bu
-// zengin tipi `lastError` üzerinden AYRICA raporlar — ileride gerçek
-// bir SwiftUI katmanı bunu switch'leyip kullanıcıya doğru mesajı
-// gösterebilir.
+// zengin tipi `lastError` üzerinden AYRICA raporlar. 422 + taslak/issue
+// geldiğinde kullanıcıya bloke plan ekranı gösterilir; diğer hatalar
+// hâlâ bu domain sonucunda tutulur.
 public enum PlannerError: Sendable, Equatable, Error {
     /// HTTP 400 — istek gövdesi/şeması geçersiz (istemci hatası).
     case invalidRequest(message: String)

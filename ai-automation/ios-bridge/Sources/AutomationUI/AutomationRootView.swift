@@ -35,6 +35,8 @@ public struct AutomationRootView: View {
             HomeView(viewModel: viewModel)
         case .understanding(let draft):
             UnderstandingView(viewModel: viewModel, draft: draft)
+        case .validationBlocked(let draft, let explanations):
+            ValidationBlockedView(viewModel: viewModel, draft: draft, explanations: explanations)
         case .unsupported(let draft, let message, let alternatives, let manualSteps):
             UnsupportedView(viewModel: viewModel, draft: draft, message: message, alternatives: alternatives, manualSteps: manualSteps)
         case .missingInfo(let draft, let question):

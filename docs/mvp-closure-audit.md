@@ -78,6 +78,10 @@ intentional unsupported/guided-manual case, not a missing signed template.
    insufficient for MVP closure. The exact set of public launch capabilities
    still needs evidence-based definition; none may be advertised from the
    registry alone.
+   **Account model chosen:** start without an account, then allow an optional
+   account link. The sign-in provider(s), guest-to-account ownership/migration,
+   and deletion/export behavior are still open decisions; no cloud identity
+   implementation or migration is implied by this choice.
 2. Before any release candidate, remove mock permission grants and hardcoded
    device assumptions; provide a real backend configuration; implement or
    explicitly scope out test/log, detail/edit/disable/delete, and verify that

@@ -92,6 +92,9 @@ public indirect enum BuilderStep: Sendable {
     case idle
     case capturing(text: String, draft: DraftAutomationPlan?, notUnderstood: Bool)
     case understanding(draft: DraftAutomationPlan)
+    /// Backend taslağı çözdü ama doğrulama kurulumu engelledi; buradan
+    /// setup/create yoluna geçiş yok.
+    case validationBlocked(draft: DraftAutomationPlan, explanations: [String])
     /// docs/ux.md §7.3: istenen eylem desteklenmiyor; akış durmaz.
     case unsupported(
         draft: DraftAutomationPlan, message: String,
@@ -121,7 +124,7 @@ extension BuilderStep {
         switch self {
         case .idle: return -1
         case .capturing: return 0
-        case .understanding, .unsupported: return 1
+        case .understanding, .validationBlocked, .unsupported: return 1
         case .missingInfo: return 2
         case .previewConfirm: return 3
         case .setup, .userAssistedImport, .waitingForUser, .linkingTrigger, .setupFailed, .installed, .success: return 4

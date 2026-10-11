@@ -9,8 +9,23 @@ import Foundation
 
 public enum PlannerResult: Sendable, Equatable {
     case plan(DraftAutomationPlan)
+    /// Backend planı anladı fakat validation zinciri kurulumu engelledi.
+    /// Taslak kullanıcıya gösterilir; bu durum create() yoluna geçmez.
+    case validationBlocked(DraftAutomationPlan, issues: [PlanValidationIssue])
     /// docs/ux.md §7.2 — AI hiçbir niyet çıkaramadı
     case notUnderstood
+}
+
+public struct PlanValidationIssue: Sendable, Equatable {
+    public let code: String
+    public let path: String?
+    public let message: String
+
+    public init(code: String, path: String?, message: String) {
+        self.code = code
+        self.path = path
+        self.message = message
+    }
 }
 
 public protocol Planner: Sendable {

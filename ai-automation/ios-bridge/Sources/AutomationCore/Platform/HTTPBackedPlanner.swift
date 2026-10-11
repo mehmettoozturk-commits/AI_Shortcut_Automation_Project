@@ -11,8 +11,8 @@
 // Platform kararlarının (bir eylem destekleniyor mu, hangi alternatifler
 // var) SAHİBİ backend'de kalır (docs/api.md, docs/ios-bridge.md §Phase4C).
 //
-// `PlannerResult` (Ports.swift) hâlâ yalnızca `.plan`/`.notUnderstood`
-// biliyor — Phase 1'den beri değişmedi. "unsupported" durumu, TS
+// `PlannerResult` (Ports.swift) normal plan, doğrulama nedeniyle bloke
+// edilmiş plan ve anlaşılmamış giriş ayrımını taşır. "unsupported" durumu, TS
 // tarafındaki `NluPlannerAdapter`nin yaptığı AYNI deseni tekrarlayarak
 // ele alınır: backend'in ÇÖZDÜĞÜ (capability id'leri dahil) veriler
 // sahte/minimal bir `DraftAutomationPlan`'a gömülüp `.plan(...)` olarak
@@ -39,6 +39,7 @@ private struct PlanRequestPayload: Encodable {
 
 private struct RawValidationIssue: Decodable {
     let code: String
+    let path: String?
     let message: String
 }
 
@@ -164,7 +165,13 @@ public actor HTTPBackedPlanner: Planner {
             conversation = raw.conversation
             if result.statusCode == 422 {
                 let issues = raw.validation?.issues.map(\.message) ?? []
-                throw PlannerError.validationFailed(issues: issues)
+                lastError = .validationFailed(issues: issues)
+                guard raw.status == "plan", let draft = raw.plan,
+                      let rawIssues = raw.validation?.issues, !rawIssues.isEmpty
+                else { throw PlannerError.validationFailed(issues: issues) }
+                return .validationBlocked(draft, issues: rawIssues.map {
+                    PlanValidationIssue(code: $0.code, path: $0.path, message: $0.message)
+                })
             }
             return mapSuccess(raw)
         case 400:

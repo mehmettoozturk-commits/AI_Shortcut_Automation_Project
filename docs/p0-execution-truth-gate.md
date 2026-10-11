@@ -35,18 +35,23 @@ Apple references: [notification authorization](https://developer.apple.com/docum
 `AutomationApp.swift` injects `MockPermissionService` with four pre-granted
 strings. `HTTPBackedPlanner` forwards those strings as `grantedPermissions` to
 `/plan`; the backend's Permission Validator returns HTTP 422 if they are
-missing. Swift currently turns any 422 into `.notUnderstood`, so the draft is
-not shown and `BuilderMachine` cannot reach its own permission/setup step.
-Simply replacing the mock with OS authorization checks would be both a dead
-end and a false proof of Shortcuts/Tesla readiness.
+missing. Before the 422-preservation patch, Swift turned every 422 into
+`.notUnderstood`, hiding the draft. It now shows a blocked-plan review
+screen when the backend includes a draft and issues; **the screen cannot
+create a setup record**. This only fixes visibility, not the underlying
+permission-ownership split. Simply replacing the mock with OS authorization
+checks would still be both a dead end and a false proof of Shortcuts/Tesla
+readiness.
 
 ## Required implementation sequence
 
 1. Split `runtimePermission` (only permissions actually used by this app)
    from `setupRequirement` (Shortcuts/Tesla prerequisites) in the registry,
    validator contract, and UI. Default external state to unknown/user-assisted.
-2. Preserve the draft and typed issues on backend 422. Show the plan and
-   actionable issue/setup guidance; never label it generic “not understood”.
+2. Preserve the draft and typed issues on backend 422. The first patch shows
+   the plan and safe, generic issue guidance without a create path; full
+   actionable requirement-specific guidance is still pending. Never label
+   a recognized draft generic “not understood”.
    A 422 containing non-permission schema/capability/safety errors remains
    fail-closed. Do not treat issue codes or client-side state as proof of a
    granted permission.
