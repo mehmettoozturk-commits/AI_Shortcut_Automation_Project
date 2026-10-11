@@ -18,7 +18,8 @@ import type { Capability } from "./types.js";
 export interface DeviceContext {
   /** Cihazın iOS ana sürümü, örn. 26 */
   osVersion: number;
-  hasCarPlay: boolean;
+  /** undefined: the client has no evidence about CarPlay support. */
+  hasCarPlay?: boolean;
   /** Kullanıcı sürekli konum iznini vermeye razı mı? */
   allowsAlwaysLocation?: boolean;
   /** Kullanıcı açıkça konum tabanlı alternatifi seçtiyse */
@@ -34,8 +35,8 @@ export interface ResolutionResult {
 }
 
 function isEligible(cap: Capability, ctx: DeviceContext): string | null {
-  if (cap.id === "ios.carplay.disconnected" && !ctx.hasCarPlay) {
-    return "Cihazda CarPlay yok";
+  if (cap.id === "ios.carplay.disconnected" && ctx.hasCarPlay !== true) {
+    return ctx.hasCarPlay === false ? "Cihazda CarPlay yok" : "CarPlay desteği doğrulanmadı";
   }
   if (cap.permissions.includes("location_always") && ctx.allowsAlwaysLocation !== true) {
     return "Sürekli konum izni yok";

@@ -48,7 +48,13 @@ struct AutomationApp: App {
             setup: TemplateBackedSetupService(registry: registry),
             shortcutsHandoff: UIKitShortcutsHandoff(),
             repository: repository,
-            device: DeviceContext(osVersion: 26, hasCarPlay: false)
+            // App'ın kendi CarPlay sahnesi olmaması, kullanıcının araçta
+            // CarPlay kullanmadığını kanıtlamaz. Bilinmiyor olarak bırak;
+            // resolver doğrulanmamış CarPlay yerine Bluetooth'u sunar.
+            device: DeviceContext(
+                osVersion: ProcessInfo.processInfo.operatingSystemVersion.majorVersion,
+                hasCarPlay: nil
+            )
         )
         return BuilderViewModel(machine: machine, registry: registry, repository: repository)
     }

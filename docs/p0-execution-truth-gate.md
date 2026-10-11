@@ -58,8 +58,9 @@ readiness.
 3. Read actual app-owned permission states only where the app truly needs
    the corresponding framework, with denied/restricted/not-determined paths.
    Do not request an app OS permission solely to satisfy a Shortcuts-owned
-   requirement. Replace hardcoded OS version with the current device version;
-   do not infer CarPlay support from a disconnected/non-CarPlay app scene.
+   requirement. The app now reads its OS major version from `ProcessInfo` and
+   leaves CarPlay support unknown rather than asserting `false`; the resolver
+   conservatively offers Bluetooth until CarPlay support can be established.
 4. Gate setup on whole-plan/template fidelity and visible user-assisted
    prerequisites. Unsupported combinations must stay out of the import path.
 5. Verify full Swift and TS suites, XCUITest, then physical iPhone denied →

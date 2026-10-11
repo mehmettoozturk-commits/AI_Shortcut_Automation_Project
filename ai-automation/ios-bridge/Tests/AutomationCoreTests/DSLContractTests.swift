@@ -100,4 +100,12 @@ final class CapabilityRegistryContractTests: XCTestCase {
         let resolution = CapabilityResolver.resolveTrigger(group: "vehicle_departure", registry: registry, device: noCarPlay)
         XCTAssertEqual(resolution?.capability.id, "ios.bluetooth.disconnected")
     }
+
+    func testResolverTreatsUnknownCarPlayAsUnknownNotAbsent() throws {
+        let registry = try loadRegistry()
+        let unknownCarPlay = DeviceContext(osVersion: 26, hasCarPlay: nil)
+        let resolution = CapabilityResolver.resolveTrigger(group: "vehicle_departure", registry: registry, device: unknownCarPlay)
+        XCTAssertEqual(resolution?.capability.id, "ios.bluetooth.disconnected")
+        XCTAssertEqual(resolution?.rejected.first?.reason, "CarPlay desteği bu uygulamada doğrulanmadı")
+    }
 }

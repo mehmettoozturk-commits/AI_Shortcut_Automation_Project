@@ -103,12 +103,13 @@ public final class CapabilityRegistry: @unchecked Sendable {
 
 public struct DeviceContext: Sendable {
     public var osVersion: Int
-    public var hasCarPlay: Bool
+    /// nil: this app cannot determine whether the user has CarPlay.
+    public var hasCarPlay: Bool?
     public var allowsAlwaysLocation: Bool
     public var prefersLocationTrigger: Bool
 
     public init(
-        osVersion: Int, hasCarPlay: Bool,
+        osVersion: Int, hasCarPlay: Bool?,
         allowsAlwaysLocation: Bool = false, prefersLocationTrigger: Bool = false
     ) {
         self.osVersion = osVersion
@@ -146,8 +147,10 @@ public enum CapabilityResolver {
     }
 
     private static func eligibilityFailure(_ cap: Capability, device: DeviceContext) -> String? {
-        if cap.id == "ios.carplay.disconnected" && !device.hasCarPlay {
-            return "Cihazda CarPlay yok"
+        if cap.id == "ios.carplay.disconnected" && device.hasCarPlay != true {
+            return device.hasCarPlay == false
+                ? "Cihazda CarPlay yok"
+                : "CarPlay desteği bu uygulamada doğrulanmadı"
         }
         if cap.permissions.contains("location_always") && !device.allowsAlwaysLocation {
             return "Sürekli konum izni yok"

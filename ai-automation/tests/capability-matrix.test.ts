@@ -60,6 +60,12 @@ describe("Capability resolver — üç seviyeli araç yaklaşımı", () => {
     expect(r?.rejected.some((x) => x.id === "ios.carplay.disconnected")).toBe(true);
   });
 
+  it("CarPlay durumu bilinmiyorsa yok varsaymaz; Bluetooth'u güvenli alternatif sunar", () => {
+    const r = resolveTrigger("vehicle_departure", { osVersion: 26 });
+    expect(r?.capability.id).toBe("ios.bluetooth.disconnected");
+    expect(r?.rejected[0]?.reason).toBe("CarPlay desteği doğrulanmadı");
+  });
+
   it("konum alternatifi kullanıcı açıkça seçmedikçe kullanılmaz", () => {
     const r = resolveTrigger("vehicle_departure", { osVersion: 26, hasCarPlay: false, allowsAlwaysLocation: true });
     expect(r?.capability.id).toBe("ios.bluetooth.disconnected");
