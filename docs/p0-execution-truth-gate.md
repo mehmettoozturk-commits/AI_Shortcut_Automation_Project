@@ -8,9 +8,9 @@ the broad `MASTER_SPEC.md` P0 set chosen on 2026-10-11.
 
 The legacy registry field `permissions` was treated as if it were this app's
 iOS authorization, although its values describe Shortcuts/Tesla setup. P0-1
-now uses `runtimePermissions` only for app-owned OS APIs and treats legacy
-`permissions` as external setup requirements. Renaming the legacy serialized
-field to `setupRequirements` is still pending; the concepts must stay separate:
+has renamed it to `setupRequirements` in both TS and the Swift snapshot;
+`runtimePermissions` is reserved for app-owned OS APIs. The concepts must
+stay separate:
 
 | Requirement | Owner / observable state | What the app must not claim |
 | --- | --- | --- |
@@ -48,9 +48,9 @@ proves the external Shortcuts/Tesla setup actually succeeded.
 ## Required implementation sequence
 
 1. `runtimePermission` (only permissions actually used by this app) and
-   `setupRequirement` (Shortcuts/Tesla prerequisites) are split in validator
-   behavior and UI. Finish the serialized registry rename and persistent
-   user-assisted state model; default external state to unknown.
+   `setupRequirement` (Shortcuts/Tesla prerequisites) are split in the
+   serialized registry, validator and UI. Finish the persistent user-assisted
+   state model; default external state to unknown.
 2. Preserve the draft and typed issues on backend 422. The first patch shows
    the plan and safe, generic issue guidance without a create path; full
    actionable requirement-specific guidance is still pending. Never label
@@ -81,7 +81,8 @@ app-owned runtime permissions from external setup warnings. P0-1 remains open.
 
 ## 2026-10-11 local regression after removing the production mock
 
-- `npm run build`: pass; TypeScript `npm test`: **307/307 pass**. API test
+- `npm run build`: pass; TypeScript `npm test`: **308/308 pass** after the
+  serialized registry rename and TS↔Swift snapshot parity check. API test
   verifies empty app runtime grants produce a visible plan plus
   `setup_requirement_unverified` warning, not a fake grant or HTTP 422.
 - Swift package `swift test`: **57 pass, 1 optional slow test skipped**.

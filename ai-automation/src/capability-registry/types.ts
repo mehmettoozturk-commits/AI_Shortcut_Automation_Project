@@ -128,8 +128,8 @@ export interface Capability {
   // --- Uygulama runtime izni ≠ Shortcuts/Tesla kurulum gereksinimi ---
   /** Yalnızca BU uygulamanın doğrudan kullandığı OS API izinleri. */
   runtimePermissions?: string[];
-  /** Legacy snapshot alanı: Shortcuts/Tesla tarafındaki kurulum koşulları. */
-  permissions: string[];
+  /** Shortcuts/Tesla tarafındaki, app OS izniyle doğrulanamayan koşullar. */
+  setupRequirements: string[];
   installMethod: InstallMethod;
   requiresUserSetupStep: boolean;
   fallbackSteps?: string[];

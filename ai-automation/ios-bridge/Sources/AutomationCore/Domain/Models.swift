@@ -36,7 +36,9 @@ public enum AutomationStatus: String, Codable, Sendable {
 /// installStatus — docs/capabilities.md §1.2'nin doğrudan sonucu:
 /// üçüncü taraf bir uygulamanın otomasyonu kendi başına kurduğunu
 /// iddia etmesine dair kanıt yok. Bu yüzden "installed" durumuna
-/// yalnızca gerçek kullanıcı doğrulamasıyla girilir (bkz. Builder/).
+/// yalnızca kullanıcı "Ekledim" + "Bağladım" diye bildirdiğinde girilir
+/// (bkz. Builder/). Bu, OS tetiklenmesinin bağımsız doğrulaması DEĞİLDİR;
+/// UI bu durumu "Kurulum bildirildi" diye açıklar.
 public enum InstallStatus: String, Codable, Sendable {
     case pendingUser = "pending_user"
     case installed

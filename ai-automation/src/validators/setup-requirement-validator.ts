@@ -21,7 +21,7 @@ export function validateSetupRequirements(plan: AutomationPlan): ValidationResul
   for (const id of ids) {
     const cap = findCapability(id);
     if (!cap) continue;
-    for (const requirement of cap.permissions) {
+    for (const requirement of cap.setupRequirements) {
       issues.push({
         code: "setup_requirement_unverified",
         message: `"${id}" için "${requirement}" kurulumu Kestirmeler veya ilgili uygulamada kullanıcı tarafından doğrulanmalı.`,

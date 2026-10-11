@@ -507,7 +507,7 @@ export class BuilderMachine {
     const out = triggerCap ? disclosuresFor(triggerCap, device) : [];
     for (const id of [draft.trigger.type, ...this.actionCapabilityIds(draft)]) {
       const cap = findCapability(id);
-      for (const requirement of cap?.permissions ?? []) {
+      for (const requirement of cap?.setupRequirements ?? []) {
         out.push(this.setupRequirementDisclosure(requirement));
       }
     }

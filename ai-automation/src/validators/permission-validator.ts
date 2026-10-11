@@ -2,7 +2,7 @@
  * Permission Validator — MASTER_SPEC.md §15, stage 3.
  *
  * Checks only permissions owned by THIS app. The registry's legacy
- * `permissions` field denotes Shortcuts/Tesla setup requirements; app OS
+ * `setupRequirements` field denotes Shortcuts/Tesla prerequisites; app OS
  * authorization never proves those external steps complete. This does NOT request permissions itself
  * (MASTER_SPEC §20: "İzinler ihtiyaç anında istenmeli") — it only reports
  * which are missing so the caller can prompt the user for exactly those,

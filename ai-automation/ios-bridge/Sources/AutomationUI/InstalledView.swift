@@ -12,8 +12,9 @@ struct InstalledView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("🎉 Kuruldu!")
+            Text("Kurulumu tamamladığını bildirdin.")
                 .font(.headline)
+            Text("Kestirmeler'in gerçekten çalıştığını bu uygulama henüz doğrulayamaz. Tetikleyiciyi güvenli bir şekilde test etmeni öneririz.")
             Text(automation.name)
                 .accessibilityIdentifier("installedAutomationName")
 
@@ -32,7 +33,7 @@ struct SuccessView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Text("\(automation.name) artık otomasyonlarında.")
+            Text("\(automation.name) otomasyonlarında görünüyor; çalıştığı henüz doğrulanmadı.")
                 .accessibilityIdentifier("successMessage")
 
             Button("Bitir") {

@@ -38,7 +38,7 @@ function isEligible(cap: Capability, ctx: DeviceContext): string | null {
   if (cap.id === "ios.carplay.disconnected" && ctx.hasCarPlay !== true) {
     return ctx.hasCarPlay === false ? "Cihazda CarPlay yok" : "CarPlay desteği doğrulanmadı";
   }
-  if (cap.permissions.includes("location_always") && ctx.allowsAlwaysLocation !== true) {
+  if (cap.setupRequirements.includes("location_always") && ctx.allowsAlwaysLocation !== true) {
     return "Sürekli konum izni yok";
   }
   if (cap.id === "ios.location.leave" && ctx.prefersLocationTrigger !== true) {

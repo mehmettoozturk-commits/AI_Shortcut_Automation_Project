@@ -18,7 +18,7 @@
         "note": "CarPlay, iOS 15'te de onaysız çalışabilenler listesinde."
       }
     ],
-    "permissions": [],
+    "setupRequirements": [],
     "installMethod": "user_assisted_import",
     "requiresUserSetupStep": true,
     "triggerGroup": "vehicle_departure",
@@ -62,7 +62,7 @@
         "note": "Gerçek iPhone 16 Pro'da (iOS 26) elle kurulan bir Bluetooth-disconnect otomasyonu, bağlantı gerçekten kesildiğinde onay istemeden çalıştı (Phase 3B Test 3). iOS 16/17/18 hâlâ doğrulanmadı."
       }
     ],
-    "permissions": [
+    "setupRequirements": [
       "bluetooth"
     ],
     "installMethod": "user_assisted_import",
@@ -119,7 +119,7 @@
         "evidence": "apple_docs"
       }
     ],
-    "permissions": [
+    "setupRequirements": [
       "location_always"
     ],
     "installMethod": "user_assisted_import",
@@ -158,7 +158,7 @@
         "evidence": "apple_docs"
       }
     ],
-    "permissions": [],
+    "setupRequirements": [],
     "installMethod": "user_assisted_import",
     "requiresUserSetupStep": true,
     "semantic": "time",
@@ -199,7 +199,7 @@
         "evidence": "apple_docs"
       }
     ],
-    "permissions": [],
+    "setupRequirements": [],
     "installMethod": "user_assisted_import",
     "requiresUserSetupStep": true,
     "userDisclosures": [
@@ -241,7 +241,7 @@
         "evidence": "apple_docs"
       }
     ],
-    "permissions": [],
+    "setupRequirements": [],
     "installMethod": "user_assisted_import",
     "requiresUserSetupStep": true,
     "userDisclosures": [
@@ -283,7 +283,7 @@
         "note": "Focus, Apple'ın onaysız çalışabilenler/çalışamayanlar listelerinin HİÇBİRİNDE geçmiyor. Tahmin yapılmadı."
       }
     ],
-    "permissions": [],
+    "setupRequirements": [],
     "installMethod": "user_assisted_import",
     "requiresUserSetupStep": true,
     "semantic": "focus_changed",
@@ -315,7 +315,7 @@
         "evidence": "apple_docs"
       }
     ],
-    "permissions": [],
+    "setupRequirements": [],
     "installMethod": "user_assisted_import",
     "requiresUserSetupStep": true,
     "semantic": "battery_below",
@@ -348,7 +348,7 @@
         "evidence": "apple_docs"
       }
     ],
-    "permissions": [],
+    "setupRequirements": [],
     "installMethod": "user_assisted_import",
     "requiresUserSetupStep": true,
     "semantic": "app_opened",
@@ -380,7 +380,7 @@
         "note": "Show Alert eylemi doğası gereği kullanıcı etkileşimi ister."
       }
     ],
-    "permissions": [],
+    "setupRequirements": [],
     "installMethod": "user_assisted_import",
     "requiresUserSetupStep": true,
     "semantic": "ask_confirmation",
@@ -411,7 +411,7 @@
         "evidence": "apple_docs"
       }
     ],
-    "permissions": [
+    "setupRequirements": [
       "notifications"
     ],
     "installMethod": "user_assisted_import",
@@ -460,7 +460,7 @@
         "note": "Gerçek Tesla + iPhone 16 Pro'da (iOS 26) doğrulandı: eylem hem tek başına hem de bir Bluetooth-disconnect otomasyonu içinde onay istemeden çalıştı VE aracı gerçekten etkiledi (Tesla uygulamasından teyit edildi). ÖNEMLİ KOŞUL: bu yalnızca eylemin parametresi (Enable/Disable) SABİT bir değere ayarlandığında geçerli — 'Her Seferinde Sor' bırakılırsa otomasyon içinde bile interaktif soru çıkar. AI/compiler'ın ürettiği her çağrı bu parametreyi somut bir değerle doldurmalı."
       }
     ],
-    "permissions": [
+    "setupRequirements": [
       "tesla_account"
     ],
     "installMethod": "user_assisted_import",
@@ -506,7 +506,7 @@
         "note": "Tesla eyleminin 'otomatik çalıştır' ayarını desteklediği doğrulanmadı."
       }
     ],
-    "permissions": [
+    "setupRequirements": [
       "tesla_account"
     ],
     "installMethod": "user_assisted_import",
@@ -542,7 +542,7 @@
         "note": "Tesla eyleminin 'otomatik çalıştır' ayarını desteklediği doğrulanmadı. Kapı kilidi yüksek riskli: onaysız çalıştırma varsayılmamalı."
       }
     ],
-    "permissions": [
+    "setupRequirements": [
       "tesla_account"
     ],
     "installMethod": "user_assisted_import",
@@ -567,7 +567,7 @@
     "availableInShortcuts": false,
     "appIntentCapable": false,
     "behaviors": [],
-    "permissions": [
+    "setupRequirements": [
       "tesla_account"
     ],
     "installMethod": "guided_manual",

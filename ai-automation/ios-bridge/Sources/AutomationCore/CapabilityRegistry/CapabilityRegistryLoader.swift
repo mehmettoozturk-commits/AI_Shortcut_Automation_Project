@@ -152,7 +152,7 @@ public enum CapabilityResolver {
                 ? "Cihazda CarPlay yok"
                 : "CarPlay desteği bu uygulamada doğrulanmadı"
         }
-        if cap.permissions.contains("location_always") && !device.allowsAlwaysLocation {
+        if cap.setupRequirements.contains("location_always") && !device.allowsAlwaysLocation {
             return "Sürekli konum izni yok"
         }
         if cap.id == "ios.location.leave" && !device.prefersLocationTrigger {

@@ -85,7 +85,7 @@ struct HomeView: View {
 
     private func statusLabel(_ status: InstallStatus) -> String {
         switch status {
-        case .installed: return "Kuruldu"
+        case .installed: return "Kurulum bildirildi"
         case .pendingUser: return "Beklemede"
         case .failed: return "Başarısız"
         }

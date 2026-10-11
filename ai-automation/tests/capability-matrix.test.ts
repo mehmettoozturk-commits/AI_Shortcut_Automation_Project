@@ -4,10 +4,21 @@ import { behaviorFor, canRunWithoutAsking } from "../src/capability-registry/beh
 import { disclosuresFor, resolveTrigger, type DeviceContext } from "../src/capability-registry/resolver.js";
 import { checkRegistryContract, requiredInstallMethod } from "../src/compiler/contract.js";
 import type { Capability } from "../src/capability-registry/types.js";
+import { readFileSync } from "node:fs";
 
 const ios26: DeviceContext = { osVersion: 26, hasCarPlay: false };
 const ios17NoCarPlay: DeviceContext = { osVersion: 17, hasCarPlay: false };
 const ios26CarPlay: DeviceContext = { osVersion: 26, hasCarPlay: true };
+
+it("Swift snapshot ve TS registry setup requirement alanında aynı kalır", () => {
+  const snapshot = JSON.parse(readFileSync(
+    new URL("../ios-bridge/Sources/AutomationCore/Resources/capability-registry-snapshot.json", import.meta.url),
+    "utf8"
+  )) as Capability[];
+  expect(snapshot.map((cap) => [cap.id, cap.setupRequirements, cap.runtimePermissions ?? []]))
+    .toEqual(CAPABILITIES.map((cap) => [cap.id, cap.setupRequirements, cap.runtimePermissions ?? []]));
+  expect(snapshot.every((cap) => !("permissions" in cap))).toBe(true);
+});
 
 describe("OS sürümüne göre davranış (Phase 1.5 ana dersi)", () => {
   it("Bluetooth iOS 15'te onaysız ÇALIŞAMAZ", () => {
