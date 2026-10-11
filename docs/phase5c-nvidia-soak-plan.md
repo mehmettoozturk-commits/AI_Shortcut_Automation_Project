@@ -1,8 +1,9 @@
 # Phase 5C — NVIDIA repeated-intent soak plan
 
-Status: replacement credential restored NVIDIA chat-completion access on
-2026-10-11. Conversation Isolation P0 remains closed. Phase 5C remains open:
-the latest bounded run had one final provider error and a 65.3-second tail.
+Status: **Phase 5C CLOSED (bounded validation, 2026-10-11)**. The replacement
+credential restored NVIDIA chat-completion access. Conversation Isolation P0
+remains closed. The final clean 15-request run met all predeclared closure
+criteria; this small sample is not a production reliability estimate.
 
 ## Objective and scope
 
@@ -133,12 +134,38 @@ is **not classified** by the retained sample: no HTTP status, error type, or
 per-attempt duration was recorded. Do not relabel it as a confirmed timeout.
 
 The TypeScript suite passed 292/292 and `npm run build` passed after the
-semantic hardening. Existing small samples are not a production reliability
-estimate. Before a final validation run, add safe failure-only metadata at
-the provider boundary (category, HTTP status when present, pipeline stage and
-attempt count, durations), without logging prompts, keys, headers, bodies,
-raw responses, or raw exceptions. Then rerun all tests and one fresh bounded
-15-request soak. Phase 5C can close only if 15/15 requests complete with zero
-provider errors and 15/15 semantic matches. Record p50/p95/max; the plan has
-no binding latency SLO, so a repeated 60+ second tail is a P1 latency and
-reliability finding rather than an automatic semantic failure.
+semantic hardening. Safe failure-only metadata was then added at the provider
+boundary (category, HTTP status when present, pipeline stage and attempt
+count, durations). The soak script emits this only for final errors; it never
+logs prompts, keys, headers, bodies, raw responses, or raw exceptions. The
+full suite then passed 307/307 and `npm run build` passed. Pipeline
+`attemptCount` is not a count of any internal SDK transport retries.
+
+## Final clean bounded validation (2026-10-11)
+
+The final run started from fresh counters and completed all 15 top-level
+requests with no stop reason. Prior samples were not pooled into this result.
+
+| Measure | Final result |
+| --- | ---: |
+| Planned / completed top-level requests | 15 / 15 |
+| First-pass / repair / deterministic fallback | 13 / 2 / 0 |
+| Final provider errors | 0 |
+| Semantic matches | 15 / 15 |
+| Elapsed time | 181,330 ms |
+| Latency p50 / p95 / max | 12,173 / 21,025 / 21,025 ms |
+
+| Intent | Outcomes across three rounds | Semantic matches |
+| --- | --- | ---: |
+| Sentry departure | `plan` × 3 | 3 / 3 |
+| Climate departure | vehicle `needs_clarification` × 3 | 3 / 3 |
+| 09:00 reminder | `time_of_day` `needs_clarification` × 3 | 3 / 3 |
+| Unsupported live camera | `unsupported` × 3 | 3 / 3 |
+| Battery notification | `plan` × 3 | 3 / 3 |
+
+The predeclared closure gates—15/15 completed, zero provider errors, 15/15
+semantic matches—are met. The plan has no binding latency SLO. The earlier
+65.3-second error remains historically unclassified because its detailed
+metadata was not retained; the final run did not reproduce a 60+ second tail.
+Retain the new safe telemetry for future diagnosis, and do not extrapolate a
+production reliability rate from these 15 requests.
