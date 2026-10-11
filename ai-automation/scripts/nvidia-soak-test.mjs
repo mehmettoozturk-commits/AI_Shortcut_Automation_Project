@@ -56,7 +56,10 @@ if (!process.env.NVIDIA_API_KEY && !process.env.LLM_API_KEY) {
 }
 
 const maxElapsedMs = 30 * 60 * 1000;
-const pipeline = new NluPipeline(undefined, undefined, undefined, createNvidiaProvider());
+let finalFailure = null;
+const pipeline = new NluPipeline(undefined, undefined, undefined, createNvidiaProvider(), (diagnostic) => {
+  finalFailure = diagnostic;
+});
 const samples = [];
 const started = performance.now();
 let consecutiveErrors = 0;
@@ -69,6 +72,7 @@ for (let round = 1; round <= rounds && !stopReason; round++) {
       break;
     }
     const before = { ...pipeline.retryMetrics };
+    finalFailure = null;
     const callStart = performance.now();
     const outcome = await pipeline.planAsync(scenario.text, emptyContext());
     const latencyMs = Math.round(performance.now() - callStart);
@@ -87,6 +91,7 @@ for (let round = 1; round <= rounds && !stopReason; round++) {
       bucket,
       semanticPass: semanticsMatch(scenario.id, outcome),
       latencyMs,
+      ...(outcome.status === "provider_error" && finalFailure ? { failure: finalFailure } : {}),
     };
     samples.push(sample);
     console.log(JSON.stringify(sample));

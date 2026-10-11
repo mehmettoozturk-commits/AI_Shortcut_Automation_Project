@@ -14,8 +14,21 @@
  * `retryable: true` ile işaretlenir — her sağlayıcı bunu kendi throw
  * noktasında AÇIKÇA seçer.
  */
+export type ProviderErrorCategory = "timeout" | "network" | "http" | "auth" | "rate_limit" | "server" | "unknown";
+
+/** Safe to export to diagnostics: never includes exception text or response data. */
+export interface ProviderErrorDiagnostic {
+  errorCategory: ProviderErrorCategory;
+  httpStatus: number | null;
+}
+
 export class LlmProviderError extends Error {
-  constructor(message: string, readonly cause?: unknown, readonly retryable: boolean = false) {
+  constructor(
+    message: string,
+    readonly cause?: unknown,
+    readonly retryable: boolean = false,
+    readonly diagnostic: ProviderErrorDiagnostic = { errorCategory: "unknown", httpStatus: null },
+  ) {
     super(message);
     this.name = "LlmProviderError";
   }

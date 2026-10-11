@@ -22,7 +22,35 @@ import OpenAI from "openai";
 import type { NluProvider, RepairHint } from "../ports.js";
 import type { ConversationContext, IntentResult } from "../types.js";
 import { LlmPlanOutputJsonSchema, LlmPlanOutputSchema, systemPrompt, toIntentResult, userPrompt } from "./llm-schema.js";
-import { LlmProviderError } from "./errors.js";
+import { LlmProviderError, type ProviderErrorDiagnostic } from "./errors.js";
+
+/** Inspect only SDK status/name/code. Never retain or log raw error details. */
+export function classifyOpenAICompatibleError(error: unknown): ProviderErrorDiagnostic {
+  if (typeof error !== "object" || error === null) return { errorCategory: "unknown", httpStatus: null };
+  try {
+    const record = error as Record<string, unknown>;
+    const status = typeof record.status === "number" && Number.isInteger(record.status)
+      && record.status >= 400 && record.status <= 599 ? record.status : null;
+    if (status !== null) {
+      if (status === 401 || status === 403) return { errorCategory: "auth", httpStatus: status };
+      if (status === 429) return { errorCategory: "rate_limit", httpStatus: status };
+      if (status >= 500) return { errorCategory: "server", httpStatus: status };
+      return { errorCategory: "http", httpStatus: status };
+    }
+    const name = typeof record.name === "string" ? record.name : "";
+    const code = typeof record.code === "string" ? record.code : "";
+    if (name === "APIConnectionTimeoutError" || name === "AbortError"
+      || code === "ETIMEDOUT" || code === "UND_ERR_CONNECT_TIMEOUT" || code === "ABORT_ERR") {
+      return { errorCategory: "timeout", httpStatus: null };
+    }
+    if (name === "APIConnectionError" || ["ECONNRESET", "ECONNREFUSED", "ENOTFOUND", "EAI_AGAIN", "EPIPE"].includes(code)) {
+      return { errorCategory: "network", httpStatus: null };
+    }
+  } catch {
+    // An unusual SDK error getter must never alter provider_error behavior.
+  }
+  return { errorCategory: "unknown", httpStatus: null };
+}
 
 /**
  * Phase 4D-2 — gerçek NVIDIA NIM smoke testinde keşfedildi: Claude/Gemini'nin
@@ -94,7 +122,7 @@ export class OpenAICompatibleIntentProvider implements NluProvider {
       });
     } catch (err) {
       // Ağ/istek hatası — Phase 4E-3: RETRY EDİLMEZ.
-      throw new LlmProviderError(`${this.providerLabel} isteği başarısız oldu.`, err, false);
+      throw new LlmProviderError(`${this.providerLabel} isteği başarısız oldu.`, err, false, classifyOpenAICompatibleError(err));
     }
 
     const content = response.choices[0]?.message.content;

@@ -14,7 +14,7 @@ import { findBySemantic, findCapability } from "../capability-registry/registry.
 import type { WorkflowStep } from "../dsl/schema.js";
 import { buildPlan } from "./plan-builder.js";
 import type { ClarificationEngine, EntityExtractor, IntentExtractor, NluPlanner, NluProvider, PlanRevisionEngine } from "./ports.js";
-import { LlmProviderError } from "./providers/errors.js";
+import { LlmProviderError, type ProviderErrorDiagnostic } from "./providers/errors.js";
 import { buildRepairInstruction, checkSemanticCompleteness, describeSemanticViolation, hardenTemporalAmbiguity } from "./providers/llm-schema.js";
 import { RuleBasedProvider } from "./providers/rule-based-provider.js";
 import { RuleBasedEntityExtractor, RuleBasedIntentExtractor } from "./rule-based.js";
@@ -163,9 +163,18 @@ export interface RetryMetrics {
   providerError: number;
 }
 
+/** Pipeline attempts only; an SDK may perform transport retries internally. */
+export interface ProviderFailureTelemetry extends ProviderErrorDiagnostic {
+  stage: "first" | "repair";
+  retryable: boolean;
+  attemptCount: number;
+  durationMs: number;
+  totalLatencyMs: number;
+}
+
 type AttemptResult =
   | { ok: true; intent: IntentResult; deterministicFallback?: boolean }
-  | { ok: false; retryable: boolean; message: string; repair?: Parameters<typeof buildRepairInstruction>[0] };
+  | { ok: false; retryable: boolean; message: string; diagnostic: ProviderErrorDiagnostic; durationMs: number; repair?: Parameters<typeof buildRepairInstruction>[0] };
 
 /**
  * A model may infer a specific vehicle from "arabadan" even though the user
@@ -221,7 +230,8 @@ export class NluPipeline implements NluPlanner {
     private intentExtractor: IntentExtractor = new RuleBasedIntentExtractor(),
     private clarification: ClarificationEngine = new DefaultClarificationEngine(),
     private revision: PlanRevisionEngine = new DefaultPlanRevisionEngine(),
-    private provider: NluProvider = new RuleBasedProvider()
+    private provider: NluProvider = new RuleBasedProvider(),
+    private onProviderFailure?: (telemetry: ProviderFailureTelemetry) => void,
   ) {}
 
   plan(input: string, context: ConversationContext): PlanningOutcome {
@@ -248,6 +258,22 @@ export class NluPipeline implements NluPlanner {
    * çalışılmaz, en fazla iki gerçek istek yapılır.
    */
   async planAsync(input: string, context: ConversationContext): Promise<PlanningOutcome> {
+    const started = performance.now();
+    const finalFailure = (failure: Extract<AttemptResult, { ok: false }>, stage: "first" | "repair"): PlanningOutcome => {
+      this.retryMetrics.providerError++;
+      // A diagnostic observer must never alter the user-facing provider_error result.
+      try {
+        this.onProviderFailure?.({
+          stage,
+          ...failure.diagnostic,
+          retryable: failure.retryable,
+          attemptCount: stage === "first" ? 1 : 2,
+          durationMs: failure.durationMs,
+          totalLatencyMs: Math.round(performance.now() - started),
+        });
+      } catch { /* Diagnostic observers are best-effort only. */ }
+      return { status: "provider_error", message: failure.message };
+    };
     const first = await this.attemptPlan(input, context);
     if (first.ok) {
       if (first.deterministicFallback) this.retryMetrics.deterministicFallback++;
@@ -255,8 +281,7 @@ export class NluPipeline implements NluPlanner {
       return this.continueFromIntent(first.intent, input, context);
     }
     if (!first.retryable) {
-      this.retryMetrics.providerError++;
-      return { status: "provider_error", message: first.message };
+      return finalFailure(first, "first");
     }
 
     const second = await this.attemptPlan(input, context, first.repair);
@@ -265,8 +290,7 @@ export class NluPipeline implements NluPlanner {
       else this.retryMetrics.repairSuccess++;
       return this.continueFromIntent(second.intent, input, context);
     }
-    this.retryMetrics.providerError++;
-    return { status: "provider_error", message: second.message };
+    return finalFailure(second, "repair");
   }
 
   /** Tek bir sağlayıcı çağrısı + Katman 1/2 denetimleri (Phase 4D-3/4E-1). Retry mantığı İÇERMEZ. */
@@ -276,14 +300,17 @@ export class NluPipeline implements NluPlanner {
     repair?: Parameters<typeof buildRepairInstruction>[0]
   ): Promise<AttemptResult> {
     let intent: IntentResult;
+    const started = performance.now();
     try {
       const hint = repair ? { instruction: buildRepairInstruction(repair) } : undefined;
       intent = await this.provider.plan(input, context, hint);
     } catch (err) {
       if (err instanceof LlmProviderError) {
-        return { ok: false, retryable: err.retryable, message: err.message, repair: { kind: "malformed_output" } };
+        return { ok: false, retryable: err.retryable, message: err.message, diagnostic: err.diagnostic,
+          durationMs: Math.round(performance.now() - started), repair: { kind: "malformed_output" } };
       }
-      return { ok: false, retryable: false, message: "Sağlayıcı beklenmeyen bir hatayla başarısız oldu." };
+      return { ok: false, retryable: false, message: "Sağlayıcı beklenmeyen bir hatayla başarısız oldu.",
+        diagnostic: { errorCategory: "unknown", httpStatus: null }, durationMs: Math.round(performance.now() - started) };
     }
 
     // Phase 4D-3: HANGİ async sağlayıcı olursa olsun — bilinmeyen/
@@ -312,7 +339,9 @@ export class NluPipeline implements NluPlanner {
     // ettiği bu durum, Phase 4E-3'te RETRY EDİLEBİLİR sayılır.
     const violation = checkSemanticCompleteness(intent);
     if (violation) {
-      return { ok: false, retryable: true, message: describeSemanticViolation(violation), repair: { kind: "semantic_violation", violation } };
+      return { ok: false, retryable: true, message: describeSemanticViolation(violation),
+        diagnostic: { errorCategory: "unknown", httpStatus: null }, durationMs: Math.round(performance.now() - started),
+        repair: { kind: "semantic_violation", violation } };
     }
     return { ok: true, intent };
   }
