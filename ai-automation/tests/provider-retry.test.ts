@@ -74,7 +74,7 @@ describe("Phase 4E-3 — retry/repair: malformed → repair → geçerli", () =>
     expect(provider.calls).toHaveLength(2);
     expect(provider.calls[1]!.repair).toBeDefined();
     noCapabilityIdLeaks(provider.calls[1]!.repair!.instruction);
-    expect(pipeline.retryMetrics).toEqual({ firstPassSuccess: 0, repairSuccess: 1, providerError: 0 });
+    expect(pipeline.retryMetrics).toEqual({ firstPassSuccess: 0, repairSuccess: 1, deterministicFallback: 0, providerError: 0 });
   });
 
   it("eksik eylem: ilk deneme boş steps, repair sonrası eylem doğru üretilir", async () => {
@@ -162,7 +162,7 @@ describe("Phase 4E-3 — retry/repair: hâlâ hatalı → provider_error (en faz
 
     expect(outcome.status).toBe("provider_error");
     expect(provider.calls).toHaveLength(2); // TAM OLARAK 2 — üçüncü bir deneme YOK
-    expect(pipeline.retryMetrics).toEqual({ firstPassSuccess: 0, repairSuccess: 0, providerError: 1 });
+    expect(pipeline.retryMetrics).toEqual({ firstPassSuccess: 0, repairSuccess: 0, deterministicFallback: 0, providerError: 1 });
   });
 });
 
@@ -185,7 +185,7 @@ describe("Phase 4E-3 — retry NE ZAMAN tetiklenmemeli", () => {
 
     expect(outcome.status).toBe("unsupported");
     expect(provider.calls).toHaveLength(1); // retry TETİKLENMEDİ
-    expect(pipeline.retryMetrics).toEqual({ firstPassSuccess: 1, repairSuccess: 0, providerError: 0 });
+    expect(pipeline.retryMetrics).toEqual({ firstPassSuccess: 1, repairSuccess: 0, deterministicFallback: 0, providerError: 0 });
   });
 
   it("retryable OLMAYAN bir sağlayıcı hatası (ağ/timeout) hiç retry edilmez", async () => {
@@ -202,6 +202,6 @@ describe("Phase 4E-3 — retry NE ZAMAN tetiklenmemeli", () => {
 
     expect(outcome.status).toBe("provider_error");
     expect(calls).toBe(1); // retry TETİKLENMEDİ
-    expect(countingPipeline.retryMetrics).toEqual({ firstPassSuccess: 0, repairSuccess: 0, providerError: 1 });
+    expect(countingPipeline.retryMetrics).toEqual({ firstPassSuccess: 0, repairSuccess: 0, deterministicFallback: 0, providerError: 1 });
   });
 });

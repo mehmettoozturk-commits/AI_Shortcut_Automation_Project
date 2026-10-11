@@ -159,17 +159,63 @@ function replaceActionSteps(steps: WorkflowStep[], capabilityId: string): Workfl
 export interface RetryMetrics {
   firstPassSuccess: number;
   repairSuccess: number;
+  deterministicFallback: number;
   providerError: number;
 }
 
 type AttemptResult =
-  | { ok: true; intent: IntentResult }
+  | { ok: true; intent: IntentResult; deterministicFallback?: boolean }
   | { ok: false; retryable: boolean; message: string; repair?: Parameters<typeof buildRepairInstruction>[0] };
+
+/**
+ * A model may infer a specific vehicle from "arabadan" even though the user
+ * never named one. Vehicle actions must be grounded in the current utterance
+ * or in an explicitly selected vehicle from this attempt before a plan is
+ * shown. The rule-based extractor handles supported "Model 3"/"Tesla"
+ * variants; a model-provided vehicle name is never treated as evidence.
+ */
+function groundVehicleForAction(intent: IntentResult, input: string, context: ConversationContext): IntentResult {
+  if (intent.intent !== "create_automation" || !intent.steps.some((step) => step.type.startsWith("vehicle_"))) {
+    return intent;
+  }
+
+  const explicit = new RuleBasedEntityExtractor().extract(input).vehicle;
+  const vehicle = explicit ?? context.selectedEntities.vehicle;
+
+  if (!vehicle) {
+    const { vehicle: _vehicle, device: _device, ...otherEntities } = intent.entities;
+    const withoutVehicle = (details?: Record<string, unknown>) => {
+      if (!details) return details;
+      const { vehicle: _vehicleDetail, device: _deviceDetail, ...otherDetails } = details;
+      return otherDetails;
+    };
+    return {
+      ...intent,
+      entities: otherEntities,
+      trigger: intent.trigger ? { ...intent.trigger, details: withoutVehicle(intent.trigger.details) } : undefined,
+      steps: intent.steps.map((step) => ({ ...step, details: withoutVehicle(step.details) })),
+      missing: intent.missing.some((field) => field.field === "vehicle")
+        ? intent.missing
+        : [...intent.missing, { field: "vehicle", reason: "required_for_vehicle_action" }],
+    };
+  }
+
+  const withVehicle = (details?: Record<string, unknown>) => ({ ...details, vehicle: vehicle.value });
+  return {
+    ...intent,
+    entities: { ...intent.entities, vehicle },
+    trigger: intent.trigger ? { ...intent.trigger, details: withVehicle(intent.trigger.details) } : undefined,
+    steps: intent.steps.map((step) => step.details && ("vehicle" in step.details || "device" in step.details)
+      ? { ...step, details: withVehicle(step.details) }
+      : step),
+    missing: intent.missing.filter((field) => field.field !== "vehicle"),
+  };
+}
 
 /* ---------------- planlayıcı ---------------- */
 
 export class NluPipeline implements NluPlanner {
-  public readonly retryMetrics: RetryMetrics = { firstPassSuccess: 0, repairSuccess: 0, providerError: 0 };
+  public readonly retryMetrics: RetryMetrics = { firstPassSuccess: 0, repairSuccess: 0, deterministicFallback: 0, providerError: 0 };
 
   constructor(
     private intentExtractor: IntentExtractor = new RuleBasedIntentExtractor(),
@@ -204,7 +250,8 @@ export class NluPipeline implements NluPlanner {
   async planAsync(input: string, context: ConversationContext): Promise<PlanningOutcome> {
     const first = await this.attemptPlan(input, context);
     if (first.ok) {
-      this.retryMetrics.firstPassSuccess++;
+      if (first.deterministicFallback) this.retryMetrics.deterministicFallback++;
+      else this.retryMetrics.firstPassSuccess++;
       return this.continueFromIntent(first.intent, input, context);
     }
     if (!first.retryable) {
@@ -214,7 +261,8 @@ export class NluPipeline implements NluPlanner {
 
     const second = await this.attemptPlan(input, context, first.repair);
     if (second.ok) {
-      this.retryMetrics.repairSuccess++;
+      if (second.deterministicFallback) this.retryMetrics.deterministicFallback++;
+      else this.retryMetrics.repairSuccess++;
       return this.continueFromIntent(second.intent, input, context);
     }
     this.retryMetrics.providerError++;
@@ -242,6 +290,21 @@ export class NluPipeline implements NluPlanner {
     // gelecekteki bir provider dahil — çıktısı burada, pipeline'ın kendi
     // seviyesinde deterministik olarak yeniden denetlenir.
     intent = hardenTemporalAmbiguity(intent);
+    intent = groundVehicleForAction(intent, input, context);
+
+    // A false-negative "not_understood" for a recognizable, supported
+    // time-triggered notification must not strand a fresh attempt. The
+    // deterministic extractor is a narrow fallback, not a second model
+    // inference, and its use is counted separately from model success.
+    if (intent.intent === "not_understood" && context.currentPlan === null) {
+      const fallback = new RuleBasedIntentExtractor().extract(input, context);
+      if (fallback.intent === "create_automation"
+        && fallback.trigger?.type === "time"
+        && fallback.steps.some((step) => step.type === "notify")
+        && fallback.missing.some((field) => field.field === "time_of_day")) {
+        return { ok: true, intent: fallback, deterministicFallback: true };
+      }
+    }
 
     // Phase 4E-1: LLM → Schema → BURASI → Registry. Şema açısından
     // geçerli ama anlamsal olarak BOZUK bir çıktı sessizce

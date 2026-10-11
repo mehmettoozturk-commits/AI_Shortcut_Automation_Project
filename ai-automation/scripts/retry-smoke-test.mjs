@@ -45,7 +45,9 @@ for (let i = 0; i < SCENARIOS.length; i++) {
   const outcome = await pipeline.planAsync(text, emptyContext());
   const after = { ...pipeline.retryMetrics };
   const bucket =
-    after.firstPassSuccess > before.firstPassSuccess
+    after.deterministicFallback > before.deterministicFallback
+      ? "deterministic-fallback"
+      : after.firstPassSuccess > before.firstPassSuccess
       ? "first-pass"
       : after.repairSuccess > before.repairSuccess
         ? "repair"
