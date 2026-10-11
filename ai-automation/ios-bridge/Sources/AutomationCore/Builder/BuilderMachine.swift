@@ -213,14 +213,21 @@ public final class BuilderMachine: ObservableObject {
     /// kaydın id'si (`currentAutomationId`) akış boyunca taşınır;
     /// sonraki her geçiş AYNI kaydı GÜNCELLER (upsert).
     public func create() async {
-        guard case .previewConfirm(let draft, let missingPermissions, _) = step else { return }
-        for permission in missingPermissions {
+        guard case .previewConfirm(let draft, _, _) = step else { return }
+        // Önizleme açıldıktan sonra kullanıcı Ayarlar'dan izni kaldırabilir.
+        // Eski snapshot'a güvenmek, izin yokken pending kurulum yaratır.
+        for permission in await computeMissingPermissions(draft) {
             let granted = await permissions.request(permission)
             if !granted {
                 let stillMissing = await computeMissingPermissions(draft)
                 step = .previewConfirm(draft: draft, missingPermissions: stillMissing, disclosures: disclosures(for: draft))
                 return
             }
+        }
+        let stillMissing = await computeMissingPermissions(draft)
+        guard stillMissing.isEmpty else {
+            step = .previewConfirm(draft: draft, missingPermissions: stillMissing, disclosures: disclosures(for: draft))
+            return
         }
         let setupKind = resolveSetupKind(draft)
         let id = idGenerator()

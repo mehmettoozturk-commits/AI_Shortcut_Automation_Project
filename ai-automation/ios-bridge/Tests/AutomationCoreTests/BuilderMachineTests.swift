@@ -46,6 +46,38 @@ final class BuilderMachineTests: XCTestCase {
         XCTAssertFalse(notUnderstood)
     }
 
+    func testCreateRechecksPermissionsAfterPreview() async throws {
+        let registry = try makeRegistry()
+        let repo = InMemoryAutomationRepository()
+        let permissions = RevocablePermissionService(granted: ["bluetooth", "tesla_account"])
+        let machine = BuilderMachine(
+            registry: registry,
+            planner: MockPlanner(registry: registry),
+            permissions: permissions,
+            setup: MockSetupService(),
+            shortcutsHandoff: MockShortcutsHandoff(),
+            repository: repo,
+            device: DeviceContext(osVersion: 26, hasCarPlay: false)
+        )
+        await machine.open()
+        machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
+        await machine.submit()
+        await machine.confirmUnderstanding()
+        guard case .previewConfirm(_, let initialMissing, _) = machine.step else {
+            return XCTFail("previewConfirm bekleniyordu")
+        }
+        XCTAssertTrue(initialMissing.isEmpty)
+
+        await permissions.revoke("tesla_account")
+        await machine.create()
+        guard case .previewConfirm(_, let currentMissing, _) = machine.step else {
+            return XCTFail("İzin kalkınca önizlemede kalmalı")
+        }
+        XCTAssertEqual(currentMissing, ["tesla_account"])
+        let saved = await repo.list()
+        XCTAssertTrue(saved.isEmpty, "İzin yokken pending/installed kaydı üretilmemeli")
+    }
+
     func testFullInstallFlow_setupToInstalled() async throws {
         let registry = try makeRegistry()
         let (machine, repo) = makeMachine(registry: registry)
@@ -380,6 +412,26 @@ final class BuilderMachineTests: XCTestCase {
         await machine.handOffToShortcuts()
         let opened = await handoff.openedURLs
         XCTAssertEqual(opened, [URL(string: "https://example.com/mock-shortcut-template")!])
+    }
+}
+
+private actor RevocablePermissionService: PermissionService {
+    private var granted: Set<String>
+
+    init(granted: [String]) {
+        self.granted = Set(granted)
+    }
+
+    func grantedPermissions() async -> [String] {
+        Array(granted)
+    }
+
+    func request(_ permission: String) async -> Bool {
+        granted.contains(permission)
+    }
+
+    func revoke(_ permission: String) {
+        granted.remove(permission)
     }
 }
 
