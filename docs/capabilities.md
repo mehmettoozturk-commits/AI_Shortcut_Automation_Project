@@ -263,8 +263,8 @@ Sözleşmenin işe yaradığının kanıtı bu.
    kanıtı yok; Tesla Sentry Mode dahil bunların uygulama içi kurulumu
    kanıtlanmış sayılmaz. Dokuz tetikleyiciye ayrı ayrı eylem şablonu
    gerekmez; kullanıcı bunları Shortcuts'ın Otomasyon sekmesinde bağlar.
-   Mevcut servis bir planın yalnızca ilk eyleminin sabit şablonunu seçer;
-   çok adımlı/parametreli/onay dallı bir planın tamamını şablona
-   kodlamaz. Bu yüzden tek bildirim örneğinin başarısı genel otomasyon
+   Servis artık yalnızca tek, parametresiz eylem içeren planlarda sabit
+   şablonu sunar; çok adımlı/parametreli/onay dallı planları açıkça
+   reddeder. Bu planları hâlâ şablona kodlayamaz. Bu yüzden tek bildirim örneğinin başarısı genel otomasyon
    kurulum vaadini kanıtlamaz; ayrıntılı sınıflandırma
    `docs/mvp-closure-audit.md` içindedir.

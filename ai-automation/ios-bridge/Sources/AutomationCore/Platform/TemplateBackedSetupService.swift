@@ -12,9 +12,9 @@
 // gerçek bir `template`'e sahip (gerçek bir iPhone'da Shortcuts'ta elle
 // oluşturulup "iCloud Bağlantısını Kopyala" ile paylaşılmış tek eylemli
 // bir kestirme — bkz. docs/phase5a-e2e-validation-plan.md "İş 0.5").
-// Geri kalan 14 capability için bu servis HÂLÂ `.noTemplateAvailable`
-// döner — bu DOĞRU ve DÜRÜST davranıştır: sahte bir "hazır" durumu
-// üretmek MASTER_SPEC §18'i ihlal eder.
+// Bu tek şablon sabit, tek eylemli bir kestirmedir. Plan başka bir eylem,
+// parametre veya onay/koşul içeriyorsa onu temsil EDEMEZ; yalnızca ilk
+// eylemin şablonunu seçip "hazır" demek MASTER_SPEC §18'i ihlal eder.
 
 import Foundation
 
@@ -26,14 +26,18 @@ public struct TemplateBackedSetupService: SetupService {
     }
 
     public func prepare(_ plan: DraftAutomationPlan) async -> PrepareResult {
-        let actionIds = flattenSteps(plan.steps).compactMap { step -> String? in
-            switch step {
-            case .action(let type, _): return type
-            case .askConfirmation, .conditional: return nil
-            }
+        // Registry'de şu an yalnızca tek, statik eylem şablonları var.
+        // Ordered steps/confirmation branches/params şablona derlenmiyor;
+        // bunları sessizce atıp kurulum hazırlamak yanlış başarı olur.
+        guard plan.steps.count == 1,
+              case .action(let primaryId, let params) = plan.steps[0],
+              params == nil || params?.isEmpty == true
+        else {
+            return .noTemplateAvailable(
+                reason: "Bu planın tüm adımlarını karşılayan doğrulanmış bir Kestirmeler şablonu henüz yok."
+            )
         }
-
-        guard let primaryId = actionIds.first, let cap = registry.find(primaryId) else {
+        guard let cap = registry.find(primaryId) else {
             return .noTemplateAvailable(reason: "Bu eylem registry'de bulunamadı.")
         }
 

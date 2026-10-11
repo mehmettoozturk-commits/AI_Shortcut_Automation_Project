@@ -25,7 +25,7 @@ record after “Ekledim/Bağladım” is user-confirmed, not an OS attestation.
 | Schema/capability/permission/safety validation | **PARTIAL** | TypeScript validator tests and 307/307 suite pass; the iOS app feeds mock-granted permissions, so real permission handling is not validated. |
 | Understand/preview and explicit create approval | **PASS** for supported tested path | `UnderstandingView.swift`, `ReadyView.swift`, `BuilderMachine.swift`; Phase 5A physical Test 2. Unsupported actions remain distinct. |
 | Shortcuts handoff and user-assisted setup | **PARTIAL** | Real iPhone Phase 5A Test 2 proved the battery-notification → signed “Bildirim Göster” template → user import/link → success path; `TemplateBackedSetupService` has no template for four other supported action IDs. |
-| Plan-to-template fidelity | **PARTIAL** for the exact tested template, **MISSING** for arbitrary plans | `TemplateBackedSetupService.prepare` selects the **first action ID** and returns that action's fixed iCloud URL; it does not encode all steps, confirmation branches, parameters, or user-specific content into the shortcut. The tested single-action notification path cannot justify a general “AI built your full workflow” claim. |
+| Plan-to-template fidelity | **PARTIAL** for the exact tested template, **MISSING** for arbitrary plans | The 2026-10-11 guard now rejects plans with additional steps, confirmation branches, or action parameters instead of selecting the **first action ID** and silently dropping the rest. It still does not encode arbitrary plans or user-specific content into a shortcut. The tested single-action notification path cannot justify a general “AI built your full workflow” claim. |
 | Installed list and restart persistence | **PARTIAL** | `HomeView.swift` displays repository rows; Phase 5A Test 3 confirmed a record survives app restart. No list-detail navigation or active control exists. |
 | Voice input and visible transcript | **MISSING** | `HomeView.swift` explicitly marks `micButtonDisabled`; no speech capture/transcription flow in the iOS source. `MASTER_SPEC.md` §16/§21 lists voice in the MVP. |
 | Account | **MISSING** | `MASTER_SPEC.md` §21 lists an account as P0; current iOS composition is local repository + backend URL with no sign-in/account flow. Decide whether the launch MVP is intentionally local-only before claiming completion. |
@@ -70,12 +70,14 @@ than a standalone action template). Any broader template must be shown to
 match the **whole plan**, not merely its first action. The camera row is an
 intentional unsupported/guided-manual case, not a missing signed template.
 
-## Next decision and gate
+## Next work and gate
 
-1. Decide the **launch promise**: a narrow, physically proven battery →
-   notification user-assisted MVP, or a broader set requiring more signed
-   templates and physical tests. Also decide whether account/voice/templates
-   remain P0 as written in `MASTER_SPEC.md` or are explicitly deferred.
+1. **Launch scope decided by Mehmet on 2026-10-11:** retain the broad
+   `MASTER_SPEC.md` P0 promise. Voice, account, templates, and automation
+   management are **not deferred**. A narrow battery → notification demo is
+   insufficient for MVP closure. The exact set of public launch capabilities
+   still needs evidence-based definition; none may be advertised from the
+   registry alone.
 2. Before any release candidate, remove mock permission grants and hardcoded
    device assumptions; provide a real backend configuration; implement or
    explicitly scope out test/log, detail/edit/disable/delete, and verify that
@@ -88,3 +90,10 @@ intentional unsupported/guided-manual case, not a missing signed template.
 No remote push, production secret change, Apple signing/TestFlight action,
 historical data migration/deletion, or public capability claim is authorized
 by this audit.
+
+## Local baseline after the audit
+
+On 2026-10-11, `swift build` passed and `swift test` reported 50 passed,
+0 failed, 1 optional slow timeout test skipped. This is package-level
+validation on the Mac; it is not a fresh XCUITest or physical-iPhone release
+gate result. The TypeScript baseline from Phase 5C remains 307/307 passed.

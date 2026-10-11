@@ -432,6 +432,53 @@ final class TemplateBackedSetupServiceTests: XCTestCase {
         XCTAssertEqual(url.host, "www.icloud.com")
     }
 
+    func testStaticTemplateRejectsActionParameters() async throws {
+        let registry = try CapabilityRegistry.loadFromBundle()
+        let service = TemplateBackedSetupService(registry: registry)
+        let draft = DraftAutomationPlan(
+            name: "Kişisel bildirim",
+            trigger: TriggerDTO(type: "ios.battery.falls_below"),
+            steps: [.action(type: "ios.notification.show", params: ["message": AnyCodable("Özel mesaj")])]
+        )
+        guard case .noTemplateAvailable = await service.prepare(draft) else {
+            return XCTFail("Statik şablon kişisel parametreyi sessizce atıp hazır diyemez")
+        }
+    }
+
+    func testStaticTemplateRejectsConfirmationBranch() async throws {
+        let registry = try CapabilityRegistry.loadFromBundle()
+        let service = TemplateBackedSetupService(registry: registry)
+        let draft = DraftAutomationPlan(
+            name: "Önce sor",
+            trigger: TriggerDTO(type: "ios.battery.falls_below"),
+            steps: [
+                .askConfirmation(message: "Bildirim gönderilsin mi?"),
+                .conditional(condition: "answer == yes", then: [
+                    .action(type: "ios.notification.show", params: nil)
+                ], else: [])
+            ]
+        )
+        guard case .noTemplateAvailable = await service.prepare(draft) else {
+            return XCTFail("Onay dalı tek eylemli şablonda yoksa kurulum hazır olamaz")
+        }
+    }
+
+    func testStaticTemplateRejectsSecondAction() async throws {
+        let registry = try CapabilityRegistry.loadFromBundle()
+        let service = TemplateBackedSetupService(registry: registry)
+        let draft = DraftAutomationPlan(
+            name: "İki eylem",
+            trigger: TriggerDTO(type: "ios.battery.falls_below"),
+            steps: [
+                .action(type: "ios.notification.show", params: nil),
+                .action(type: "tesla.sentry_mode.toggle", params: ["mode": AnyCodable("enable")])
+            ]
+        )
+        guard case .noTemplateAvailable = await service.prepare(draft) else {
+            return XCTFail("İkinci eylem ilk eylemin şablonuyla gizlenemez")
+        }
+    }
+
     func testUnknownCapability_isNoTemplateAvailable_notCrash() async throws {
         let registry = try CapabilityRegistry.loadFromBundle()
         let service = TemplateBackedSetupService(registry: registry)
