@@ -6,6 +6,7 @@ export * from "./validators/types.js";
 export * from "./validators/schema-validator.js";
 export * from "./validators/capability-validator.js";
 export * from "./validators/permission-validator.js";
+export * from "./validators/setup-requirement-validator.js";
 export * from "./validators/safety-validator.js";
 export * from "./validators/pipeline.js";
 export * from "./builder/types.js";

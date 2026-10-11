@@ -18,6 +18,7 @@ import { validateSchema } from "./schema-validator.js";
 import { validateCapabilities } from "./capability-validator.js";
 import { validatePermissions } from "./permission-validator.js";
 import { validateSafety } from "./safety-validator.js";
+import { validateSetupRequirements } from "./setup-requirement-validator.js";
 import { mergeResults, type ValidationIssue, type ValidationResult } from "./types.js";
 
 export interface PipelineContext {
@@ -39,9 +40,10 @@ export function runValidationPipeline(raw: unknown, ctx: PipelineContext): Pipel
 
   const capabilityResult = validateCapabilities(plan, { platform: ctx.platform });
   const permissionResult = validatePermissions(plan, { grantedPermissions: ctx.grantedPermissions });
+  const setupResult = validateSetupRequirements(plan);
   const safetyResult = validateSafety(plan);
 
-  const combined: ValidationResult = mergeResults(capabilityResult, permissionResult, safetyResult);
+  const combined: ValidationResult = mergeResults(capabilityResult, permissionResult, setupResult, safetyResult);
 
   const issues: ValidationIssue[] = combined.issues;
   return {

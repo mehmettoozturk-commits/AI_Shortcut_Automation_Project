@@ -228,15 +228,15 @@ describe("Validation bypass: NLU çıktısı doğrulama zincirini atlayamaz", ()
     expect(result.issues.some((i) => i.code === "unconfirmed_risky_action")).toBe(true);
   });
 
-  it("izin verilmemişse NLU planı da geçemez", () => {
+  it("NLU planı app izni olmadan görünür; external setup yine uyarı verir", () => {
     const outcome = new NluPipeline().plan("Arabadan inince Tesla Model Y Sentry Mode'u aç.", emptyContext());
     if (outcome.status !== "plan") throw new Error("plan beklenirdi");
     const result = runValidationPipeline(
       { name: outcome.plan.name, trigger: { type: outcome.plan.trigger.type }, steps: outcome.plan.steps },
       { platform: "ios", grantedPermissions: [] }
     );
-    expect(result.ok).toBe(false);
-    expect(result.issues.some((i) => i.code === "missing_permission")).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(result.issues.some((i) => i.code === "setup_requirement_unverified")).toBe(true);
   });
 
   it("NLU'nun ürettiği her plan şema olarak geçerlidir", () => {

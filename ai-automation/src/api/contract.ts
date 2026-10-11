@@ -132,7 +132,7 @@ export const PlanRequestSchema = z.object({
    */
   conversation: ConversationContextSchema.optional(),
   platform: z.enum(["ios", "android"]).default("ios"),
-  /** Permission Validator için — istemcinin o an verdiği izinler. */
+  /** Yalnızca bu uygulamanın OS runtime izinleri; Shortcuts/Tesla kurulumu değil. */
   grantedPermissions: z.array(z.string()).default([]),
 });
 export type PlanRequest = z.infer<typeof PlanRequestSchema>;

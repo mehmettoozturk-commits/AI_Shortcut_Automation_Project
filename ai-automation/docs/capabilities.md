@@ -116,7 +116,8 @@ Her capability için sorulan sorular ve karşılık gelen alanlar:
 | Shortcuts'ta var mı? | `availableInShortcuts` |
 | Bizim App Intent'imizle yapılabilir mi? | `appIntentCapable` |
 | Otomatik çalışıyor mu / iOS onay istiyor mu? | `behaviors[].canRunWithoutAsking` (sürüm sürüm) |
-| Hangi izin gerekiyor? | `permissions[]` |
+| Hangi dış kurulum gerekiyor? | `permissions[]` (geçiş dönemi alanı: Shortcuts/Tesla setup requirement; app OS izni değil) |
+| Bu uygulama hangi OS iznini doğrudan kullanıyor? | `runtimePermissions[]` (şu anki registry'de boş) |
 | Kurulum nasıl yapılıyor? | `installMethod` |
 | Kullanıcı manuel adım yapmak zorunda mı? | `requiresUserSetupStep`, `fallbackSteps[]` |
 | Kullanıcıya önceden ne söylenmeli? | `userDisclosures[]` |

@@ -410,7 +410,7 @@ export class BuilderMachine {
     const perms = new Set<string>();
     for (const id of ids) {
       const cap = findCapability(id);
-      if (cap) for (const p of cap.permissions) perms.add(p);
+      if (cap) for (const p of cap.runtimePermissions ?? []) perms.add(p);
     }
     return Array.from(perms);
   }
@@ -505,10 +505,26 @@ export class BuilderMachine {
     const device: DeviceContext = this.deps.device ?? { osVersion: 26, hasCarPlay: false };
     const triggerCap = findCapability(draft.trigger.type);
     const out = triggerCap ? disclosuresFor(triggerCap, device) : [];
+    for (const id of [draft.trigger.type, ...this.actionCapabilityIds(draft)]) {
+      const cap = findCapability(id);
+      for (const requirement of cap?.permissions ?? []) {
+        out.push(this.setupRequirementDisclosure(requirement));
+      }
+    }
     if (PROGRAMMATIC_AUTOMATION_INSTALL.possible !== true) {
       out.push("iPhone güvenlik nedeniyle son kurulumu senin onaylamanı istiyor.");
     }
     return Array.from(new Set(out));
+  }
+
+  private setupRequirementDisclosure(requirement: string): string {
+    switch (requirement) {
+      case "bluetooth": return "Bluetooth tetikleyicisini Kestirmeler'de cihazını seçerek bağlaman gerekiyor.";
+      case "notifications": return "Bildirim eyleminin Kestirmeler içinde çalıştığını kurulumdan sonra kontrol etmen gerekiyor.";
+      case "location_always": return "Konum tetikleyicisinin Kestirmeler içindeki izin ve ayarlarını sen tamamlamalısın.";
+      case "tesla_account": return "Tesla uygulamasındaki hesap, araç ve Kestirmeler eylemi kurulumunu sen doğrulamalısın.";
+      default: return "İlgili uygulamadaki ek kurulum adımını sen tamamlamalısın.";
+    }
   }
 
   private generateId(): string {

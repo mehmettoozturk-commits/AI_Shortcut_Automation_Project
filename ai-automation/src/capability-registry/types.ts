@@ -125,7 +125,10 @@ export interface Capability {
   // --- "otomatik çalışıyor mu / iOS onay istiyor mu?" ---
   behaviors: OSBehavior[];
 
-  // --- "izin / kurulum" ---
+  // --- Uygulama runtime izni ≠ Shortcuts/Tesla kurulum gereksinimi ---
+  /** Yalnızca BU uygulamanın doğrudan kullandığı OS API izinleri. */
+  runtimePermissions?: string[];
+  /** Legacy snapshot alanı: Shortcuts/Tesla tarafındaki kurulum koşulları. */
   permissions: string[];
   installMethod: InstallMethod;
   requiresUserSetupStep: boolean;

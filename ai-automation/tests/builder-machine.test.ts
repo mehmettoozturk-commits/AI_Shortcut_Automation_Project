@@ -506,14 +506,15 @@ describe("BuilderMachine — kapatılan 4 karar (docs/ux.md §7)", () => {
   });
 });
 
-describe("BuilderMachine — izinler (docs/ux.md §3.5)", () => {
-  it("izin eksikse preview_confirm bunu bildirir", async () => {
+describe("BuilderMachine — app runtime vs external setup", () => {
+  it("Shortcuts/Tesla gereksinimleri app izni gibi eksik görünmez, açıklanır", async () => {
     const { machine } = makeMachine({ granted: [] });
     await runToPreview(machine);
     expect(machine.step.kind).toBe("preview_confirm");
     if (machine.step.kind === "preview_confirm") {
-      expect(machine.step.missingPermissions).toContain("bluetooth");
-      expect(machine.step.missingPermissions).toContain("tesla_account");
+      expect(machine.step.missingPermissions).toEqual([]);
+      expect(machine.step.disclosures.some((d) => d.includes("Kestirmeler"))).toBe(true);
+      expect(machine.step.disclosures.some((d) => d.includes("Tesla"))).toBe(true);
     }
   });
 
@@ -524,11 +525,11 @@ describe("BuilderMachine — izinler (docs/ux.md §3.5)", () => {
     expect(machine.step.kind).toBe("setup");
   });
 
-  it("izin reddedilirse setup'a GEÇMEZ, preview'da kalır", async () => {
+  it("app runtime izni gerekmiyorsa autoGrant=false dış kurulumu engellemez", async () => {
     const { machine } = makeMachine({ granted: [], autoGrant: false });
     await runToPreview(machine);
     await machine.create();
-    expect(machine.step.kind).toBe("preview_confirm");
+    expect(machine.step.kind).toBe("setup");
   });
 });
 

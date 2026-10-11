@@ -1,8 +1,8 @@
-// İzin abstraction'ı — Capability.permissions'daki string'lere
-// (bluetooth, tesla_account, location_always, notifications, ...)
-// karşılık gelen gerçek OS izin kontrollerinin protokolü.
+// İzin abstraction'ı — yalnızca BU uygulamanın doğrudan kullandığı
+// OS API'leri için Capability.runtimePermissions alanına karşılık gelir.
+// Shortcuts/Tesla setupRequirements bununla doğrulanamaz.
 //
-// Gerçek implementasyonlar Phase 3B'de:
+// İleride app'in kendisi bu framework'leri kullanırsa:
 //   - "bluetooth"        -> CoreBluetooth CBCentralManager.authorization
 //   - "notifications"    -> UNUserNotificationCenter
 //   - "location_always"  -> CoreLocation CLLocationManager (Always yetkisi)
@@ -20,12 +20,24 @@ public enum PermissionState: String, Sendable {
 }
 
 public protocol SystemPermissionAdapter: Sendable {
-    /// Capability.permissions'daki bir string (ör. "bluetooth").
+    /// Capability.runtimePermissions'daki app-owned OS izin kimliği.
     func currentState(_ permission: String) async -> PermissionState
     /// OS'un kendi izin dialogunu tetikler. `tesla_account` gibi
     /// üçüncü taraf izinler için bu OAuth akışını başlatmak anlamına
     /// gelebilir; implementasyon türe göre değişir.
     func requestSystemPermission(_ permission: String) async -> PermissionState
+}
+
+/// Production fail-closed service while the app itself declares no runtime
+/// OS permissions. Shortcuts/Tesla setup requirements are handled separately
+/// by the guided import flow; any future app-owned permission added without
+/// a native adapter remains denied rather than silently auto-granted.
+public actor NoAppRuntimePermissionService: PermissionService {
+    public init() {}
+
+    public func grantedPermissions() async -> [String] { [] }
+
+    public func request(_ permission: String) async -> Bool { false }
 }
 
 /// MOCK — gerçek OS izin dialogunu açmaz.

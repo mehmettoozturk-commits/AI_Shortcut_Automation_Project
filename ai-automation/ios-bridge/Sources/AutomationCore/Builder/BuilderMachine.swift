@@ -426,7 +426,7 @@ public final class BuilderMachine: ObservableObject {
     private func requiredPermissions(_ draft: DraftAutomationPlan) -> [String] {
         var perms = Set<String>()
         for id in [draft.trigger.type] + actionCapabilityIds(draft) {
-            if let cap = registry.find(id) { perms.formUnion(cap.permissions) }
+            if let cap = registry.find(id) { perms.formUnion(cap.runtimePermissions ?? []) }
         }
         return Array(perms)
     }
@@ -454,12 +454,33 @@ public final class BuilderMachine: ObservableObject {
         if let cap = registry.find(draft.trigger.type) {
             out += CapabilityResolver.disclosures(for: cap, device: device)
         }
+        for id in [draft.trigger.type] + actionCapabilityIds(draft) {
+            guard let cap = registry.find(id) else { continue }
+            for requirement in cap.setupRequirements {
+                out.append(Self.setupRequirementDisclosure(requirement))
+            }
+        }
         // docs/capabilities.md §1.2: programatik kurulum doğrulanmadı.
         out.append("iPhone güvenlik nedeniyle son kurulumu senin onaylamanı istiyor.")
         // Sırayı koruyarak tekilleştir (NSOrderedSet yerine elle, daha
         // az riskli bir yol).
         var seen = Set<String>()
         return out.filter { seen.insert($0).inserted }
+    }
+
+    private static func setupRequirementDisclosure(_ requirement: String) -> String {
+        switch requirement {
+        case "bluetooth":
+            return "Bluetooth tetikleyicisini Kestirmeler'de cihazını seçerek bağlaman gerekiyor; bu uygulama bağlantıyı doğrulayamaz."
+        case "notifications":
+            return "Bildirim eyleminin Kestirmeler içinde çalıştığını kurulumdan sonra kontrol etmen gerekiyor."
+        case "location_always":
+            return "Konum tetikleyicisinin Kestirmeler içindeki izin ve ayarlarını sen tamamlamalısın."
+        case "tesla_account":
+            return "Tesla uygulamasındaki hesap, araç ve Kestirmeler eylemi kurulumunu sen doğrulamalısın."
+        default:
+            return "Bu otomasyonun ilgili uygulamadaki ek kurulumunu sen tamamlamalısın."
+        }
     }
 
     /// Kurulum yöntemi YALNIZCA registry'den okunur. "automatic" asla

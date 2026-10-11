@@ -6,9 +6,11 @@ the broad `MASTER_SPEC.md` P0 set chosen on 2026-10-11.
 
 ## Separate ownership, never infer one from another
 
-The current registry's `permissions` field conflates the app's own iOS runtime
-authorization with prerequisites belonging to Shortcuts or a third-party app.
-The release implementation must represent these as separate concepts:
+The legacy registry field `permissions` was treated as if it were this app's
+iOS authorization, although its values describe Shortcuts/Tesla setup. P0-1
+now uses `runtimePermissions` only for app-owned OS APIs and treats legacy
+`permissions` as external setup requirements. Renaming the legacy serialized
+field to `setupRequirements` is still pending; the concepts must stay separate:
 
 | Requirement | Owner / observable state | What the app must not claim |
 | --- | --- | --- |
@@ -30,24 +32,25 @@ Apple references: [notification authorization](https://developer.apple.com/docum
 [Core Location authorization](https://developer.apple.com/documentation/corelocation/cllocationmanager),
 [Shortcuts Show Notification](https://support.apple.com/en-ie/guide/shortcuts/apd2175adcab/ios).
 
-## Current failure path
+## Failure path and current mitigation
 
-`AutomationApp.swift` injects `MockPermissionService` with four pre-granted
-strings. `HTTPBackedPlanner` forwards those strings as `grantedPermissions` to
-`/plan`; the backend's Permission Validator returns HTTP 422 if they are
-missing. Before the 422-preservation patch, Swift turned every 422 into
-`.notUnderstood`, hiding the draft. It now shows a blocked-plan review
-screen when the backend includes a draft and issues; **the screen cannot
-create a setup record**. This only fixes visibility, not the underlying
-permission-ownership split. Simply replacing the mock with OS authorization
-checks would still be both a dead end and a false proof of Shortcuts/Tesla
-readiness.
+Before P0-1, `AutomationApp.swift` injected `MockPermissionService` with four
+pre-granted strings. `HTTPBackedPlanner` forwarded those as
+`grantedPermissions`; without them the backend returned HTTP 422, and Swift
+hid the draft as `.notUnderstood`. The mock is now removed from production.
+Today's registry declares no app-owned runtime permissions, so the app sends
+no OS grants and the backend returns the plan with external setup warnings;
+preview displays user-assisted requirements. A future app-owned permission
+without a native adapter fails closed. Independent 422s carrying draft and
+issues show a blocked-plan screen with **no create path**. None of this
+proves the external Shortcuts/Tesla setup actually succeeded.
 
 ## Required implementation sequence
 
-1. Split `runtimePermission` (only permissions actually used by this app)
-   from `setupRequirement` (Shortcuts/Tesla prerequisites) in the registry,
-   validator contract, and UI. Default external state to unknown/user-assisted.
+1. `runtimePermission` (only permissions actually used by this app) and
+   `setupRequirement` (Shortcuts/Tesla prerequisites) are split in validator
+   behavior and UI. Finish the serialized registry rename and persistent
+   user-assisted state model; default external state to unknown.
 2. Preserve the draft and typed issues on backend 422. The first patch shows
    the plan and safe, generic issue guidance without a create path; full
    actionable requirement-specific guidance is still pending. Never label
@@ -71,4 +74,21 @@ readiness.
 Already implemented in local commits: `fad82bf` rejects additional steps,
 parameters and confirmation branches for the one static template; `22228d9`
 rechecks the permission service immediately before creating a pending record.
-Neither commit removes the mock or closes P0-1.
+`6b8e9d0` preserves backend 422 draft/issues on a blocked review screen;
+`05b2e42` reads the actual OS major version and represents CarPlay support as
+unknown. The next local change removes the production mock and separates
+app-owned runtime permissions from external setup warnings. P0-1 remains open.
+
+## 2026-10-11 local regression after removing the production mock
+
+- `npm run build`: pass; TypeScript `npm test`: **307/307 pass**. API test
+  verifies empty app runtime grants produce a visible plan plus
+  `setup_requirement_unverified` warning, not a fake grant or HTTP 422.
+- Swift package `swift test`: **57 pass, 1 optional slow test skipped**.
+  Tests distinguish external setup disclosure from app runtime permission,
+  and ensure an added app-owned permission without a grant fails closed.
+- iOS Simulator app build: pass. Full XCUITest on iPhone 17 Simulator,
+  iOS 26.5: **7/7 pass**, 0 failed/skipped. Result bundle:
+  `/private/tmp/codex-p0-ui-20261011-2337.xcresult`.
+- No fresh physical-iPhone permission, import/link, or actual trigger run
+  was performed in this checkpoint. A simulator pass is not release evidence.

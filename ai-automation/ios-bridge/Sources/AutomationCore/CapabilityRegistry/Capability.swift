@@ -129,7 +129,13 @@ public struct Capability: Codable, Sendable, Identifiable, Equatable {
 
     public var behaviors: [OSBehavior]
 
+    /// Legacy snapshot field: Shortcuts/Tesla-owned setup requirements,
+    /// NOT authorization granted to this app.
     public var permissions: [String]
+    /// OS permissions for APIs used directly by this app. Absent in the
+    /// current Shortcuts-only registry; adding one must have a real adapter.
+    public var runtimePermissions: [String]?
+    public var setupRequirements: [String] { permissions }
     public var installMethod: InstallMethod
     public var requiresUserSetupStep: Bool
     public var fallbackSteps: [String]?

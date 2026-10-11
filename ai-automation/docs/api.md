@@ -279,9 +279,15 @@ POST /plan
                                   // önceki yanıtın `conversation` alanı
                                   // AYNEN geri gönderilir (§2)
   "platform": "ios",             // varsayılan "ios"
-  "grantedPermissions": ["bluetooth", "tesla_account"]
+  "grantedPermissions": []       // yalnızca BU uygulamanın OS runtime
+                                  // izinleri; Shortcuts/Tesla kurulumu değil
 }
 ```
+
+P0-1 (2026-10-11): `bluetooth`, `notifications`, `location_always` ve
+`tesla_account` mevcut registry'de harici Shortcuts/Tesla kurulum
+gereksinimleridir. `grantedPermissions` alanına otomatik konulmazlar;
+backend bunları `setup_requirement_unverified` uyarısı olarak taşır.
 
 ### Yanıt — dört "başarı" durumu (hepsi HTTP 200 veya 422, ASLA 5xx)
 

@@ -119,7 +119,7 @@ tetiklediğini gösterir:
 | `capturing` → `understanding` | Ham metin → **taslak** `AutomationPlan` (henüz doğrulanmamış) | Schema Validator |
 | `understanding` | `trigger.type`, `steps[].type` doldurulur | Capability Validator (bilinmeyen capability varsa kullanıcıya "bunu henüz yapamıyorum" gösterilmeli — bkz. §6.7 açık soru) |
 | `missing_info` | `trigger.device` gibi eksik alanlar doldurulur | — (sadece veri toplama) |
-| `preview_confirm` | Plan tamamlanır | Permission Validator (izin eksikse bu ekranda "X izni gerekiyor" satırı eklenir) |
+| `preview_confirm` | Plan tamamlanır | App'in kendi runtime izni eksikse Permission Validator satırı; Shortcuts/Tesla kurulumu ise ayrı kullanıcı destekli gereksinim açıklaması |
 | **"Otomasyonu Oluştur" butonuna basış** | — | **Bu tıklama, DSL'deki `ask_confirmation` adımının gerçek dünya karşılığıdır.** Safety Validator'ın aradığı "kullanıcı onayı" tam olarak burada gerçekleşir. |
 | `setup` | Capability Registry'den `nativeSupport` okunur | Compiler (henüz yazılmadı — bkz. MASTER_SPEC §15 son aşama) |
 | `success` | `Automation` domain nesnesi oluşturulur (`status: "active"`) | — |
@@ -280,6 +280,12 @@ Tesla'dan ayrıldığında Sentry Mode açılacak.
   üstünde küçük bir satır: "Bunun için Bluetooth iznine ihtiyacım var" +
   buton metni "İzin ver ve oluştur" olarak değişir (izin isteme, tam bu
   noktada, ihtiyaç anında — MASTER_SPEC §20)
+
+P0-1 notu (2026-10-11): Bu `missing_permission` durumu yalnızca app'in
+kendi doğrudan kullandığı OS API izinleri içindir. Bluetooth personal
+automation, Shortcuts bildirimi ve Tesla eylemi için uygulamanın OS izni
+kurulumu doğrulamaz; bu gereksinimler önizlemede kullanıcı destekli
+kurulum açıklaması olarak gösterilir.
 
 **Geçişler:** Otomasyonu Oluştur → `setup`. Düzenle → `missing_info`
 (varsa) veya `understanding`'e.

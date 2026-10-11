@@ -53,13 +53,13 @@ describe("runValidationPipeline — negative tests (MASTER_SPEC §27)", () => {
     expect(result.issues.some((i) => i.code === "unknown_capability")).toBe(true);
   });
 
-  it("fails on permission denial (izin reddi)", () => {
+  it("external setup requirements remain visible when app runtime grants are empty", () => {
     const result = runValidationPipeline(TESLA_SCENARIO, {
       platform: "ios",
-      grantedPermissions: [], // user denied everything
+      grantedPermissions: [], // app runtime grants, not Shortcuts/Tesla
     });
-    expect(result.ok).toBe(false);
-    expect(result.issues.some((i) => i.code === "missing_permission")).toBe(true);
+    expect(result.ok).toBe(true);
+    expect(result.issues.some((i) => i.code === "setup_requirement_unverified")).toBe(true);
   });
 
   it("fails on wrong device/platform target (yanlış cihaz)", () => {

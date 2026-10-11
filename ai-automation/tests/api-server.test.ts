@@ -57,20 +57,18 @@ describe("POST /plan — gerçek HTTP sunucusu", () => {
     expect(body.validation.stage).toBe("complete");
   });
 
-  it("izin verilmemişse doğrulama zinciri bunu yakalar (ok: false, HTTP 422)", async () => {
+  it("Shortcuts/Tesla kurulumu app izni verilmeden de planı görünür bırakır", async () => {
     const res = await postPlan({
       text: "Arabadan inince Tesla Model Y'nin Sentry Mode'unu aç",
       grantedPermissions: [],
     });
-    // Phase 4C: iyi biçimli/semantik olarak eksiksiz ama zincirden
-    // geçemeyen bir plan artık 200 değil 422 döner (bkz. server.ts) —
-    // istemcinin bunu genel bir hatayla karıştırmadan ayırt edebilmesi
-    // için.
-    expect(res.status).toBe(422);
+    // Bunlar app runtime izinleri DEĞİL; Kestirmeler/Tesla kurulumu
+    // kullanıcıya ayrıca gösterilir. Planı 422 ile kaybetmeyiz.
+    expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.status).toBe("plan");
-    expect(body.validation.ok).toBe(false);
-    expect(body.validation.issues.some((i: { code: string }) => i.code === "missing_permission")).toBe(true);
+    expect(body.validation.ok).toBe(true);
+    expect(body.validation.issues.some((i: { code: string }) => i.code === "setup_requirement_unverified")).toBe(true);
   });
 
   it("araç belirtilmezse needs_clarification döner", async () => {

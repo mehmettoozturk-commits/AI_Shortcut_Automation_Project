@@ -47,9 +47,14 @@ final class BuilderMachineTests: XCTestCase {
     }
 
     func testCreateRechecksPermissionsAfterPreview() async throws {
-        let registry = try makeRegistry()
+        var capabilities = try makeRegistry().capabilities
+        guard let index = capabilities.firstIndex(where: { $0.id == "tesla.sentry_mode.toggle" }) else {
+            return XCTFail("Test capability bulunamadı")
+        }
+        capabilities[index].runtimePermissions = ["app_microphone"]
+        let registry = try CapabilityRegistry(capabilities: capabilities)
         let repo = InMemoryAutomationRepository()
-        let permissions = RevocablePermissionService(granted: ["bluetooth", "tesla_account"])
+        let permissions = RevocablePermissionService(granted: ["app_microphone"])
         let machine = BuilderMachine(
             registry: registry,
             planner: MockPlanner(registry: registry),
@@ -68,14 +73,48 @@ final class BuilderMachineTests: XCTestCase {
         }
         XCTAssertTrue(initialMissing.isEmpty)
 
-        await permissions.revoke("tesla_account")
+        await permissions.revoke("app_microphone")
         await machine.create()
         guard case .previewConfirm(_, let currentMissing, _) = machine.step else {
             return XCTFail("İzin kalkınca önizlemede kalmalı")
         }
-        XCTAssertEqual(currentMissing, ["tesla_account"])
+        XCTAssertEqual(currentMissing, ["app_microphone"])
         let saved = await repo.list()
         XCTAssertTrue(saved.isEmpty, "İzin yokken pending/installed kaydı üretilmemeli")
+    }
+
+    func testExternalSetupIsDisclosedWithoutFakingAppPermission() async throws {
+        let registry = try makeRegistry()
+        let repo = InMemoryAutomationRepository()
+        let permissions = NoAppRuntimePermissionService()
+        let machine = BuilderMachine(
+            registry: registry,
+            planner: MockPlanner(registry: registry),
+            permissions: permissions,
+            setup: TemplateBackedSetupService(registry: registry),
+            shortcutsHandoff: MockShortcutsHandoff(),
+            repository: repo,
+            device: DeviceContext(osVersion: 26, hasCarPlay: nil)
+        )
+        let granted = await permissions.grantedPermissions()
+        let microphoneGranted = await permissions.request("app_microphone")
+        XCTAssertTrue(granted.isEmpty)
+        XCTAssertFalse(microphoneGranted)
+        await machine.open()
+        machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
+        await machine.submit()
+        await machine.confirmUnderstanding()
+        guard case .previewConfirm(_, let appMissing, let disclosures) = machine.step else {
+            return XCTFail("previewConfirm bekleniyordu")
+        }
+        XCTAssertTrue(appMissing.isEmpty, "Tesla kurulumu app OS izni değildir")
+        XCTAssertTrue(disclosures.contains { $0.contains("Tesla uygulamasındaki hesap") })
+        await machine.create()
+        guard case .setup = machine.step else { return XCTFail("Kullanıcı destekli setup bekleniyordu") }
+        await machine.prepareHandoff()
+        guard case .setupFailed = machine.step else { return XCTFail("İmzasız Tesla şablonuyla installed olamaz") }
+        let saved = await repo.list()
+        XCTAssertEqual(saved.first?.installStatus, .pendingUser)
     }
 
     func testFullInstallFlow_setupToInstalled() async throws {

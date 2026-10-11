@@ -5,9 +5,11 @@
 // Phase 3C'de zaten yazılmış, test edilmiş implementasyonlar dependency
 // graph'a bağlandı (bkz. docs/phase5a-e2e-validation-plan.md "İş 0").
 //
-// Kalan tek mock: `MockPermissionService` — gerçek bir izin isteme UI'ı
-// henüz yok, bu Phase 5A'nın kasıtlı sınırı dışında (ayrı bir round'un
-// konusu, bkz. altta).
+// P0-1: uygulamanın kendi OS runtime izni, Kestirmeler/Tesla kurulum
+// gereksiniminden ayrıldı. Bu sürümde uygulama kendi başına Bluetooth,
+// bildirim veya konum API'si kullanmadığından OS izni talep etmez;
+// gelecekte böyle bir API eklenirse fail-closed servis gerçek adapter'la
+// değiştirilmeden çalışma izni vermeyecektir.
 
 import AutomationCore
 import AutomationUI
@@ -31,13 +33,7 @@ struct AutomationApp: App {
         let backendURLString = ProcessInfo.processInfo.environment["PLAN_BACKEND_URL"] ?? "http://localhost:3000/plan"
         let transport = URLSessionPlanTransport(url: URL(string: backendURLString)!)
 
-        // Phase 4D-1: gerçek bir izin isteme UI'ı henüz yok — Permission
-        // Validator'ın (backend, HTTP 422) önizlemeyi engellememesi için
-        // geniş bir izin kümesiyle başlıyoruz. Bu, kasıtlı bir GEÇİCİ
-        // yer tutucu; gerçek izin akışı sonraki bir round'un konusu.
-        let permissions = MockPermissionService(
-            granted: ["bluetooth", "tesla_account", "notifications", "location_always"]
-        )
+        let permissions = NoAppRuntimePermissionService()
         let planner = HTTPBackedPlanner(transport: transport, permissions: permissions)
         let repository = FileBackedAutomationRepository(directory: applicationSupportDirectory())
 
