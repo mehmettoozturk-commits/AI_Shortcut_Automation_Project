@@ -104,9 +104,12 @@ public final class BuilderMachine: ObservableObject {
         case .plan(let validDraft):
             draft = validDraft
         case .validationBlocked(let blockedDraft, let issues):
+            var seenExplanations = Set<String>()
+            let explanations = issues.map { safeValidationExplanation(for: $0) }
+                .filter { seenExplanations.insert($0).inserted }
             step = .validationBlocked(
                 draft: blockedDraft,
-                explanations: issues.map { safeValidationExplanation(for: $0) }
+                explanations: explanations
             )
             return
         case .notUnderstood:
@@ -437,16 +440,24 @@ public final class BuilderMachine: ObservableObject {
     }
 
     private func safeValidationExplanation(for issue: PlanValidationIssue) -> String {
-        if issue.code == "missing_permission" {
+        switch issue.code {
+        case "missing_permission":
             let action = issue.path.flatMap { registry.find($0)?.displayDescription }
             if let action {
                 return "\(trimTrailingDot(action)) için Kestirmeler veya ilgili uygulamadaki izin/kurulumu kontrol etmen gerekiyor."
             }
             return "Bu otomasyon için Kestirmeler veya ilgili uygulamadaki izin/kurulumu kontrol etmen gerekiyor."
+        case "unknown_capability", "wrong_capability_kind", "platform_mismatch":
+            return "Bu tetikleyici veya işlem için doğrulanmış bir iPhone kurulum yolu yok. Başka bir işlem seçerek yeniden deneyebilirsin."
+        case "missing_required_parameter", "invalid_parameter_value":
+            return "Bu işlem için gereken bilgi eksik veya geçersiz. İsteğine somut ayrıntı ekleyerek yeniden deneyebilirsin."
+        case "unconfirmed_risky_action":
+            return "Bu işlem açık kullanıcı onayı olmadan güvenle kurulamaz. Önceden onay isteyen bir adım ekleyerek isteğini değiştir."
+        default:
+            // Backend mesajları iç capability ID'leri veya teknik ayrıntılar
+            // içerebilir; doğrudan son kullanıcı arayüzüne taşınmaz.
+            return "Bu plan doğrulama kontrolünden geçmedi; değiştirip yeniden deneyebilirsin."
         }
-        // Backend mesajları iç capability ID'leri veya teknik ayrıntılar
-        // içerebilir; doğrudan son kullanıcı arayüzüne taşınmaz.
-        return "Bu plan doğrulama kontrolünden geçmedi; değiştirip yeniden deneyebilirsin."
     }
 
     private func disclosures(for draft: DraftAutomationPlan) -> [String] {

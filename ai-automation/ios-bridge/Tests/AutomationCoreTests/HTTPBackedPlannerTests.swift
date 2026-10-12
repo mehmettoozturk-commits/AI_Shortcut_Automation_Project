@@ -344,6 +344,57 @@ final class HTTPBackedPlannerTests: XCTestCase {
         XCTAssertTrue(saved.isEmpty, "422 sonrası create() kayıt açmamalı")
     }
 
+    func test422ExplainsDistinctCapabilityAndSafetyBlocksWithoutTechnicalIds() async throws {
+        let response = jsonData("""
+        {
+          "status": "plan",
+          "plan": {
+            "name": "Engellenen plan",
+            "trigger": { "type": "ios.battery.falls_below", "params": { "threshold": 20 } },
+            "steps": [ { "type": "ios.notification.unverified" } ],
+            "missing": [],
+            "answers": {}
+          },
+          "validation": { "stage": "capability", "ok": false, "issues": [
+            { "code": "unknown_capability", "path": "steps[0]", "message": "Internal ios.notification.unverified" },
+            { "code": "unconfirmed_risky_action", "path": "steps[0]", "message": "Internal ios.notification.unverified" },
+            { "code": "unknown_capability", "path": "steps[0]", "message": "Repeated internal issue" }
+          ] },
+          "conversation": {}
+        }
+        """)
+        let registry = try makeRegistry()
+        let permissions = MockPermissionService(granted: [], autoGrant: false)
+        let repo = InMemoryAutomationRepository()
+        let machine = BuilderMachine(
+            registry: registry,
+            planner: HTTPBackedPlanner(
+                transport: FakeTransport(responses: [PlanHTTPResult(statusCode: 422, body: response)]),
+                permissions: permissions
+            ),
+            permissions: permissions,
+            setup: MockSetupService(),
+            shortcutsHandoff: MockShortcutsHandoff(),
+            repository: repo,
+            device: DeviceContext(osVersion: 26, hasCarPlay: nil)
+        )
+
+        await machine.open()
+        machine.setText("P0 engel testi")
+        await machine.submit()
+        guard case .validationBlocked(let draft, let explanations) = machine.step else {
+            return XCTFail("422 taslakla birlikte bloke ekranına gitmeli")
+        }
+        XCTAssertEqual(draft.trigger.type, "ios.battery.falls_below")
+        XCTAssertEqual(explanations.count, 2, "Aynı açıklama ekranda tekrarlanmamalı")
+        XCTAssertTrue(explanations[0].contains("doğrulanmış bir iPhone kurulum yolu yok"))
+        XCTAssertTrue(explanations[1].contains("açık kullanıcı onayı"))
+        XCTAssertFalse(explanations.joined().contains("ios."))
+        await machine.create()
+        let saved = await repo.list()
+        XCTAssertTrue(saved.isEmpty)
+    }
+
     func testNetworkTimeout_mapsToPlannerUnreachable() async throws {
         let transport = FakeTransport(throwing: URLError(.timedOut))
         let planner = HTTPBackedPlanner(transport: transport, permissions: MockPermissionService(granted: ["bluetooth", "tesla_account"]))

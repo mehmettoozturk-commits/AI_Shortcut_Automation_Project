@@ -109,8 +109,9 @@ P0-1 remains open pending fresh regression and physical evidence.
   sandboxed test invocation could not bind a local socket (`EPERM`), so the
   complete suite was rerun with local-socket access and passed.
 - Fresh `swift build` and `swift test`: pass, **57 passed / 1 optional skipped**
-  across the package suites. Full iPhone 17 Simulator XCUITest: **7/7 pass**,
-  result bundle `/private/tmp/codex-p0-ui-20261012.xcresult`.
+  across the package suites at the initial checkpoint. Full iPhone 17
+  Simulator XCUITest: **7/7 pass**, result bundle
+  `/private/tmp/codex-p0-ui-20261012.xcresult`.
 - Current signed development app was installed on a paired iPhone 16 Pro.
   With a deterministic local backend, the user observed a battery →
   notification plan and a visible external setup warning on the real device.
@@ -120,6 +121,21 @@ P0-1 remains open pending fresh regression and physical evidence.
   `automations.json` before and after showed 6 → 7 records, `failed` 1 → 2,
   `installed` unchanged at 1, and all 6 preexisting record IDs/statuses
   preserved. After an app process restart, the user observed the failed
-  attempt still labeled “Başarısız” on Home. A successful import/link and
-  physical 422 draft/issues handling still require evidence. **P0-1 remains
-  OPEN.**
+  attempt still labeled “Başarısız” on Home.
+- A separate physical iPhone XCUITest exercised the real backend validator's
+  HTTP 422 response with a known battery trigger plus blocked capability and
+  safety issues. The first device-runner attempt timed out during CoreDevice
+  authentication before app tests began; after closing iPhone Mirroring and
+  keeping the device awake, the retry and final run each passed **1/1**.
+  Final result bundle: `/private/tmp/codex-p0-physical-422-final.xcresult`.
+  The blocked screen retained the known draft, showed distinct safe guidance
+  without technical capability IDs, and offered neither Create nor import.
+  Reading the app's `automations.json` before and after relaunch showed all
+  **7** records unchanged, so the blocked attempt created no false setup
+  record. The final Swift unit suite passed **58 tests / 1 optional skipped**.
+  The fresh full iPhone 17 Simulator UI regression passed **7/7** with zero
+  failures or skips (`/private/tmp/codex-p0-ui-20261012-final.xcresult`).
+- A later Home screenshot showed that the user had tapped the read-only
+  “Otomasyonlarım” rows; that did not enter a Shortcuts import flow. The
+  successful import/link path and its relaunch persistence still require
+  physical evidence. **P0-1 remains OPEN.**
