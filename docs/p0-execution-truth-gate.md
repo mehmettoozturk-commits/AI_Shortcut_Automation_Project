@@ -138,4 +138,26 @@ P0-1 remains open pending fresh regression and physical evidence.
 - A later Home screenshot showed that the user had tapped the read-only
   “Otomasyonlarım” rows; that did not enter a Shortcuts import flow. The
   successful import/link path and its relaunch persistence still require
-  physical evidence. **P0-1 remains OPEN.**
+  physical evidence.
+- In a new physical attempt, the user added the signed “Bildirimi Göster”
+  template; it appeared in Shortcuts' “Tüm Kestirmeler” library. The app's
+  two confirmation buttons were then tapped, and its new record changed
+  `pending_user` → `installed` in place (8 → 8 records; the other seven
+  records were unchanged). However, the iOS 27 Shortcuts “Otomasyon” view
+  still displayed **“Otomasyon Yok”**. Thus the app label “Kurulum
+  bildirildi” correctly describes only a user report; the actual trigger
+  was not linked. Running the imported shortcut also produced a Shortcuts-
+  owned privacy error: it cannot access “Notification” until configured
+  in the shortcut's privacy settings. No app-owned notification permission
+  prompt was observed. Neither the trigger nor notification action can be
+  counted as physically working yet.
+- Apple’s [iOS 27 Shortcuts guide](https://support.apple.com/en-om/guide/shortcuts/apdfbdbd7123/10.0/ios/27)
+  describes adding an automation from an existing shortcut via Edit →
+  Automation. The older generic guidance to use the empty Automation view's
+  plus button opened a blank new shortcut on this phone; it was exited
+  without saving. The battery-specific iOS 27 instructions were corrected
+  in Swift. Final Swift suite passed **59 tests / 1 optional skipped**;
+  a fresh full iPhone 17 Simulator UI regression passed **7/7** with zero
+  failures or skips (`/private/tmp/codex-p0-ui-20261012-ios27-guidance.xcresult`).
+  The corrected instructions have not yet been reinstalled and observed on
+  the physical iPhone. **P0-1 remains OPEN.**

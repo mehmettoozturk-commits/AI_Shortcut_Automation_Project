@@ -511,7 +511,14 @@ public final class BuilderMachine: ObservableObject {
     /// doğrulanmamış bir patern kullanılır — tek doğrulanmış örnek şu an
     /// `ios.bluetooth.disconnected` (Test 2).
     private func triggerLinkingSteps(_ draft: DraftAutomationPlan) -> [String] {
-        registry.find(draft.trigger.type)?.triggerLinkingSteps ?? [
+        if device.osVersion >= 27, draft.trigger.type == "ios.battery.falls_below" {
+            return [
+                "Kestirmeler'de eklediğin Bildirimi Göster kestirmesine uzun basıp Düzenle'yi aç.",
+                "Düzenle > Otomasyon > Pil Seviyesi yolundan plandaki yüzdeyi ve Altına Düşerse koşulunu seç.",
+                "Otomasyon listesinde kaydı gördükten sonra yalnız gerçekten bağladıysan Bağladım'a bas.",
+            ]
+        }
+        return registry.find(draft.trigger.type)?.triggerLinkingSteps ?? [
             "Kestirmeler uygulamasını aç, Otomasyon sekmesine geç",
             "Sağ üstten + ile yeni otomasyon oluştur, uygun tetikleyiciyi seç",
             "Eylem olarak az önce eklediğin kestirmeyi seç (yeniden kurmana gerek yok)",

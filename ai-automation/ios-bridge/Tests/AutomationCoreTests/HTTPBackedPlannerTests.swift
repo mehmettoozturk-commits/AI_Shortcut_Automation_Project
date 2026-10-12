@@ -80,6 +80,59 @@ final class HTTPBackedPlannerTests: XCTestCase {
         XCTAssertNil(lastError)
     }
 
+    func testBatteryLinkingInstructionsUseIOS27ShortcutAutomationFlow() async throws {
+        let response = jsonData("""
+        {
+          "status": "plan",
+          "plan": {
+            "name": "Bildirim gönderir",
+            "trigger": { "type": "ios.battery.falls_below", "params": { "level": 20, "condition": "below" } },
+            "steps": [ { "type": "ios.notification.show" } ],
+            "missing": [],
+            "answers": {}
+          },
+          "validation": { "stage": "complete", "ok": true, "issues": [] },
+          "conversation": {}
+        }
+        """)
+        let registry = try makeRegistry()
+
+        for osVersion in [26, 27] {
+            let permissions = MockPermissionService(granted: [], autoGrant: false)
+            let machine = BuilderMachine(
+                registry: registry,
+                planner: HTTPBackedPlanner(
+                    transport: FakeTransport(responses: [PlanHTTPResult(statusCode: 200, body: response)]),
+                    permissions: permissions
+                ),
+                permissions: permissions,
+                setup: MockSetupService(),
+                shortcutsHandoff: MockShortcutsHandoff(),
+                repository: InMemoryAutomationRepository(),
+                device: DeviceContext(osVersion: osVersion, hasCarPlay: nil)
+            )
+            await machine.open()
+            machine.setText("Pil yüzde 20'ye düşünce bana haber ver")
+            await machine.submit()
+            await machine.confirmUnderstanding()
+            await machine.create()
+            await machine.prepareHandoff()
+            await machine.handOffToShortcuts()
+            machine.confirmShortcutAdded()
+
+            guard case .linkingTrigger(_, _, let steps) = machine.step else {
+                return XCTFail("iOS \(osVersion): tetikleyici bağlama ekranı bekleniyordu")
+            }
+            if osVersion >= 27 {
+                XCTAssertTrue(steps.joined().contains("Düzenle > Otomasyon > Pil Seviyesi"))
+                XCTAssertTrue(steps.joined().contains("Altına Düşerse"))
+                XCTAssertFalse(steps.joined().contains("Sağ üstten +"))
+            } else {
+                XCTAssertTrue(steps.joined().contains("Sağ üstten +"))
+            }
+        }
+    }
+
     // MARK: - Test B — clarification (AM/PM belirsizliği)
     // Backend `needs_clarification` döndüğünde, `conversation.currentPlan`
     // (backend'in ZATEN çözdüğü tam taslak, `missing` dahil) `.plan(...)`
