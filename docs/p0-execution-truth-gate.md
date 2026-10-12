@@ -145,8 +145,11 @@ P0-1 remains open pending fresh regression and physical evidence.
   `pending_user` → `installed` in place (8 → 8 records; the other seven
   records were unchanged). However, the iOS 27 Shortcuts “Otomasyon” view
   still displayed **“Otomasyon Yok”**. Thus the app label “Kurulum
-  bildirildi” correctly describes only a user report; the actual trigger
-  was not linked. Running the imported shortcut also produced a Shortcuts-
+  bildirildi” correctly describes only a user report: `installed` means
+  **user-reported installed, not platform-verified**. This early-confirmation
+  attempt is retained as trust-boundary evidence; it cannot close the
+  successful end-to-end gate because the actual trigger was not linked before
+  the confirmation. Running the imported shortcut also produced a Shortcuts-
   owned privacy error: it cannot access “Notification” until configured
   in the shortcut's privacy settings. No app-owned notification permission
   prompt was observed. Neither the trigger nor notification action can be
@@ -159,5 +162,10 @@ P0-1 remains open pending fresh regression and physical evidence.
   in Swift. Final Swift suite passed **59 tests / 1 optional skipped**;
   a fresh full iPhone 17 Simulator UI regression passed **7/7** with zero
   failures or skips (`/private/tmp/codex-p0-ui-20261012-ios27-guidance.xcresult`).
-  The corrected instructions have not yet been reinstalled and observed on
-  the physical iPhone. **P0-1 remains OPEN.**
+  The corrected build was installed on the physical iPhone via `devicectl`.
+  In Shortcuts, the imported shortcut's Privacy screen showed Notification
+  access and Allow Running When Locked enabled; a manual run no longer showed
+  the earlier privacy error, though no notification delivery was independently
+  observed. The battery trigger is still unverified. A clean new attempt must
+  complete the Shortcuts trigger before the app's `Ekledim` / `Bağladım`
+  confirmations, then pass repository and relaunch checks. **P0-1 remains OPEN.**
