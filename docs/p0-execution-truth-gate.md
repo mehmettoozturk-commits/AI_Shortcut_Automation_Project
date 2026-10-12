@@ -66,18 +66,27 @@ proves the external Shortcuts/Tesla setup actually succeeded.
    conservatively offers Bluetooth until CarPlay support can be established.
 4. Gate setup on whole-plan/template fidelity and visible user-assisted
    prerequisites. Unsupported combinations must stay out of the import path.
-5. Verify full Swift and TS suites, XCUITest, then physical iPhone denied →
-   grant/Settings and a real Shortcuts handoff. No `installed` status for a
-   denied/unaddressed prerequisite or before the explicit user confirmation
-   chain; distinguish user-reported setup from machine-verified execution.
+5. Verify full Swift and TS suites and XCUITest. On a physical iPhone,
+   exercise a real battery → notification Shortcuts handoff in both success
+   and cancellation/failure paths. The app must not request its own
+   notification, Bluetooth or location permission for APIs it does not use;
+   any Shortcuts/system prompt is a user observation, not app verification.
+   Show external requirements before setup. The success path needs both
+   explicit import/link confirmations before the UI says “Kurulum bildirildi”.
+   A failed setup must not become installed. Relaunch after both paths to
+   check persistence. Separately, exercise a backend 422 carrying draft and
+   issues on-device: retain the draft and block Create, with no technical
+   capability ID visible. No actual execution claim follows from handoff.
 
 Already implemented in local commits: `fad82bf` rejects additional steps,
 parameters and confirmation branches for the one static template; `22228d9`
 rechecks the permission service immediately before creating a pending record.
 `6b8e9d0` preserves backend 422 draft/issues on a blocked review screen;
 `05b2e42` reads the actual OS major version and represents CarPlay support as
-unknown. The next local change removes the production mock and separates
-app-owned runtime permissions from external setup warnings. P0-1 remains open.
+unknown. `a4e6cc2` removed the production mock and separated app-owned
+runtime permissions from external setup warnings; `ca53656` renamed the
+serialized registry field and clarified user-reported installation in the UI.
+P0-1 remains open pending fresh regression and physical evidence.
 
 ## 2026-10-11 local regression after removing the production mock
 
@@ -93,3 +102,24 @@ app-owned runtime permissions from external setup warnings. P0-1 remains open.
   `/private/tmp/codex-p0-ui-20261011-2337.xcresult`.
 - No fresh physical-iPhone permission, import/link, or actual trigger run
   was performed in this checkpoint. A simulator pass is not release evidence.
+
+## 2026-10-12 regression and physical-device checkpoint (in progress)
+
+- Fresh `npm run build`: pass; TypeScript suite: **308/308 pass**. A first
+  sandboxed test invocation could not bind a local socket (`EPERM`), so the
+  complete suite was rerun with local-socket access and passed.
+- Fresh `swift build` and `swift test`: pass, **57 passed / 1 optional skipped**
+  across the package suites. Full iPhone 17 Simulator XCUITest: **7/7 pass**,
+  result bundle `/private/tmp/codex-p0-ui-20261012.xcresult`.
+- Current signed development app was installed on a paired iPhone 16 Pro.
+  With a deterministic local backend, the user observed a battery →
+  notification plan and a visible external setup warning on the real device.
+  This proves neither a Shortcuts import nor actual trigger execution.
+- On the cancellation path, the user opened Shortcuts, did **not** add the
+  template, returned and selected “Ekleyemedim”. Reading only the app's local
+  `automations.json` before and after showed 6 → 7 records, `failed` 1 → 2,
+  `installed` unchanged at 1, and all 6 preexisting record IDs/statuses
+  preserved. After an app process restart, the user observed the failed
+  attempt still labeled “Başarısız” on Home. A successful import/link and
+  physical 422 draft/issues handling still require evidence. **P0-1 remains
+  OPEN.**

@@ -79,9 +79,11 @@ intentional unsupported/guided-manual case, not a missing signed template.
    still needs evidence-based definition; none may be advertised from the
    registry alone.
    **Account model chosen:** start without an account, then allow an optional
-   account link. The sign-in provider(s), guest-to-account ownership/migration,
-   and deletion/export behavior are still open decisions; no cloud identity
-   implementation or migration is implied by this choice.
+   account link. Mehmet selected **Sign in with Apple only** as the initial
+   account provider on 2026-10-12. Guest-to-account ownership/migration and
+   deletion/export behavior remain open decisions; no cloud identity
+   implementation or migration is implied by this choice. P0-2 account work
+   remains gated on P0-1 closure.
 2. Before any release candidate, remove mock permission grants and hardcoded
    device assumptions; provide a real backend configuration; implement or
    explicitly scope out test/log, detail/edit/disable/delete, and verify that
