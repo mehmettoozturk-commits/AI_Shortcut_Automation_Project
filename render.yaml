@@ -1,0 +1,23 @@
+services:
+  - type: web
+    name: ai-shortcut-plan-api
+    runtime: node
+    rootDir: ai-automation
+    buildCommand: npm ci && npm run build
+    startCommand: node dist/api/serve.js
+    healthCheckPath: /health
+    autoDeploy: false
+    plan: starter
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: LLM_PROVIDER
+        value: nvidia
+      - key: NVIDIA_API_KEY
+        sync: false
+      - key: AUTH_DATA_FILE
+        value: /var/data/auth.json
+    disk:
+      name: ai-shortcut-auth-data
+      mountPath: /var/data
+      sizeGB: 1

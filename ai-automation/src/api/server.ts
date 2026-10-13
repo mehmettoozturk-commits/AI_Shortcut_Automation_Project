@@ -16,12 +16,15 @@
  */
 
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { createServer as createHttpsServer } from "node:https";
+import { TLSSocket } from "node:tls";
 import { NluPipeline } from "../nlu/pipeline.js";
 import { emptyContext, type ConversationContext } from "../nlu/types.js";
 import { runValidationPipeline } from "../validators/pipeline.js";
 import type { AutomationPlan } from "../dsl/schema.js";
 import type { DraftAutomationPlan } from "../builder/types.js";
 import { PlanRequestSchema, PlanResponseSchema, type PlanResponse } from "./contract.js";
+import { AuthService } from "./auth/service.js";
 
 /** `DraftAutomationPlan` (eksik alanlar içerebilir) -> `AutomationPlan`
  * (validator zincirinin beklediği, doğrulanmamış ama TAM şekil). */
@@ -48,6 +51,7 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
   res.writeHead(status, {
     "Content-Type": "application/json; charset=utf-8",
     "Content-Length": Buffer.byteLength(json),
+    "Cache-Control": "no-store",
   });
   res.end(json);
 }
@@ -179,9 +183,72 @@ export async function handlePlanRequest(
   sendJson(res, status, validatedResponse.data);
 }
 
-export function createPlanServer(options: { pipeline?: NluPipeline } = {}) {
+function bearerToken(req: IncomingMessage): string | null {
+  const header = req.headers.authorization;
+  const match = typeof header === "string" ? /^Bearer ([A-Za-z0-9_-]{20,256})$/.exec(header) : null;
+  return match?.[1] ?? null;
+}
+
+function authTransportAllowed(req: IncomingMessage): boolean {
+  if (req.socket instanceof TLSSocket && req.socket.encrypted) return true;
+  const remote = req.socket.remoteAddress;
+  return remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+}
+
+async function readAuthBody(req: IncomingMessage): Promise<Record<string, unknown> | null> {
+  let total = 0;
+  const chunks: Buffer[] = [];
+  for await (const chunk of req as AsyncIterable<Buffer>) {
+    total += chunk.length;
+    if (total > 20_000) return null;
+    chunks.push(chunk);
+  }
+  try {
+    const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch { return null; }
+}
+
+export function createPlanServer(options: {
+  pipeline?: NluPipeline;
+  auth?: AuthService;
+  tls?: { key: string | Buffer; cert: string | Buffer };
+} = {}) {
   const pipeline = options.pipeline ?? defaultPipeline;
-  return createServer((req, res) => {
+  const handler = (req: IncomingMessage, res: ServerResponse) => {
+    if (req.method === "GET" && req.url === "/health") {
+      sendJson(res, 200, { status: "ok" });
+      return;
+    }
+    if (req.url?.startsWith("/auth/") && !authTransportAllowed(req)) {
+      sendJson(res, 403, { error: "Güvenli bağlantı gerekli." });
+      return;
+    }
+    if (options.auth && req.method === "POST" && req.url === "/auth/apple/challenge") {
+      sendJson(res, 200, options.auth.challenge());
+      return;
+    }
+    if (options.auth && req.method === "POST" && req.url === "/auth/apple") {
+      readAuthBody(req).then(async (body) => {
+        if (!body || typeof body.identityToken !== "string" || typeof body.challengeId !== "string" || typeof body.nonce !== "string") {
+          sendJson(res, 400, { error: "Geçersiz istek." });
+          return;
+        }
+        const result = await options.auth!.signIn(body.identityToken, body.challengeId, body.nonce);
+        sendJson(res, result ? 200 : 401, result ?? { error: "Kimlik doğrulanamadı." });
+      }).catch(() => sendJson(res, 401, { error: "Kimlik doğrulanamadı." }));
+      return;
+    }
+    if (options.auth && req.method === "GET" && req.url === "/auth/session") {
+      const result = options.auth.session(bearerToken(req) ?? "");
+      sendJson(res, result ? 200 : 401, result ?? { error: "Oturum geçersiz." });
+      return;
+    }
+    if (options.auth && req.method === "DELETE" && req.url === "/auth/session") {
+      const revoked = options.auth.logout(bearerToken(req) ?? "");
+      sendJson(res, revoked ? 200 : 401, revoked ? { status: "signed_out" } : { error: "Oturum geçersiz." });
+      return;
+    }
     if (req.method === "POST" && req.url === "/plan") {
       handlePlanRequest(req, res, pipeline).catch(() => {
         sendJson(res, 500, { error: "Beklenmeyen sunucu hatası." });
@@ -189,5 +256,6 @@ export function createPlanServer(options: { pipeline?: NluPipeline } = {}) {
       return;
     }
     sendJson(res, 404, { error: "Bulunamadı." });
-  });
+  };
+  return options.tls ? createHttpsServer(options.tls, handler) : createServer(handler);
 }
