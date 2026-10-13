@@ -1,0 +1,77 @@
+import { randomUUID } from "node:crypto";
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { dirname } from "node:path";
+import type { AuthRepository, AuthSession, AuthUser } from "./types.js";
+
+interface Challenge { id: string; nonceHash: string; expiresAt: string; usedAt?: string }
+interface AuthData { users: AuthUser[]; sessions: AuthSession[]; challenges: Challenge[] }
+
+/** Synchronous transactions keep challenge consumption atomic on this single Node process. */
+export class InMemoryAuthRepository implements AuthRepository {
+  protected data: AuthData = { users: [], sessions: [], challenges: [] };
+
+  createChallenge(id: string, nonceHash: string, expiresAt: string): void {
+    const now = new Date().toISOString();
+    this.data.challenges = this.data.challenges.filter((item) => item.expiresAt > now && !item.usedAt);
+    this.data.challenges.push({ id, nonceHash, expiresAt });
+    this.persist();
+  }
+
+  consumeChallenge(id: string, nonceHash: string, now: string): boolean {
+    const challenge = this.data.challenges.find((item) => item.id === id);
+    if (!challenge || challenge.usedAt || challenge.expiresAt <= now || challenge.nonceHash !== nonceHash) return false;
+    challenge.usedAt = now;
+    this.persist();
+    return true;
+  }
+
+  getOrCreateUser(appleSubject: string, now: string): AuthUser {
+    const existing = this.data.users.find((user) => user.appleSubject === appleSubject);
+    if (existing) return existing;
+    const user = { id: randomUUID(), appleSubject, createdAt: now };
+    this.data.users.push(user);
+    this.persist();
+    return user;
+  }
+
+  createSession(session: AuthSession): void {
+    this.data.sessions.push(session);
+    this.persist();
+  }
+
+  findSession(tokenHash: string, now: string): AuthSession | null {
+    return this.data.sessions.find((session) => session.tokenHash === tokenHash && !session.revokedAt && session.expiresAt > now) ?? null;
+  }
+
+  revokeSession(tokenHash: string, now: string): boolean {
+    const session = this.findSession(tokenHash, now);
+    if (!session) return false;
+    session.revokedAt = now;
+    this.persist();
+    return true;
+  }
+
+  protected persist(): void {}
+}
+
+/** Development/P0 single-process persistence, not a production multi-instance database. */
+export class FileBackedAuthRepository extends InMemoryAuthRepository {
+  constructor(private readonly filePath: string) {
+    super();
+    try {
+      const parsed = JSON.parse(readFileSync(filePath, "utf8")) as AuthData;
+      if (Array.isArray(parsed.users) && Array.isArray(parsed.sessions) && Array.isArray(parsed.challenges)) {
+        this.data = parsed;
+      }
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+
+  protected override persist(): void {
+    mkdirSync(dirname(this.filePath), { recursive: true, mode: 0o700 });
+    const temporary = `${this.filePath}.${randomUUID()}.tmp`;
+    writeFileSync(temporary, JSON.stringify(this.data), { mode: 0o600, flag: "wx" });
+    renameSync(temporary, this.filePath);
+  }
+}

@@ -6,6 +6,10 @@ import { ClaudeIntentProvider } from "../nlu/providers/claude-provider.js";
 import { GeminiIntentProvider } from "../nlu/providers/gemini-provider.js";
 import { createGroqProvider } from "../nlu/providers/groq-provider.js";
 import { createNvidiaProvider } from "../nlu/providers/nvidia-provider.js";
+import { AuthService } from "./auth/service.js";
+import { AppleJWKSVerifier } from "./auth/apple-verifier.js";
+import { FileBackedAuthRepository } from "./auth/repository.js";
+import { readFileSync } from "node:fs";
 
 /**
  * Phase 4D-2 — Anthropic'e ek olarak ücretsiz katmanlı sağlayıcılar
@@ -71,6 +75,16 @@ if (!providerAvailable) {
 }
 
 const port = Number(process.env.PORT ?? 3000);
-createPlanServer({ pipeline }).listen(port, () => {
-  console.log(`POST /plan dinleniyor: http://localhost:${port}/plan`);
+const authFile = process.env.AUTH_DATA_FILE ?? "./.local-auth/auth.json";
+const auth = new AuthService(new FileBackedAuthRepository(authFile), new AppleJWKSVerifier());
+const certFile = process.env.TLS_CERT_FILE;
+const keyFile = process.env.TLS_KEY_FILE;
+if (Boolean(certFile) !== Boolean(keyFile)) {
+  throw new Error("TLS_CERT_FILE ve TLS_KEY_FILE birlikte tanımlanmalı.");
+}
+const tls = certFile && keyFile
+  ? { cert: readFileSync(certFile), key: readFileSync(keyFile) }
+  : undefined;
+createPlanServer({ pipeline, auth, tls }).listen(port, () => {
+  console.log(`POST /plan dinleniyor: ${tls ? "https" : "http"}://localhost:${port}/plan`);
 });
