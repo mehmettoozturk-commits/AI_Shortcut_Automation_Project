@@ -1,18 +1,43 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { z } from "zod";
 import type { AuthChallengePurpose, AuthRepository, AuthSession, AuthUser, CreateAccountResult, DeletionCheckpoint, LoginGuard, DeletionReceipt, RevocationStatus } from "./types.js";
 import { LoginGuards } from "./login-guards.js";
 
 interface Challenge { id: string; nonceHash: string; expiresAt: string; usedAt?: string; purpose?: AuthChallengePurpose; ticketHash?: string; accountId?: string }
 interface AuthData { users: AuthUser[]; sessions: AuthSession[]; challenges: Challenge[]; deletionReceipts?: DeletionReceipt[] }
 
+// Validate existing storage without migration, defaulting missing fields,
+// stripping extensions, or rewriting bytes. Short legacy token hashes remain
+// valid strings: this is a storage shape check, not a credential migration.
+const storedString = z.string().min(1);
+const storedPurpose = z.enum(["login", "account_creation", "account_deletion"]);
+const authDataSchema = z.object({
+  users: z.array(z.object({ id: storedString, appleSubject: storedString, createdAt: storedString }).passthrough()),
+  sessions: z.array(z.object({
+    id: storedString, userId: storedString, tokenHash: storedString,
+    createdAt: storedString, expiresAt: storedString, revokedAt: storedString.optional(),
+  }).passthrough()),
+  challenges: z.array(z.object({
+    id: storedString, nonceHash: storedString, expiresAt: storedString,
+    usedAt: storedString.optional(), purpose: storedPurpose.optional(),
+    ticketHash: storedString.optional(), accountId: storedString.optional(),
+  }).passthrough()),
+  deletionReceipts: z.array(z.object({
+    deletionId: storedString, requestIdHash: storedString, subjectHash: storedString,
+    accountGeneration: storedString, localDeletion: z.literal("committed"),
+    revocationStatus: z.enum(["not_configured", "pending", "succeeded", "failed_retryable", "failed_permanent"]),
+    createdAt: storedString, expiresAt: storedString,
+  }).passthrough()).optional(),
+}).passthrough();
+
 export class AuthUserNotFoundError extends Error {
   constructor() { super("Session user does not exist."); this.name = "AuthUserNotFoundError"; }
 }
 
 export class AuthDataIntegrityError extends Error {
-  constructor() { super("Auth account identity is not unique."); this.name = "AuthDataIntegrityError"; }
+  constructor() { super("Auth storage integrity validation failed."); this.name = "AuthDataIntegrityError"; }
 }
 
 /** Only emitted by the file adapter before its successful rename commit boundary. */
@@ -140,12 +165,12 @@ export class FileBackedAuthRepository extends InMemoryAuthRepository {
   constructor(private readonly filePath: string) {
     super();
     try {
-      const parsed = JSON.parse(readFileSync(filePath, "utf8")) as AuthData;
-      if (Array.isArray(parsed.users) && Array.isArray(parsed.sessions) && Array.isArray(parsed.challenges)) {
-        const subjects = parsed.users.map(user => user.appleSubject);
-        if (new Set(subjects).size !== subjects.length) throw new AuthDataIntegrityError();
-        this.data = parsed;
-      }
+      const parsed: unknown = JSON.parse(readFileSync(filePath, "utf8"));
+      if (!authDataSchema.safeParse(parsed).success) throw new AuthDataIntegrityError();
+      const validated = parsed as AuthData;
+      const subjects = validated.users.map(user => user.appleSubject);
+      if (new Set(subjects).size !== subjects.length) throw new AuthDataIntegrityError();
+      this.data = validated;
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
