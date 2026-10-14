@@ -12,10 +12,14 @@
 
 import AutomationCore
 import SwiftUI
+#if os(iOS)
+import AuthenticationServices
+#endif
 
 struct HomeView: View {
     @ObservedObject var viewModel: BuilderViewModel
     @State private var text: String = ""
+    @State private var showingAccount = false
 
     private static let chips: [(label: String, hint: String)] = [
         ("🚗 Arabam", "Arabadan inince "),
@@ -26,6 +30,11 @@ struct HomeView: View {
 
     var body: some View {
         VStack(spacing: 24) {
+            HStack {
+                Spacer()
+                Button("Hesap") { showingAccount = true }
+                    .accessibilityIdentifier("accountButton")
+            }
             Text("Bugün neyi\notomatikleştirelim?")
                 .font(.title)
                 .multilineTextAlignment(.center)
@@ -63,6 +72,79 @@ struct HomeView: View {
         }
         .padding()
         .task { await viewModel.refreshAutomations() }
+        .sheet(isPresented: $showingAccount) { accountSheet }
+    }
+
+    private var accountSheet: some View {
+        NavigationStack {
+            VStack(alignment: .leading, spacing: 16) {
+                switch viewModel.accountState {
+                case .guest:
+                    if viewModel.accountCreationPending {
+                        Text("Yeni Hesap Oluştur").font(.headline)
+                        Text("Bu Apple hesabıyla ilişkili bir AI Kestirme hesabı bulunamadı. Devam etmek için yeni bir hesap oluşturabilirsin.")
+                        Button("Yeni Hesap Oluştur") { Task { await viewModel.confirmAccountCreation() } }
+                            .disabled(viewModel.accountBusy)
+                            .accessibilityIdentifier("confirmAccountCreation")
+                        Button("Vazgeç") { Task { await viewModel.cancelAccountCreation() } }
+                            .disabled(viewModel.accountBusy)
+                            .accessibilityIdentifier("cancelAccountCreation")
+                    } else {
+                    Text("Hesapsız kullanıyorsun")
+                        .font(.headline)
+                    Text(viewModel.accountLinkAvailable
+                         ? "Otomasyonların bu iPhone'da kalır. İstersen Apple hesabını bağlayabilirsin."
+                         : "Otomasyonların bu iPhone'da kalır. Apple ile hesap bağlama için güvenli sunucu bağlantısı henüz ayarlanmadı.")
+                    #if os(iOS)
+                    if viewModel.accountLinkAvailable {
+                        AppleAccountButton {
+                            Task { await viewModel.linkAccount() }
+                        }
+                        .frame(height: 50)
+                        .disabled(viewModel.accountBusy)
+                        .accessibilityIdentifier("appleSignInButton")
+                    }
+                    #endif
+                    }
+                case .linked:
+                    Text("Apple hesabı bağlı")
+                        .font(.headline)
+                    Text("Bu bağlantı otomasyonlarını buluta taşımaz.")
+                    Button("Hesap bağlantısını kaldır") {
+                        Task { await viewModel.unlinkAccount() }
+                    }
+                case .expired:
+                    Text("Hesap bağlantısı doğrulanamadı")
+                        .font(.headline)
+                    Text("Otomasyonların bu iPhone'da kalır ve hesapsız kullanmaya devam edebilirsin.")
+                    Button("Hesap bağlantısını kaldır") {
+                        Task { await viewModel.unlinkAccount() }
+                    }
+                case .validationUnavailable:
+                    Text("Hesap şu an doğrulanamıyor")
+                        .font(.headline)
+                    Text("Bağlantın veya sunucu geçici olarak kullanılamıyor. Otomasyonların bu iPhone'da kalır; hesabın kapatılmış sayılmaz.")
+                    Button("Yeniden dene") { Task { await viewModel.restoreAccount() } }
+                case .migrationRequired:
+                    Text("Apple hesabı aktarım gerektiriyor")
+                        .font(.headline)
+                    Text("Bu hesap geçişini henüz desteklemiyoruz. Otomasyonların bu iPhone'da kalır.")
+                }
+                if let message = viewModel.accountMessage {
+                    Text(message)
+                        .foregroundStyle(.red)
+                        .accessibilityIdentifier("accountMessage")
+                }
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("Hesap")
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Bitti") { showingAccount = false }
+                }
+            }
+        }
     }
 
     private var automationsList: some View {
@@ -98,3 +180,27 @@ struct HomeView: View {
         Task { await viewModel.submit() }
     }
 }
+
+#if os(iOS)
+private struct AppleAccountButton: UIViewRepresentable {
+    let action: () -> Void
+
+    func makeUIView(context: Context) -> ASAuthorizationAppleIDButton {
+        let button = ASAuthorizationAppleIDButton(type: .signIn, style: .black)
+        button.addTarget(context.coordinator, action: #selector(Coordinator.tap), for: .touchUpInside)
+        return button
+    }
+
+    func updateUIView(_ uiView: ASAuthorizationAppleIDButton, context: Context) {
+        context.coordinator.action = action
+    }
+
+    func makeCoordinator() -> Coordinator { Coordinator(action: action) }
+
+    final class Coordinator: NSObject {
+        var action: () -> Void
+        init(action: @escaping () -> Void) { self.action = action }
+        @objc func tap() { action() }
+    }
+}
+#endif

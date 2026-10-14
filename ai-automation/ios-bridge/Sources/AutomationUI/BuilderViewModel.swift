@@ -19,15 +19,25 @@ public final class BuilderViewModel: ObservableObject {
     /// `installed` kaydı listede görünüp görünmediği testi bir şey
     /// KANITLAMAZ (bkz. docs/phase5a-e2e-validation-plan.md Test 3).
     @Published public private(set) var automations: [Automation] = []
+    @Published public private(set) var accountState: AccountState = .guest
+    @Published public private(set) var accountMessage: String?
+    @Published public private(set) var accountBusy = false
+    @Published public private(set) var accountCreationPending = false
+    public let accountLinkAvailable: Bool
+    private let accountService: AccountService?
+    private let activityStore: AutomationActivityStore?
     private let machine: BuilderMachine
     private let registry: CapabilityRegistry
     private let repository: AutomationRepository
     private var cancellable: AnyCancellable?
 
-    public init(machine: BuilderMachine, registry: CapabilityRegistry, repository: AutomationRepository) {
+    public init(machine: BuilderMachine, registry: CapabilityRegistry, repository: AutomationRepository, accountService: AccountService? = nil, accountLinkAvailable: Bool = false, activityStore: AutomationActivityStore? = nil) {
         self.machine = machine
         self.registry = registry
         self.repository = repository
+        self.accountService = accountService
+        self.accountLinkAvailable = accountLinkAvailable
+        self.activityStore = activityStore
         self.step = machine.step
         self.cancellable = machine.$step.sink { [weak self] newStep in
             self?.step = newStep
@@ -71,6 +81,58 @@ public final class BuilderViewModel: ObservableObject {
     }
 
     // MARK: - Semantik → insan dili (capability id ASLA dışarı sızmaz)
+    public func restoreAccount() async {
+        accountState = await accountService?.restore() ?? .guest
+    }
+
+    public func unlinkAccount() async {
+        accountBusy = true
+        defer { accountBusy = false }
+        accountState = await accountService?.unlink() ?? .guest
+        if case .guest = accountState {
+            accountMessage = nil
+        } else {
+            accountMessage = "Çıkış doğrulanamadı. Bağlantını kontrol edip tekrar dene."
+        }
+    }
+
+    public func linkAccount() async {
+        guard accountLinkAvailable, let accountService, !accountBusy else { return }
+        accountBusy = true
+        accountCreationPending = false
+        defer { accountBusy = false }
+        let result = await accountService.linkWithResult()
+        accountState = await accountService.state()
+        switch result {
+        case .creationRequired: accountCreationPending = true; accountMessage = nil
+        case .failedWithMessage(let message): accountMessage = message
+        case .linked, .cancelled: accountMessage = nil
+        case .failed: accountMessage = "Apple hesabı bağlanamadı. Güvenli bağlantıyı kontrol edip tekrar dene."
+        }
+    }
+
+    public func cancelAccountCreation() async {
+        guard !accountBusy else { return }
+        await accountService?.cancelAccountCreation()
+        accountCreationPending = false
+        accountMessage = nil
+    }
+
+    public func confirmAccountCreation() async {
+        guard let accountService, accountCreationPending, !accountBusy else { return }
+        accountBusy = true
+        defer { accountBusy = false }
+        accountCreationPending = false
+        let result = await accountService.createAccountWithResult()
+        accountState = await accountService.state()
+        switch result {
+        case .linked, .cancelled: accountMessage = nil
+        case .creationRequired: accountCreationPending = true
+        case .failedWithMessage(let message): accountMessage = message
+        case .failed: accountMessage = "İşlem sonucu doğrulanamadı. Lütfen yeniden giriş yap."
+        }
+    }
+
 
     /// "🚗 Arabadan uzaklaşınca" gibi bir tetikleyici özeti. Phase 4E-2:
     /// `cap.description` (mekanizma odaklı, resmi dil) DEĞİL,

@@ -5,6 +5,9 @@
 
 import AutomationCore
 import SwiftUI
+#if os(iOS)
+import AuthenticationServices
+#endif
 
 public struct AutomationRootView: View {
     @StateObject private var viewModel: BuilderViewModel
@@ -15,6 +18,12 @@ public struct AutomationRootView: View {
 
     public var body: some View {
         content
+            .task { await viewModel.restoreAccount() }
+            #if os(iOS)
+            .onReceive(NotificationCenter.default.publisher(for: ASAuthorizationAppleIDProvider.credentialRevokedNotification)) { _ in
+                Task { await viewModel.restoreAccount() }
+            }
+            #endif
             .task(id: isIdle) {
                 if isIdle { await viewModel.start() }
             }

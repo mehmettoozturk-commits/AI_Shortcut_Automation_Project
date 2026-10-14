@@ -58,11 +58,13 @@ public struct Automation: Codable, Sendable, Identifiable {
     public var updatedAt: Date
     public var requiresGuidedSetup: Bool
     public var installStatus: InstallStatus
+    public var sourceAutomationId: String?
 
     public init(
         id: String, userId: String, name: String, platform: Platform, status: AutomationStatus,
         trigger: TriggerDTO, workflow: [WorkflowStepDTO], version: Int,
-        createdAt: Date, updatedAt: Date, requiresGuidedSetup: Bool, installStatus: InstallStatus
+        createdAt: Date, updatedAt: Date, requiresGuidedSetup: Bool, installStatus: InstallStatus,
+        sourceAutomationId: String? = nil
     ) {
         self.id = id
         self.userId = userId
@@ -76,6 +78,7 @@ public struct Automation: Codable, Sendable, Identifiable {
         self.updatedAt = updatedAt
         self.requiresGuidedSetup = requiresGuidedSetup
         self.installStatus = installStatus
+        self.sourceAutomationId = sourceAutomationId
     }
 }
 

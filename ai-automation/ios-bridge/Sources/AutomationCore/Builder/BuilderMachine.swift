@@ -26,6 +26,7 @@ public final class BuilderMachine: ObservableObject {
     private let setup: SetupService
     private let shortcutsHandoff: ShortcutsHandoff
     private let repository: AutomationRepository
+    private let activityStore: AutomationActivityStore?
     private let platform: Platform
     private let device: DeviceContext
     private let now: () -> Date
@@ -49,6 +50,7 @@ public final class BuilderMachine: ObservableObject {
         setup: SetupService,
         shortcutsHandoff: ShortcutsHandoff,
         repository: AutomationRepository,
+        activityStore: AutomationActivityStore? = nil,
         platform: Platform = .ios,
         device: DeviceContext,
         now: @escaping () -> Date = Date.init,
@@ -60,6 +62,7 @@ public final class BuilderMachine: ObservableObject {
         self.setup = setup
         self.shortcutsHandoff = shortcutsHandoff
         self.repository = repository
+        self.activityStore = activityStore
         self.platform = platform
         self.device = device
         self.now = now
@@ -247,6 +250,9 @@ public final class BuilderMachine: ObservableObject {
         currentAutomationId = id
         let pending = buildAutomation(draft, setup: setupKind, installStatus: .pendingUser, id: id)
         await repository.save(pending)
+        if await repository.list().contains(where: { $0.id == id }) {
+            await recordActivity(.automationCreated, source: .appObserved, for: pending, eventId: "created-\(id)")
+        }
         step = .setup(draft: draft, setup: setupKind)
     }
 
@@ -289,6 +295,10 @@ public final class BuilderMachine: ObservableObject {
             step = .setupFailed(draft: draft, setup: setupKind, reason: "Kestirmeler uygulaması açılamadı.")
             return
         }
+        if let id = currentAutomationId,
+           let automation = await repository.list().first(where: { $0.id == id }) {
+            await recordActivity(.setupHandoffOpened, source: .appObserved, for: automation)
+        }
         step = .waitingForUser(draft: draft, setup: setupKind)
     }
 
@@ -311,6 +321,7 @@ public final class BuilderMachine: ObservableObject {
         let id = currentAutomationId ?? idGenerator()
         let automation = buildAutomation(draft, setup: setupKind, installStatus: .installed, id: id)
         await repository.save(automation)
+        await recordActivity(.setupUserConfirmed, source: .userReported, for: automation, eventId: "confirmed-\(id)")
         step = .installed(automation: automation)
     }
 
@@ -322,6 +333,7 @@ public final class BuilderMachine: ObservableObject {
         let id = currentAutomationId ?? idGenerator()
         let automation = buildAutomation(draft, setup: setupKind, installStatus: .installed, id: id)
         await repository.save(automation)
+        await recordActivity(.setupUserConfirmed, source: .userReported, for: automation, eventId: "confirmed-\(id)")
         step = .installed(automation: automation)
     }
 
@@ -546,6 +558,18 @@ public final class BuilderMachine: ObservableObject {
             requiresGuidedSetup: isGuidedManual(setup),
             installStatus: installStatus
         )
+    }
+
+    private func recordActivity(
+        _ type: ActivityEventType, source: ActivitySource, for automation: Automation,
+        eventId: String = UUID().uuidString
+    ) async {
+        guard let activityStore else { return }
+        let event = AutomationActivity(
+            eventId: eventId, automationId: automation.sourceAutomationId ?? automation.id,
+            revisionId: automation.id, eventType: type, source: source, timestamp: now()
+        )
+        _ = await activityStore.append(event)
     }
 }
 
