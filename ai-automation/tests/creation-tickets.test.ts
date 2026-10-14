@@ -1,0 +1,24 @@
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { CreationTicketStore } from "../src/api/auth/creation-tickets.js";
+afterEach(() => vi.restoreAllMocks());
+function setup() { let time = 0; const store = new CreationTicketStore(() => time); const ticket = store.issue("synthetic-a"); return { store, ticket, advance: (ms: number) => { time += ms; } }; }
+describe("Creation ticket state transitions", () => {
+  it("D01 issues unique 32 byte opaque tokens", () => { const x = setup(); expect(Buffer.from(x.ticket.token, "base64url")).toHaveLength(32); expect(x.store.issue("synthetic-a").token).not.toBe(x.ticket.token); });
+  it("D02 retains only hash and subject digest", () => { const x = setup(); const state = x.store as unknown as { tickets: Map<string, unknown> }; const stored = JSON.stringify([...state.tickets]); expect(stored).not.toContain(x.ticket.token); expect(stored).not.toContain("synthetic-a"); });
+  it("D03 reserves a valid ticket", () => { const x = setup(); expect(() => x.store.reserve(x.ticket.token, "synthetic-a", "op")).not.toThrow(); });
+  it("D04 rejects repeat reservation", () => { const x = setup(); x.store.reserve(x.ticket.token, "synthetic-a", "op"); expect(() => x.store.reserve(x.ticket.token, "synthetic-a", "op")).toThrow(); });
+  it("D05 rejects wrong operation ID", () => { const x = setup(); x.store.reserve(x.ticket.token, "synthetic-a", "op"); expect(() => x.store.consume(x.ticket.token, "wrong")).toThrow(); expect(() => x.store.releaseConfirmedFailure(x.ticket.token, "wrong")).toThrow(); });
+  it("D06 rejects wrong verified subject", () => { const x = setup(); expect(() => x.store.reserve(x.ticket.token, "b", "op")).toThrow(); expect(() => x.store.reserve(x.ticket.token, "synthetic-a", "op")).not.toThrow(); });
+  it("D07 rejects expired ticket at TTL boundary", () => { const x = setup(); x.advance(300_000); expect(() => x.store.reserve(x.ticket.token, "synthetic-a", "op")).toThrow(); });
+  it("D08 caps live records at 1024", () => { const x = setup(); for (let n = 1; n < 1024; n++) x.store.issue("a"); expect(() => x.store.issue("a")).toThrow(); });
+  it("D09 consumes once", () => { const x = setup(); x.store.reserve(x.ticket.token, "synthetic-a", "op"); x.store.consume(x.ticket.token, "op"); expect(() => x.store.consume(x.ticket.token, "op")).toThrow(); });
+  it("D10 rejects reservation after consumption", () => { const x = setup(); x.store.reserve(x.ticket.token, "synthetic-a", "op"); x.store.consume(x.ticket.token, "op"); expect(() => x.store.reserve(x.ticket.token, "synthetic-a", "new")).toThrow(); });
+  it("D11 confirmed failure releases for new operation", () => { const x = setup(); x.store.reserve(x.ticket.token, "synthetic-a", "op"); x.store.releaseConfirmedFailure(x.ticket.token, "op"); expect(() => x.store.reserve(x.ticket.token, "synthetic-a", "new")).not.toThrow(); });
+  it("D12 ambiguous commit cannot release or consume", () => { const x = setup(); x.store.reserve(x.ticket.token, "synthetic-a", "op"); x.store.requireRecovery(x.ticket.token, "op"); expect(() => x.store.releaseConfirmedFailure(x.ticket.token, "op")).toThrow(); expect(() => x.store.consume(x.ticket.token, "op")).toThrow(); });
+  it("D13 restart invalidates old token", () => { const x = setup(); expect(() => new CreationTicketStore().reserve(x.ticket.token, "synthetic-a", "op")).toThrow(); });
+  it("D14 two scheduled reservations have one winner", async () => { const x = setup(); const results = await Promise.allSettled(["one", "two"].map(op => Promise.resolve().then(() => x.store.reserve(x.ticket.token, "synthetic-a", op)))); expect(results.map(r => r.status)).toEqual(["fulfilled", "rejected"]); });
+  it("D15 expiry returns capacity", () => { const x = setup(); for (let n = 1; n < 1024; n++) x.store.issue("a"); x.advance(300_000); expect(() => x.store.issue("a")).not.toThrow(); });
+  it("D16 HMAC subject binding differs across stores", () => { const x = setup(); const y = setup(); const state = (s: CreationTicketStore) => [...(s as unknown as { tickets: Map<string, { subjectDigest: string }> }).tickets.values()][0]!.subjectDigest; expect(state(x.store)).not.toBe(state(y.store)); });
+  it("D17 reserved expiry cannot be restored", () => { const x = setup(); x.store.reserve(x.ticket.token, "synthetic-a", "op"); x.advance(300_000); expect(() => x.store.releaseConfirmedFailure(x.ticket.token, "op")).toThrow(); });
+  it("D18 no sensitive logging during success and failure", () => { const spies = [vi.spyOn(console, "log"), vi.spyOn(console, "warn"), vi.spyOn(console, "error")]; const x = setup(); x.store.reserve(x.ticket.token, "synthetic-a", "op"); expect(() => x.store.consume(x.ticket.token, "wrong")).toThrow(); x.store.consume(x.ticket.token, "op"); spies.forEach(s => expect(s).not.toHaveBeenCalled()); });
+});
