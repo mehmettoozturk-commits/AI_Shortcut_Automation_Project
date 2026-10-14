@@ -19,7 +19,16 @@ import SwiftUI
 struct AutomationApp: App {
     var body: some Scene {
         WindowGroup {
-            AutomationRootView(viewModel: Self.makeViewModel())
+            if let viewModel = Self.makeViewModel() {
+                AutomationRootView(viewModel: viewModel)
+            } else {
+                VStack(spacing: 12) {
+                    Text("Sunucu yapılandırması geçersiz").font(.headline)
+                    Text("Uygulama güvenli sunucu adresini doğrulayamadığı için planlama başlatılamıyor.")
+                        .multilineTextAlignment(.center)
+                }
+                .padding()
+            }
         }
     }
 
@@ -28,14 +37,45 @@ struct AutomationApp: App {
     /// yoksa `npm run serve`in varsayılanı (`localhost:3000`) kullanılır.
     /// iOS Simulator, host Mac'in loopback'ini paylaştığı için bu
     /// `localhost` gerçek bir backend'e doğrudan ulaşabilir.
-    private static func makeViewModel() -> BuilderViewModel {
+    private static func makeViewModel() -> BuilderViewModel? {
+        #if DEBUG
+        let isDebug = true
+        #else
+        let isDebug = false
+        #endif
+        let buildURL = Bundle.main.object(forInfoDictionaryKey: "PlanBackendURL") as? String
+        let debugOverride = ProcessInfo.processInfo.environment["PLAN_BACKEND_URL"]
+        guard let backendURL = BackendURLConfiguration.resolve(buildValue: buildURL, debugOverride: debugOverride, isDebug: isDebug) else {
+            return nil
+        }
         let registry = try! CapabilityRegistry.loadFromBundle()
-        let backendURLString = ProcessInfo.processInfo.environment["PLAN_BACKEND_URL"] ?? "http://localhost:3000/plan"
-        let transport = URLSessionPlanTransport(url: URL(string: backendURLString)!)
+        let transport = URLSessionPlanTransport(url: backendURL)
 
         let permissions = NoAppRuntimePermissionService()
         let planner = HTTPBackedPlanner(transport: transport, permissions: permissions)
         let repository = FileBackedAutomationRepository(directory: applicationSupportDirectory())
+        let activityStore = FileBackedAutomationActivityStore(directory: applicationSupportDirectory())
+        // A durable Info.plist value works after an ordinary icon relaunch;
+        // the environment override is for Xcode development runs only.
+        let authURLString = ProcessInfo.processInfo.environment["AUTH_BACKEND_URL"]
+            ?? Bundle.main.object(forInfoDictionaryKey: "AuthBackendURL") as? String
+        let authBackend = authURLString.flatMap(URL.init(string:)).flatMap {
+            try? URLSessionAccountAuthBackend(baseURL: $0)
+        }
+        let accountAuthorizer: any AccountAuthorizer
+        if let authBackend {
+            accountAuthorizer = AppleAccountAuthorizer(
+                credentials: NativeAppleCredentialProvider(),
+                backend: authBackend,
+                sessions: KeychainSessionStore(service: "com.aishortcut.AutomationApp.session")
+            )
+        } else {
+            accountAuthorizer = UnavailableAccountAuthorizer()
+        }
+        let accountService = AccountService(
+            authorizer: accountAuthorizer,
+            store: FileBackedAccountStateStore(directory: applicationSupportDirectory())
+        )
 
         let machine = BuilderMachine(
             registry: registry,
@@ -44,6 +84,7 @@ struct AutomationApp: App {
             setup: TemplateBackedSetupService(registry: registry),
             shortcutsHandoff: UIKitShortcutsHandoff(),
             repository: repository,
+            activityStore: activityStore,
             // App'ın kendi CarPlay sahnesi olmaması, kullanıcının araçta
             // CarPlay kullanmadığını kanıtlamaz. Bilinmiyor olarak bırak;
             // resolver doğrulanmamış CarPlay yerine Bluetooth'u sunar.
@@ -52,7 +93,14 @@ struct AutomationApp: App {
                 hasCarPlay: nil
             )
         )
-        return BuilderViewModel(machine: machine, registry: registry, repository: repository)
+        return BuilderViewModel(
+            machine: machine,
+            registry: registry,
+            repository: repository,
+            accountService: accountService,
+            accountLinkAvailable: authBackend != nil,
+            activityStore: activityStore
+        )
     }
 
     /// `~/Library/Application Support/<bundleId>/automations.json` —

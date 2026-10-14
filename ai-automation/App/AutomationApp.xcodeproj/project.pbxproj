@@ -306,6 +306,7 @@
 				DEVELOPMENT_TEAM = C39Z292HB2;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "AutomationApp-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "AI Otomasyon";
 				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Otomasyon isteğini sesle yazabilmen için yalnız mikrofon düğmesine bastığında mikrofonu kullanır.";
 				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Sesli otomasyon isteğini metne dönüştürmek için konuşma tanıma kullanır; metni göndermeden önce sen kontrol edersin.";
