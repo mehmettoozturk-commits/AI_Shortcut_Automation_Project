@@ -27,6 +27,7 @@ export interface AuthSession {
 }
 
 export interface AuthRepository {
+  deleteUserAndSessions(userId: string): boolean;
   createChallenge(id: string, nonceHash: string, expiresAt: string): void;
   consumeChallenge(id: string, nonceHash: string, now: string): boolean;
   getOrCreateUser(appleSubject: string, now: string): AuthUser;

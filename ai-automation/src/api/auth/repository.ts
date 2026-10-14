@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import type { AuthRepository, AuthSession, AuthUser } from "./types.js";
 
@@ -9,6 +9,19 @@ interface AuthData { users: AuthUser[]; sessions: AuthSession[]; challenges: Cha
 /** Synchronous transactions keep challenge consumption atomic on this single Node process. */
 export class InMemoryAuthRepository implements AuthRepository {
   protected data: AuthData = { users: [], sessions: [], challenges: [] };
+
+  /** One synchronous transaction; callers must use a single repository instance. */
+  deleteUserAndSessions(userId: string): boolean {
+    if (!this.data.users.some(user => user.id === userId)) return false;
+    const candidate: AuthData = {
+      users: this.data.users.filter(user => user.id !== userId),
+      sessions: this.data.sessions.filter(session => session.userId !== userId),
+      challenges: this.data.challenges.map(challenge => ({ ...challenge })),
+    };
+    this.persist(candidate);
+    this.data = candidate;
+    return true;
+  }
 
   createChallenge(id: string, nonceHash: string, expiresAt: string): void {
     const now = new Date().toISOString();
@@ -51,7 +64,7 @@ export class InMemoryAuthRepository implements AuthRepository {
     return true;
   }
 
-  protected persist(): void {}
+  protected persist(_candidate: AuthData = this.data): void {}
 }
 
 /** Development/P0 single-process persistence, not a production multi-instance database. */
@@ -68,10 +81,17 @@ export class FileBackedAuthRepository extends InMemoryAuthRepository {
     }
   }
 
-  protected override persist(): void {
+  protected override persist(candidate: AuthData = this.data): void {
     mkdirSync(dirname(this.filePath), { recursive: true, mode: 0o700 });
     const temporary = `${this.filePath}.${randomUUID()}.tmp`;
-    writeFileSync(temporary, JSON.stringify(this.data), { mode: 0o600, flag: "wx" });
-    renameSync(temporary, this.filePath);
+    try {
+      writeFileSync(temporary, JSON.stringify(candidate), { mode: 0o600, flag: "wx" });
+      // Commit boundary: no fallible work follows a successful rename.
+      // This does not promise power-loss durability (no file/directory fsync).
+      renameSync(temporary, this.filePath);
+    } catch (error) {
+      try { unlinkSync(temporary); } catch { /* Preserve the original failure. */ }
+      throw error;
+    }
   }
 }
