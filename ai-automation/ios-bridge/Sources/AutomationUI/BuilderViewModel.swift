@@ -81,11 +81,34 @@ public final class BuilderViewModel: ObservableObject {
     }
 
     // MARK: - Semantik → insan dili (capability id ASLA dışarı sızmaz)
+    public func deleteAccount() async {
+        guard let accountService, !accountBusy else { return }
+        accountBusy = true
+        defer { accountBusy = false }
+        accountCreationPending = false
+        let result = await accountService.deleteAccountWithResult()
+        accountState = await accountService.state()
+        switch result {
+        case .deleted(let revocation, let cleared):
+            accountMessage = "Sunucudaki hesabın silindi. Bu iPhone'daki otomasyonların ve Kestirmeler'in korundu."
+            if revocation == "not_configured" { accountMessage! += " Apple yetkilendirmesini otomatik kaldırma henüz yapılandırılmadı." }
+            else if revocation != "succeeded" { accountMessage! += " Apple yetkilendirmesini kaldırma henüz doğrulanmadı." }
+            if !cleared { accountMessage! += " Yerel oturum temizliği tamamlanamadı; eski oturum geçerli sayılmıyor." }
+        case .cancelled: accountMessage = "Hesap silme iptal edildi."
+        case .unknown: accountMessage = "İşlemin tamamlanıp tamamlanmadığı doğrulanamadı. Hesap durumunu yeniden kontrol et."
+        case .failed(let message): accountMessage = message
+        }
+    }
+
     public func restoreAccount() async {
+        guard !accountBusy else { return }
+        accountBusy = true
+        defer { accountBusy = false }
         accountState = await accountService?.restore() ?? .guest
     }
 
     public func unlinkAccount() async {
+        guard !accountBusy else { return }
         accountBusy = true
         defer { accountBusy = false }
         accountState = await accountService?.unlink() ?? .guest

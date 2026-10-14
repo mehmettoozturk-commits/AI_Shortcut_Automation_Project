@@ -35,8 +35,11 @@ export interface AuthRepository {
   beginLoginGuard(): LoginGuard;
   validateLoginGuard(guard: LoginGuard, verifiedAppleSubject: string): void;
   releaseLoginGuard(guard: LoginGuard): void;
-  deleteUserAndSessions(userId: string): boolean;
-  createChallenge(id: string, nonceHash: string, expiresAt: string, purpose?: AuthChallengePurpose, ticketHash?: string): void;
+  deleteUserAndSessions(userId: string, receipt?: DeletionReceipt): boolean;
+  findDeletionReceipt(deletionId: string, now: string): DeletionReceipt | null;
+  updateRevocationStatus(deletionId: string, status: RevocationStatus, now: string): void;
+  pruneDeletionReceipts(now: string): void;
+  createChallenge(id: string, nonceHash: string, expiresAt: string, purpose?: AuthChallengePurpose, ticketHash?: string, accountId?: string): void;
   consumeChallenge(id: string, nonceHash: string, now: string, purpose?: AuthChallengePurpose, ticketHash?: string): boolean;
   getOrCreateUser(appleSubject: string, now: string): AuthUser;
   createSession(session: AuthSession): void;
@@ -53,6 +56,18 @@ export type CreateAccountResult =
   | { status: "created"; user: AuthUser; session: AuthSession }
   | { status: "account_exists" };
 
-export type AuthChallengePurpose = "login" | "account_creation";
+export type AuthChallengePurpose = "login" | "account_creation" | "account_deletion";
+
+export type RevocationStatus = "not_configured" | "pending" | "succeeded" | "failed_retryable" | "failed_permanent";
+export interface DeletionReceipt {
+  deletionId: string;
+  requestIdHash: string;
+  subjectHash: string;
+  accountGeneration: string;
+  localDeletion: "committed";
+  revocationStatus: RevocationStatus;
+  createdAt: string;
+  expiresAt: string;
+}
 
 export interface DeletionCheckpoint { readonly generation: number }

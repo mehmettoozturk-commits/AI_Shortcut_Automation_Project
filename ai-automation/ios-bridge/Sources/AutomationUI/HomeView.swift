@@ -20,6 +20,7 @@ struct HomeView: View {
     @ObservedObject var viewModel: BuilderViewModel
     @State private var text: String = ""
     @State private var showingAccount = false
+    @State private var showingDeletionConfirmation = false
 
     private static let chips: [(label: String, hint: String)] = [
         ("🚗 Arabam", "Arabadan inince "),
@@ -113,6 +114,9 @@ struct HomeView: View {
                     Button("Hesap bağlantısını kaldır") {
                         Task { await viewModel.unlinkAccount() }
                     }
+                    Button("Hesabımı Sil", role: .destructive) { showingDeletionConfirmation = true }
+                        .disabled(viewModel.accountBusy)
+                        .accessibilityIdentifier("deleteAccountButton")
                 case .expired:
                     Text("Hesap bağlantısı doğrulanamadı")
                         .font(.headline)
@@ -130,6 +134,10 @@ struct HomeView: View {
                         .font(.headline)
                     Text("Bu hesap geçişini henüz desteklemiyoruz. Otomasyonların bu iPhone'da kalır.")
                 }
+                if viewModel.accountBusy {
+                    ProgressView("Hesap işlemi sürüyor…")
+                        .accessibilityIdentifier("accountOperationProgress")
+                }
                 if let message = viewModel.accountMessage {
                     Text(message)
                         .foregroundStyle(.red)
@@ -139,6 +147,14 @@ struct HomeView: View {
             }
             .padding()
             .navigationTitle("Hesap")
+            .confirmationDialog("AI Kestirme hesabını silmek üzeresin", isPresented: $showingDeletionConfirmation, titleVisibility: .visible) {
+                Button("Hesabımı Sil", role: .destructive) { Task { await viewModel.deleteAccount() } }
+                    .accessibilityIdentifier("confirmDeleteAccountButton")
+                Button("Vazgeç", role: .cancel) {}
+                    .accessibilityIdentifier("cancelDeleteAccountButton")
+            } message: {
+                Text("Hesabın ve sunucudaki tüm oturumların silinecek. Bu iPhone'daki otomasyonların ve iOS Kestirmeler'deki kestirmelerin silinmeyecek. Devam etmek için Apple hesabınla yeniden doğrulama gerekir.")
+            }
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Bitti") { showingAccount = false }

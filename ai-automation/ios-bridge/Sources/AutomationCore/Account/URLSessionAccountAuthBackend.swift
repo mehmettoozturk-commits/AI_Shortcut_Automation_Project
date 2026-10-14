@@ -5,6 +5,7 @@ public enum AccountBackendError: Error, Sendable {
     case creationExpired
     case accountExists
     case updateRequired
+    case deletionOutcomeUnknown
     case insecureURL
     case invalidResponse
     case rejected
@@ -48,6 +49,18 @@ public struct URLSessionAccountAuthBackend: AccountAuthBackend {
         return try accountSession(response)
     }
 
+    public func deletionChallenge(token: String, requestID: String) async throws -> AppleAuthChallenge {
+        let response: ChallengeResponse = try await send(path: "auth/deletion-challenges", method: "POST", body: DeletionChallengeRequest(requestId: requestID), token: token)
+        guard !response.challengeId.isEmpty, !response.nonce.isEmpty else { throw AccountBackendError.invalidResponse }
+        return AppleAuthChallenge(id: response.challengeId, nonce: response.nonce)
+    }
+
+    public func deleteAccount(token: String, requestID: String, identityToken: String, challenge: AppleAuthChallenge) async throws -> BackendAccountDeletion {
+        let response: DeletionResponse = try await send(path: "auth/account", method: "DELETE", body: DeleteRequest(confirmDelete: true, requestId: requestID, challengeId: challenge.id, nonce: challenge.nonce, identityToken: identityToken), token: token)
+        guard response.status == "account_deleted", response.serverAccountDeleted, !response.localAutomationsDeleted else { throw AccountBackendError.invalidResponse }
+        return BackendAccountDeletion(appleRevocation: response.appleRevocation.status)
+    }
+
     private func accountSession(_ response: ExchangeResponse) throws -> BackendAccountSession {
         guard let id = response.userId, let token = response.sessionToken, !id.isEmpty, !token.isEmpty else { throw AccountBackendError.invalidResponse }
         return BackendAccountSession(accountID: id, token: token)
@@ -73,15 +86,17 @@ public struct URLSessionAccountAuthBackend: AccountAuthBackend {
         return true
     }
 
-    private func send<Response: Decodable, Body: Encodable>(path: String, method: String, body: Body?) async throws -> Response {
+    private func send<Response: Decodable, Body: Encodable>(path: String, method: String, body: Body?, token: String? = nil) async throws -> Response {
         var request = URLRequest(url: baseURL.appendingPathComponent(path))
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        if let token { request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.httpBody = try body.map { try JSONEncoder().encode($0) }
         request.timeoutInterval = 30
         let (data, response) = try await session.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw AccountBackendError.invalidResponse }
+        if path == "auth/account", http.statusCode == 500 { throw AccountBackendError.deletionOutcomeUnknown }
         if http.statusCode == 410 { throw AccountBackendError.creationExpired }
         if http.statusCode == 409 { throw AccountBackendError.accountExists }
         if http.statusCode == 426 { throw AccountBackendError.updateRequired }
@@ -93,6 +108,10 @@ public struct URLSessionAccountAuthBackend: AccountAuthBackend {
     }
 
     private struct ChallengeResponse: Decodable { let challengeId: String; let nonce: String }
+    private struct DeletionChallengeRequest: Encodable { let requestId: String }
+    private struct DeleteRequest: Encodable { let confirmDelete: Bool; let requestId: String; let challengeId: String; let nonce: String; let identityToken: String }
+    private struct DeletionResponse: Decodable { let status: String; let serverAccountDeleted: Bool; let localAutomationsDeleted: Bool; let appleRevocation: RevocationResponse }
+    private struct RevocationResponse: Decodable { let status: String }
     private struct EmptyRequest: Encodable {}
     private struct ExchangeRequest: Encodable { let identityToken: String; let challengeId: String; let nonce: String; let accountCreationSupported = true }
     private struct TicketRequest: Encodable { let creationTicket: String }

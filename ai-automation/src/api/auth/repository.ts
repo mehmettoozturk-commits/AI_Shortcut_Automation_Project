@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { AuthChallengePurpose, AuthRepository, AuthSession, AuthUser, CreateAccountResult, DeletionCheckpoint, LoginGuard } from "./types.js";
+import type { AuthChallengePurpose, AuthRepository, AuthSession, AuthUser, CreateAccountResult, DeletionCheckpoint, LoginGuard, DeletionReceipt, RevocationStatus } from "./types.js";
 import { LoginGuards } from "./login-guards.js";
 
-interface Challenge { id: string; nonceHash: string; expiresAt: string; usedAt?: string; purpose?: AuthChallengePurpose; ticketHash?: string }
-interface AuthData { users: AuthUser[]; sessions: AuthSession[]; challenges: Challenge[] }
+interface Challenge { id: string; nonceHash: string; expiresAt: string; usedAt?: string; purpose?: AuthChallengePurpose; ticketHash?: string; accountId?: string }
+interface AuthData { users: AuthUser[]; sessions: AuthSession[]; challenges: Challenge[]; deletionReceipts?: DeletionReceipt[] }
 
 export class AuthUserNotFoundError extends Error {
   constructor() { super("Session user does not exist."); this.name = "AuthUserNotFoundError"; }
@@ -43,14 +43,17 @@ export class InMemoryAuthRepository implements AuthRepository {
   }
 
   /** One synchronous transaction; callers must use a single repository instance. */
-  deleteUserAndSessions(userId: string): boolean {
+  deleteUserAndSessions(userId: string, receipt?: DeletionReceipt): boolean {
     const user = this.data.users.find(user => user.id === userId);
     if (!user) return false;
     const subjectDigest = this.loginGuards.digest(user.appleSubject);
     const candidate: AuthData = {
       users: this.data.users.filter(user => user.id !== userId),
       sessions: this.data.sessions.filter(session => session.userId !== userId),
-      challenges: this.data.challenges.map(challenge => ({ ...challenge })),
+      challenges: this.data.challenges.filter(challenge => challenge.accountId !== userId).map(challenge => ({ ...challenge })),
+      deletionReceipts: receipt
+        ? [...(this.data.deletionReceipts ?? []).filter(item => item.expiresAt > receipt.createdAt).slice(-1023), { ...receipt }]
+        : this.data.deletionReceipts,
     };
     this.persist(candidate);
     this.data = candidate;
@@ -58,11 +61,32 @@ export class InMemoryAuthRepository implements AuthRepository {
     return true;
   }
 
-  createChallenge(id: string, nonceHash: string, expiresAt: string, purpose: AuthChallengePurpose = "login", ticketHash?: string): void {
-    if (purpose === "account_creation" && (!ticketHash || !/^[a-f0-9]{64}$/.test(ticketHash))) throw new Error("Creation challenge binding required.");
+  pruneDeletionReceipts(now: string): void {
+    const records = this.data.deletionReceipts ?? [];
+    const retained = records.filter(item => item.expiresAt > now);
+    if (retained.length === records.length) return;
+    const candidate = { ...this.data, deletionReceipts: retained };
+    this.persist(candidate); this.data = candidate;
+  }
+
+  findDeletionReceipt(id: string, now: string): DeletionReceipt | null {
+    this.pruneDeletionReceipts(now);
+    const receipt = this.data.deletionReceipts?.find(item => item.deletionId === id);
+    return receipt ? { ...receipt } : null;
+  }
+
+  updateRevocationStatus(id: string, status: RevocationStatus, now: string): void {
+    this.pruneDeletionReceipts(now);
+    const candidate = { ...this.data, deletionReceipts: (this.data.deletionReceipts ?? []).map(item => item.deletionId === id ? { ...item, revocationStatus: status } : item) };
+    this.persist(candidate); this.data = candidate;
+  }
+
+  createChallenge(id: string, nonceHash: string, expiresAt: string, purpose: AuthChallengePurpose = "login", ticketHash?: string, accountId?: string): void {
+    if (purpose !== "login" && (!ticketHash || !/^[a-f0-9]{64}$/.test(ticketHash))) throw new Error("Challenge binding required.");
+    if (purpose === "account_deletion" && !accountId) throw new Error("Deletion account binding required.");
     const now = new Date().toISOString();
     const challenges = this.data.challenges.filter((item) => item.expiresAt > now && !item.usedAt);
-    challenges.push({ id, nonceHash, expiresAt, purpose, ...(purpose === "account_creation" ? { ticketHash } : {}) });
+    challenges.push({ id, nonceHash, expiresAt, purpose, ...(purpose !== "login" ? { ticketHash } : {}), ...(purpose === "account_deletion" ? { accountId } : {}) });
     const candidate = { ...this.data, challenges };
     this.persist(candidate);
     this.data = candidate;
@@ -72,7 +96,7 @@ export class InMemoryAuthRepository implements AuthRepository {
     const challenge = this.data.challenges.find((item) => item.id === id);
     if (!challenge || challenge.usedAt || challenge.expiresAt <= now || challenge.nonceHash !== nonceHash) return false;
     if ((challenge.purpose ?? "login") !== purpose) return false;
-    if (purpose === "account_creation" && (!ticketHash || challenge.ticketHash !== ticketHash)) return false;
+    if (purpose !== "login" && (!ticketHash || challenge.ticketHash !== ticketHash)) return false;
     const candidate = { ...this.data, challenges: this.data.challenges.map(item => item === challenge ? { ...item, usedAt: now } : item) };
     this.persist(candidate);
     this.data = candidate;

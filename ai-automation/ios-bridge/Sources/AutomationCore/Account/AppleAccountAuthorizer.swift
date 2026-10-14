@@ -41,7 +41,14 @@ public struct BackendAccountSession: Sendable {
     }
 }
 
+public struct BackendAccountDeletion: Sendable {
+    public let appleRevocation: String
+    public init(appleRevocation: String) { self.appleRevocation = appleRevocation }
+}
+
 public protocol AccountAuthBackend: Sendable {
+    func deletionChallenge(token: String, requestID: String) async throws -> AppleAuthChallenge
+    func deleteAccount(token: String, requestID: String, identityToken: String, challenge: AppleAuthChallenge) async throws -> BackendAccountDeletion
     func creationChallenge(ticket: String) async throws -> AppleAuthChallenge
     func createAccount(ticket: String, identityToken: String, challenge: AppleAuthChallenge) async throws -> BackendAccountSession
     func challenge() async throws -> AppleAuthChallenge
@@ -51,6 +58,8 @@ public protocol AccountAuthBackend: Sendable {
 }
 
 public extension AccountAuthBackend {
+    func deletionChallenge(token: String, requestID: String) async throws -> AppleAuthChallenge { throw AccountBackendError.rejected }
+    func deleteAccount(token: String, requestID: String, identityToken: String, challenge: AppleAuthChallenge) async throws -> BackendAccountDeletion { throw AccountBackendError.rejected }
     func creationChallenge(ticket: String) async throws -> AppleAuthChallenge { throw AccountBackendError.rejected }
     func createAccount(ticket: String, identityToken: String, challenge: AppleAuthChallenge) async throws -> BackendAccountSession { throw AccountBackendError.rejected }
 }
@@ -149,6 +158,32 @@ public struct AppleAccountAuthorizer: AccountAuthorizer {
             return .revoked
         } catch {
             return .unknown
+        }
+    }
+
+    public func deleteAccount(appleUserID: String) async -> AccountDeletionAuthorization {
+        guard let session = await sessions.load(), session.appleUserID == appleUserID else { return .failed("Önce yeniden giriş yap.") }
+        let requestID = UUID().uuidString
+        do {
+            let challenge = try await backend.deletionChallenge(token: session.token, requestID: requestID)
+            guard !challenge.id.isEmpty, !challenge.nonce.isEmpty else { return .failed("Silme doğrulaması alınamadı.") }
+            switch await credentials.request(nonce: challenge.nonce) {
+            case .cancelled: return .cancelled
+            case .failed: return .failed("Apple doğrulaması tamamlanamadı.")
+            case .credential(let credential):
+                guard credential.appleUserID == appleUserID, !credential.identityToken.isEmpty else { return .failed("Apple hesabı eşleşmedi. Silme yapılmadı.") }
+                let result = try await backend.deleteAccount(token: session.token, requestID: requestID, identityToken: credential.identityToken, challenge: challenge)
+                let cleared = await sessions.delete()
+                return .deleted(appleRevocation: result.appleRevocation, credentialsCleared: cleared)
+            }
+        } catch AccountBackendError.deletionOutcomeUnknown {
+            return .unknown
+        } catch AccountBackendError.invalidResponse {
+            return .unknown
+        } catch is URLError {
+            return .unknown
+        } catch {
+            return .failed("Hesap silme doğrulanamadı. Hesap durumunu yeniden kontrol et.")
         }
     }
 

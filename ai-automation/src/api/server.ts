@@ -278,13 +278,27 @@ async function handleAuthRequest(req: IncomingMessage, res: ServerResponse, auth
     const revoked = auth.logout(bearerToken(req) ?? "");
     sendJson(res, revoked ? 200 : 401, revoked ? { status: "signed_out" } : { error: "Oturum geçersiz." }); return;
   }
-  if (req.method !== "POST") { sendJson(res, 404, { error: "Bulunamadı." }); return; }
+  if (req.method !== "POST" && !(req.method === "DELETE" && req.url === "/auth/account")) { sendJson(res, 404, { error: "Bulunamadı." }); return; }
   const raw = await readBody(req, MAX_PLAN_BODY_BYTES, signal);
   if (signal.aborted || raw.kind === "aborted") return;
   if (raw.kind === "too_large") { sendJson(res, 413, { error: "İstek boyutu sınırı aşıldı." }); return; }
   if (req.url === "/auth/apple/challenge") { sendJson(res, 200, auth.challenge()); return; }
   let body: unknown;
   try { body = JSON.parse(raw.text); } catch { sendJson(res, 400, { error: "Geçersiz JSON." }); return; }
+  if (req.url === "/auth/deletion-challenges" && req.method === "POST") {
+    const parsed = z.object({ requestId: z.string().uuid() }).strict().safeParse(body);
+    if (!parsed.success) { sendJson(res, 400, { error: "Geçersiz istek." }); return; }
+    const result = auth.deletionChallenge(bearerToken(req) ?? "", parsed.data.requestId);
+    sendJson(res, result ? 200 : 401, result ?? { error: "Oturum geçersiz." }); return;
+  }
+  if (req.url === "/auth/account" && req.method === "DELETE") {
+    const parsed = authProofSchema.extend({ confirmDelete: z.literal(true), requestId: z.string().uuid() }).strict().safeParse(body);
+    if (!parsed.success) { sendJson(res, 400, { error: "Geçersiz istek." }); return; }
+    const result = await auth.deleteAccount(bearerToken(req) ?? "", parsed.data.requestId, parsed.data, signal);
+    if (signal.aborted) return;
+    sendJson(res, !result ? 401 : result.status === "account_deleted" ? 200 : result.status === "retry_required" ? 503 : 500,
+      result ?? { error: { code: "identity_verification_failed", message: "Silme yetkisi doğrulanamadı." } }); return;
+  }
   if (req.url === "/auth/apple") {
     const parsed = authProofSchema.extend({ accountCreationSupported: z.boolean().optional() }).strict().safeParse(body);
     if (!parsed.success) { sendJson(res, 400, { error: "Geçersiz istek." }); return; }
@@ -407,5 +421,13 @@ export function createPlanServer(options: {
     }
     sendJson(res, 404, { error: "Bulunamadı." });
   };
-  return options.tls ? createHttpsServer(options.tls, handler) : createServer(handler);
+  const server = options.tls ? createHttpsServer(options.tls, handler) : createServer(handler);
+  if (options.auth) {
+    const janitor = setInterval(() => {
+      try { options.auth!.pruneDeletionReceipts(); } catch { /* Retry next interval; never expose stored data. */ }
+    }, 60_000);
+    janitor.unref();
+    server.once("close", () => clearInterval(janitor));
+  }
+  return server;
 }

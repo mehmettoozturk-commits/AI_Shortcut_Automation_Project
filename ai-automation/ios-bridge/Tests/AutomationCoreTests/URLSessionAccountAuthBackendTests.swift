@@ -135,4 +135,40 @@ final class URLSessionAccountAuthBackendTests: XCTestCase {
         XCTAssertNotNil(UUID(uuidString: try XCTUnwrap(body["requestId"] as? String)))
         XCTAssertEqual(StubAuthURLProtocol.requests.count, 1)
     }
+
+    func testDeletionUsesExactBearerConsentPurposeProofContract() async throws {
+        let requestID = UUID().uuidString
+        StubAuthURLProtocol.responseCode = 200
+        StubAuthURLProtocol.responseBody = Data(#"{"challengeId":"delete-id","nonce":"delete-nonce"}"#.utf8)
+        let backend = try makeBackend()
+        let challenge = try await backend.deletionChallenge(token: "fixture-session", requestID: requestID)
+        let challengeRequest = try XCTUnwrap(StubAuthURLProtocol.requests.last)
+        XCTAssertEqual(challengeRequest.url?.path, "/auth/deletion-challenges")
+        XCTAssertEqual(challengeRequest.httpMethod, "POST")
+        XCTAssertEqual(try jsonBody(challengeRequest)["requestId"] as? String, requestID)
+        StubAuthURLProtocol.responseBody = Data(#"{"status":"account_deleted","serverAccountDeleted":true,"localAutomationsDeleted":false,"appleRevocation":{"status":"not_configured"}}"#.utf8)
+        let result = try await backend.deleteAccount(token: "fixture-session", requestID: requestID, identityToken: "fresh-proof", challenge: challenge)
+        let request = try XCTUnwrap(StubAuthURLProtocol.requests.last)
+        XCTAssertEqual(request.httpMethod, "DELETE")
+        XCTAssertEqual(request.url?.path, "/auth/account")
+        XCTAssertNil(request.url?.query)
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fixture-session")
+        let body = try jsonBody(request)
+        XCTAssertEqual(Set(body.keys), ["requestId", "confirmDelete", "challengeId", "nonce", "identityToken"])
+        XCTAssertEqual(body["confirmDelete"] as? Bool, true)
+        XCTAssertEqual(body["requestId"] as? String, requestID)
+        XCTAssertEqual(body["nonce"] as? String, "delete-nonce")
+        XCTAssertEqual(result.appleRevocation, "not_configured")
+        XCTAssertEqual(StubAuthURLProtocol.requests.count, 2)
+    }
+
+    func testAmbiguousServerDeletionIsUnknownRatherThanFailedCommit() async throws {
+        StubAuthURLProtocol.responseCode = 500
+        StubAuthURLProtocol.responseBody = Data(#"{"status":"recovery_required"}"#.utf8)
+        do {
+            _ = try await makeBackend().deleteAccount(token: "fixture", requestID: UUID().uuidString, identityToken: "fixture", challenge: AppleAuthChallenge(id: "id", nonce: "nonce"))
+            XCTFail("Unknown commit must not claim failure or success")
+        } catch AccountBackendError.deletionOutcomeUnknown {}
+        XCTAssertEqual(StubAuthURLProtocol.requests.count, 1)
+    }
 }

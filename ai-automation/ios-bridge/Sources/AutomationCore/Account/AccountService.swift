@@ -28,6 +28,13 @@ public enum AccountLinkResult: Sendable, Equatable {
     case failed
 }
 
+public enum AccountDeletionAuthorization: Sendable, Equatable {
+    case deleted(appleRevocation: String, credentialsCleared: Bool)
+    case cancelled
+    case unknown
+    case failed(String)
+}
+
 public enum AccountCredentialState: Sendable, Equatable {
     case authorized
     case revoked
@@ -36,6 +43,7 @@ public enum AccountCredentialState: Sendable, Equatable {
 }
 
 public protocol AccountAuthorizer: Sendable {
+    func deleteAccount(appleUserID: String) async -> AccountDeletionAuthorization
     func createAccount(appleUserID: String, ticket: String) async -> AccountAuthorization
     func authorize() async -> AccountAuthorization
     func credentialState(for appleUserID: String) async -> AccountCredentialState
@@ -44,6 +52,7 @@ public protocol AccountAuthorizer: Sendable {
 }
 
 public extension AccountAuthorizer {
+    func deleteAccount(appleUserID: String) async -> AccountDeletionAuthorization { .failed("Hesap silme kullanılamıyor.") }
     func createAccount(appleUserID: String, ticket: String) async -> AccountAuthorization { .failed }
     func unlink() async -> Bool { false }
     func rollbackFailedLink() async {}
@@ -67,6 +76,7 @@ public actor AccountService {
     private let store: AccountStateStore
     private var current: AccountState = .guest
     private var pendingCreation: (appleUserID: String, ticket: String)?
+    private var operationInProgress = false
 
     public init(authorizer: AccountAuthorizer, store: AccountStateStore) {
         self.authorizer = authorizer
@@ -76,6 +86,9 @@ public actor AccountService {
     /// Never silently claim a valid session after a credential check fails.
     /// Guest operation remains available regardless of the check result.
     public func restore() async -> AccountState {
+        guard !operationInProgress else { return current }
+        operationInProgress = true
+        defer { operationInProgress = false }
         let saved = await store.load()
         switch saved {
         case .guest:
@@ -102,13 +115,41 @@ public actor AccountService {
     }
 
     public func linkWithResult() async -> AccountLinkResult {
+        guard !operationInProgress else { return .failed }
+        operationInProgress = true
+        defer { operationInProgress = false }
         pendingCreation = nil
         return await apply(await authorizer.authorize())
     }
 
     public func cancelAccountCreation() { pendingCreation = nil }
 
+    public func deleteAccountWithResult() async -> AccountDeletionAuthorization {
+        guard !operationInProgress else { return .failed("Bir hesap işlemi zaten sürüyor.") }
+        operationInProgress = true
+        defer { operationInProgress = false }
+        guard case .linked(let id) = current else { return .failed("Önce hesap durumunu doğrula.") }
+        pendingCreation = nil
+        let result = await authorizer.deleteAccount(appleUserID: id)
+        switch result {
+        case .deleted(let revocation, let cleared):
+            // Server commit is never rolled back by a failed local cleanup.
+            current = .guest
+            let saved = await store.save(.guest)
+            if !saved { current = .expired(appleUserID: id); _ = await store.save(current) }
+            return .deleted(appleRevocation: revocation, credentialsCleared: cleared && saved)
+        case .unknown:
+            current = .validationUnavailable(appleUserID: id)
+            _ = await store.save(current)
+        case .cancelled, .failed: break
+        }
+        return result
+    }
+
     public func createAccountWithResult() async -> AccountLinkResult {
+        guard !operationInProgress else { return .failed }
+        operationInProgress = true
+        defer { operationInProgress = false }
         guard let pending = pendingCreation else { return .failed }
         // A failed or ambiguous create is recovered through fresh login, never automatic retry.
         pendingCreation = nil
@@ -141,6 +182,9 @@ public actor AccountService {
     /// Unlink removes only the account association; automation storage is not
     /// injected into this service and therefore cannot be modified here.
     public func unlink() async -> AccountState {
+        guard !operationInProgress else { return current }
+        operationInProgress = true
+        defer { operationInProgress = false }
         guard await authorizer.unlink() else { return current }
         guard await store.save(.guest) else {
             switch current {
