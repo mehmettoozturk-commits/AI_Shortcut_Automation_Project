@@ -8,7 +8,7 @@
  */
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import type { Server } from "node:http";
+import { request as httpRequest, type Server } from "node:http";
 import { createPlanServer } from "../src/api/server.js";
 import { NluPipeline } from "../src/nlu/pipeline.js";
 import type { NluProvider } from "../src/nlu/ports.js";
@@ -137,6 +137,23 @@ describe("POST /plan — gerçek HTTP sunucusu", () => {
 });
 
 describe("RH-01 — /plan güvenlik sınırları", () => {
+  it("Content-Length olmadan parçalı büyük gövdeyi 413 ile reddeder", async () => {
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("beklenmeyen adres");
+    const response = await new Promise<{ status: number }>((resolve, reject) => {
+      const req = httpRequest({ hostname: "127.0.0.1", port: address.port, path: "/plan", method: "POST", headers: { "Content-Type": "application/json" } }, (res) => {
+        res.resume();
+        res.once("end", () => resolve({ status: res.statusCode ?? 0 }));
+      });
+      req.once("error", reject);
+      req.write('{"text":"Pil düşünce bildir","padding":"');
+      req.write("x".repeat(40_000));
+      req.write("x".repeat(30_000));
+      req.end('"}');
+    });
+    expect(response.status).toBe(413);
+  });
+
   it("64 KiB üzerindeki gövdeyi 413 ile reddeder", async () => {
     const res = await fetch(`${baseUrl}/plan`, {
       method: "POST",
@@ -176,6 +193,40 @@ describe("RH-01 — /plan güvenlik sınırları", () => {
       expect(third.status).toBe(429);
       expect(Number(third.headers.get("Retry-After"))).toBeGreaterThan(0);
     } finally {
+      await new Promise<void>((resolve, reject) => limited.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+
+  it("eşzamanlı kapasite dolunca 503 döner ve kapasite geri açılır", async () => {
+    const base = new NluPipeline();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const delayedPipeline = {
+      planAsync: async (...args: Parameters<NluPipeline["planAsync"]>) => {
+        await gate;
+        return base.planAsync(...args);
+      },
+      answerClarification: (...args: Parameters<NluPipeline["answerClarification"]>) => base.answerClarification(...args),
+    } as NluPipeline;
+    const limited = createPlanServer({ pipeline: delayedPipeline, maxConcurrentPlans: 2, rateLimit: { maxPerPeer: 100, maxGlobal: 100 } });
+    await new Promise<void>((resolve) => limited.listen(0, resolve));
+    const address = limited.address();
+    if (!address || typeof address === "string") throw new Error("beklenmeyen adres");
+    const url = `http://127.0.0.1:${address.port}/plan`;
+    const request = () => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "Pil yüzde 25'in altına düşünce bildir" }) });
+    try {
+      const first = request();
+      const second = request();
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      const rejected = await request();
+      expect(rejected.status).toBe(503);
+      expect(rejected.headers.get("Retry-After")).toBe("5");
+      release();
+      expect((await first).status).toBe(200);
+      expect((await second).status).toBe(200);
+      expect((await request()).status).toBe(200);
+    } finally {
+      release();
       await new Promise<void>((resolve, reject) => limited.close((error) => error ? reject(error) : resolve()));
     }
   });
