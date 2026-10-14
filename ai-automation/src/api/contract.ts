@@ -125,7 +125,7 @@ export const ConversationContextSchema = z.object({
 /* ---------------- İstek ---------------- */
 
 export const PlanRequestSchema = z.object({
-  text: z.string().min(1, "text boş olamaz"),
+  text: z.string().min(1, "text boş olamaz").max(4096, "text en fazla 4096 karakter olabilir"),
   /**
    * Bir önceki yanıttaki `conversation` aynen geri gönderilir.
    * Yoksa (ilk tur) sunucu boş bir bağlamla başlar.
@@ -133,7 +133,30 @@ export const PlanRequestSchema = z.object({
   conversation: ConversationContextSchema.optional(),
   platform: z.enum(["ios", "android"]).default("ios"),
   /** Yalnızca bu uygulamanın OS runtime izinleri; Shortcuts/Tesla kurulumu değil. */
-  grantedPermissions: z.array(z.string()).default([]),
+  grantedPermissions: z.array(z.string().max(64)).max(32).default([]),
+}).superRefine((request, ctx) => {
+  const conversation = request.conversation;
+  if (!conversation) return;
+  if (conversation.originalInput.length > 4096) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["conversation", "originalInput"], message: "İlk istek çok uzun." });
+  }
+  if (conversation.conversationTurns.length > 32) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["conversation", "conversationTurns"], message: "Konuşma geçmişi sınırı aşıldı." });
+  }
+  conversation.conversationTurns.forEach((turn, index) => {
+    if (turn.text.length > 4096) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["conversation", "conversationTurns", index, "text"], message: "Konuşma mesajı çok uzun." });
+    }
+  });
+  if (conversation.lastQuestion !== null && conversation.lastQuestion.length > 4096) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["conversation", "lastQuestion"], message: "Son soru çok uzun." });
+  }
+  if (conversation.lastMissingField !== null && conversation.lastMissingField.length > 128) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["conversation", "lastMissingField"], message: "Eksik alan geçersiz." });
+  }
+  if (conversation.lastIntent && conversation.lastIntent.sourceText.length > 4096) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["conversation", "lastIntent", "sourceText"], message: "Önceki istek çok uzun." });
+  }
 });
 export type PlanRequest = z.infer<typeof PlanRequestSchema>;
 

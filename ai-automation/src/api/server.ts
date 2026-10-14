@@ -40,10 +40,30 @@ function toAutomationPlan(draft: DraftAutomationPlan): AutomationPlan {
   };
 }
 
-async function readBody(req: IncomingMessage): Promise<string> {
+const MAX_PLAN_BODY_BYTES = 64 * 1024;
+
+type BodyReadResult =
+  | { kind: "ok"; text: string }
+  | { kind: "too_large" };
+
+async function readBody(
+  req: IncomingMessage,
+  maxBytes = MAX_PLAN_BODY_BYTES,
+): Promise<BodyReadResult> {
   const chunks: Buffer[] = [];
-  for await (const chunk of req as AsyncIterable<Buffer>) chunks.push(chunk);
-  return Buffer.concat(chunks).toString("utf8");
+  let total = 0;
+  let oversized = false;
+  for await (const chunk of req as AsyncIterable<Buffer>) {
+    total += chunk.length;
+    if (total > maxBytes) {
+      oversized = true;
+      continue;
+    }
+    chunks.push(chunk);
+  }
+  return oversized
+    ? { kind: "too_large" }
+    : { kind: "ok", text: Buffer.concat(chunks).toString("utf8") };
 }
 
 function sendJson(res: ServerResponse, status: number, body: unknown): void {
@@ -54,6 +74,43 @@ function sendJson(res: ServerResponse, status: number, body: unknown): void {
     "Cache-Control": "no-store",
   });
   res.end(json);
+}
+
+type PlanRateLimitOptions = {
+  windowMs?: number;
+  maxPerPeer?: number;
+  maxGlobal?: number;
+};
+
+function createPlanRateLimiter(options: PlanRateLimitOptions = {}) {
+  const windowMs = options.windowMs ?? 60_000;
+  const maxPerPeer = options.maxPerPeer ?? 120;
+  const maxGlobal = options.maxGlobal ?? 300;
+  type Bucket = { count: number; resetAt: number };
+  const peers = new Map<string, Bucket>();
+  let globalBucket: Bucket = { count: 0, resetAt: 0 };
+
+  return (req: IncomingMessage): number | null => {
+    const now = Date.now();
+    const peer = req.socket.remoteAddress ?? "unknown";
+    if (now >= globalBucket.resetAt) globalBucket = { count: 0, resetAt: now + windowMs };
+    let bucket = peers.get(peer);
+    if (!bucket && peers.size >= 2048) {
+      for (const [key, value] of peers) if (now >= value.resetAt) peers.delete(key);
+      if (peers.size >= 2048) return Math.max(1, Math.ceil(windowMs / 1000));
+    }
+    if (!bucket || now >= bucket.resetAt) bucket = { count: 0, resetAt: now + windowMs };
+    const globalExceeded = globalBucket.count >= maxGlobal;
+    const peerExceeded = bucket.count >= maxPerPeer;
+    if (globalExceeded || peerExceeded) {
+      const resetAt = Math.max(globalExceeded ? globalBucket.resetAt : 0, peerExceeded ? bucket.resetAt : 0);
+      return Math.max(1, Math.ceil((resetAt - now) / 1000));
+    }
+    globalBucket.count++;
+    bucket.count++;
+    peers.set(peer, bucket);
+    return null;
+  };
 }
 
 /**
@@ -77,8 +134,12 @@ export async function handlePlanRequest(
 ): Promise<void> {
   let raw: unknown;
   try {
-    const bodyText = await readBody(req);
-    raw = bodyText.length > 0 ? JSON.parse(bodyText) : {};
+    const body = await readBody(req);
+    if (body.kind === "too_large") {
+      sendJson(res, 413, { error: "İstek boyutu izin verilen sınırı aşıyor." });
+      return;
+    }
+    raw = body.text.length > 0 ? JSON.parse(body.text) : {};
   } catch {
     sendJson(res, 400, { error: "Geçersiz JSON gövdesi." });
     return;
@@ -213,8 +274,13 @@ export function createPlanServer(options: {
   pipeline?: NluPipeline;
   auth?: AuthService;
   tls?: { key: string | Buffer; cert: string | Buffer };
+  rateLimit?: PlanRateLimitOptions;
+  maxConcurrentPlans?: number;
 } = {}) {
   const pipeline = options.pipeline ?? defaultPipeline;
+  const checkPlanRateLimit = createPlanRateLimiter(options.rateLimit);
+  const maxConcurrentPlans = options.maxConcurrentPlans ?? 8;
+  let activePlans = 0;
   const handler = (req: IncomingMessage, res: ServerResponse) => {
     if (req.method === "GET" && req.url === "/health") {
       sendJson(res, 200, { status: "ok" });
@@ -250,9 +316,23 @@ export function createPlanServer(options: {
       return;
     }
     if (req.method === "POST" && req.url === "/plan") {
-      handlePlanRequest(req, res, pipeline).catch(() => {
-        sendJson(res, 500, { error: "Beklenmeyen sunucu hatası." });
-      });
+      const retryAfter = checkPlanRateLimit(req);
+      if (retryAfter !== null) {
+        res.setHeader("Retry-After", String(retryAfter));
+        sendJson(res, 429, { error: "Çok fazla istek gönderildi. Lütfen tekrar dene." });
+        return;
+      }
+      if (activePlans >= maxConcurrentPlans) {
+        res.setHeader("Retry-After", "5");
+        sendJson(res, 503, { error: "Sunucu meşgul. Lütfen tekrar dene." });
+        return;
+      }
+      activePlans++;
+      void handlePlanRequest(req, res, pipeline)
+        .catch(() => {
+          if (!res.headersSent && !res.destroyed) sendJson(res, 500, { error: "Beklenmeyen sunucu hatası." });
+        })
+        .finally(() => { activePlans--; });
       return;
     }
     sendJson(res, 404, { error: "Bulunamadı." });

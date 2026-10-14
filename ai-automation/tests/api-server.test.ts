@@ -136,6 +136,51 @@ describe("POST /plan — gerçek HTTP sunucusu", () => {
   });
 });
 
+describe("RH-01 — /plan güvenlik sınırları", () => {
+  it("64 KiB üzerindeki gövdeyi 413 ile reddeder", async () => {
+    const res = await fetch(`${baseUrl}/plan`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "Pil düşünce bildir", padding: "x".repeat(70_000) }),
+    });
+    expect(res.status).toBe(413);
+  });
+
+  it("4097 karakterlik metni 400 ile reddeder", async () => {
+    const res = await postPlan({ text: "x".repeat(4097) });
+    expect(res.status).toBe(400);
+  });
+
+  it("33 konuşma mesajını 400 ile reddeder", async () => {
+    const first = await postPlan({ text: "Arabadan inince klimayı aç." });
+    const firstBody = await first.json();
+    const conversation = {
+      ...firstBody.conversation,
+      conversationTurns: Array.from({ length: 33 }, () => ({ role: "user", text: "Merhaba" })),
+    };
+    const res = await postPlan({ text: "Tesla Model Y", conversation });
+    expect(res.status).toBe(400);
+  });
+
+  it("rate limit aşımında 429 ve Retry-After döner", async () => {
+    const limited = createPlanServer({ rateLimit: { windowMs: 60_000, maxPerPeer: 2, maxGlobal: 10 } });
+    await new Promise<void>((resolve) => limited.listen(0, resolve));
+    const address = limited.address();
+    if (!address || typeof address === "string") throw new Error("beklenmeyen adres");
+    const url = `http://127.0.0.1:${address.port}/plan`;
+    const request = () => fetch(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: "Pil yüzde 25'in altına düşünce bildir" }) });
+    try {
+      expect((await request()).status).toBe(200);
+      expect((await request()).status).toBe(200);
+      const third = await request();
+      expect(third.status).toBe(429);
+      expect(Number(third.headers.get("Retry-After"))).toBeGreaterThan(0);
+    } finally {
+      await new Promise<void>((resolve, reject) => limited.close((error) => error ? reject(error) : resolve()));
+    }
+  });
+});
+
 /**
  * Phase 4B — sağlayıcı hatası (LLM ağ/JSON hatası) HTTP'de ayrı bir
  * durum ve durum kodu (502) olarak raporlanır; `not_understood`/
