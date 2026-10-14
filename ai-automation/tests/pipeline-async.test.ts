@@ -96,3 +96,61 @@ describe("RuleBasedProvider — NluProvider sınırının deterministik sağlay�
     expect(intent.trigger?.type).toBe("vehicle_departure");
   });
 });
+
+describe("RH-01-T08..T14 — cancellation/timeout sözleşmesi", () => {
+  const validIntent: IntentResult = {
+    intent: "not_understood", confidence: 0.1, entities: {}, steps: [], missing: [],
+  };
+
+  it("T08: timeout/provider hatası provider_error olur", async () => {
+    class TimeoutProvider implements NluProvider { async plan(): Promise<IntentResult> { throw new LlmProviderError("timeout", undefined, false, { errorCategory: "timeout", httpStatus: null }); } }
+    const out = await new NluPipeline(undefined, undefined, undefined, new TimeoutProvider()).planAsync("x", emptyContext());
+    expect(out.status).toBe("provider_error");
+  });
+
+  it("T09: timeout sonrası aynı pipeline yeniden kullanılabilir", async () => {
+    let calls = 0;
+    class Provider implements NluProvider { async plan(): Promise<IntentResult> { calls++; if (calls === 1) throw new LlmProviderError("timeout"); return validIntent; } }
+    const p = new NluPipeline(undefined, undefined, undefined, new Provider());
+    expect((await p.planAsync("x", emptyContext())).status).toBe("provider_error");
+    expect((await p.planAsync("x", emptyContext())).status).toBe("not_understood");
+  });
+
+  it("T10: AbortSignal provider'a ulaşır", async () => {
+    let received: AbortSignal | undefined;
+    class Provider implements NluProvider { async plan(_i: string, _c?: ConversationContext, _r?: unknown, signal?: AbortSignal): Promise<IntentResult> { received = signal; return validIntent; } }
+    const controller = new AbortController();
+    await new NluPipeline(undefined, undefined, undefined, new Provider()).planAsync("x", emptyContext(), controller.signal);
+    expect(received).toBe(controller.signal);
+  });
+
+  it("T11: iptal sonrası provider sonlanınca pipeline tekrar çağrılabilir", async () => {
+    const controller = new AbortController(); let calls = 0;
+    class Provider implements NluProvider { async plan(): Promise<IntentResult> { calls++; return validIntent; } }
+    controller.abort();
+    const out = await new NluPipeline(undefined, undefined, undefined, new Provider()).planAsync("x", emptyContext(), controller.signal);
+    expect(out.status).toBe("not_understood");
+    expect(calls).toBe(1);
+  });
+
+  it("T12: iptal edilen retryable denemede repair çağrısı yapılmaz", async () => {
+    const controller = new AbortController(); let calls = 0;
+    class Provider implements NluProvider { async plan(): Promise<IntentResult> { calls++; controller.abort(); throw new LlmProviderError("bad output", undefined, true); } }
+    const out = await new NluPipeline(undefined, undefined, undefined, new Provider()).planAsync("x", emptyContext(), controller.signal);
+    expect(out.status).toBe("provider_error"); expect(calls).toBe(1);
+  });
+
+  it("T13: OpenAI-compatible çağrı ikinci parametrede signal taşır", async () => {
+    let options: { signal?: AbortSignal } | undefined;
+    const client = { chat: { completions: { create: async (_p: Record<string, unknown>, o?: { signal?: AbortSignal }) => { options = o; return { choices: [{ message: { content: JSON.stringify({ intent: "not_understood", confidence: 0.1, trigger: { semantic: "time" }, steps: [{ semantic: "notify" }], entities: [], missing: [] }) } }] }; } } } };
+    const controller = new AbortController();
+    const { OpenAICompatibleIntentProvider } = await import("../src/nlu/providers/openai-compatible-provider.js");
+    await new OpenAICompatibleIntentProvider({ client, baseURL: "https://example.invalid", model: "m", providerLabel: "T" }).plan("x", emptyContext(), undefined, controller.signal);
+    expect(options?.signal).toBe(controller.signal);
+  });
+
+  it("T14: normal sinyal olmadan istek mevcut akışı korur", async () => {
+    const out = await new NluPipeline().planAsync("zzz qqq", emptyContext());
+    expect(out.status).toBe("not_understood");
+  });
+});

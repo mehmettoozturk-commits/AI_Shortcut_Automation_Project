@@ -257,7 +257,7 @@ export class NluPipeline implements NluPlanner {
    * döner — modeli "arka planda ne pahasına olursa olsun düzeltmeye"
    * çalışılmaz, en fazla iki gerçek istek yapılır.
    */
-  async planAsync(input: string, context: ConversationContext): Promise<PlanningOutcome> {
+  async planAsync(input: string, context: ConversationContext, signal?: AbortSignal): Promise<PlanningOutcome> {
     const started = performance.now();
     const finalFailure = (failure: Extract<AttemptResult, { ok: false }>, stage: "first" | "repair"): PlanningOutcome => {
       this.retryMetrics.providerError++;
@@ -274,7 +274,7 @@ export class NluPipeline implements NluPlanner {
       } catch { /* Diagnostic observers are best-effort only. */ }
       return { status: "provider_error", message: failure.message };
     };
-    const first = await this.attemptPlan(input, context);
+    const first = await this.attemptPlan(input, context, undefined, signal);
     if (first.ok) {
       if (first.deterministicFallback) this.retryMetrics.deterministicFallback++;
       else this.retryMetrics.firstPassSuccess++;
@@ -284,7 +284,8 @@ export class NluPipeline implements NluPlanner {
       return finalFailure(first, "first");
     }
 
-    const second = await this.attemptPlan(input, context, first.repair);
+    if (signal?.aborted) return { status: "provider_error", message: "İstek iptal edildi." };
+    const second = await this.attemptPlan(input, context, first.repair, signal);
     if (second.ok) {
       if (second.deterministicFallback) this.retryMetrics.deterministicFallback++;
       else this.retryMetrics.repairSuccess++;
@@ -297,13 +298,14 @@ export class NluPipeline implements NluPlanner {
   private async attemptPlan(
     input: string,
     context: ConversationContext,
-    repair?: Parameters<typeof buildRepairInstruction>[0]
+    repair?: Parameters<typeof buildRepairInstruction>[0],
+    signal?: AbortSignal
   ): Promise<AttemptResult> {
     let intent: IntentResult;
     const started = performance.now();
     try {
       const hint = repair ? { instruction: buildRepairInstruction(repair) } : undefined;
-      intent = await this.provider.plan(input, context, hint);
+      intent = await this.provider.plan(input, context, hint, signal);
     } catch (err) {
       if (err instanceof LlmProviderError) {
         return { ok: false, retryable: err.retryable, message: err.message, diagnostic: err.diagnostic,

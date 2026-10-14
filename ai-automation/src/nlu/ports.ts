@@ -62,7 +62,7 @@ export interface NluPlanner {
  * sözleşmeye (capability id YOK, yalnızca semantik isim) uyar.
  */
 export interface NluProvider {
-  plan(input: string, context?: ConversationContext, repair?: RepairHint): Promise<IntentResult>;
+  plan(input: string, context?: ConversationContext, repair?: RepairHint, signal?: AbortSignal): Promise<IntentResult>;
 }
 
 /**

@@ -44,16 +44,19 @@ const MAX_PLAN_BODY_BYTES = 64 * 1024;
 
 type BodyReadResult =
   | { kind: "ok"; text: string }
-  | { kind: "too_large" };
+  | { kind: "too_large" }
+  | { kind: "aborted" };
 
 async function readBody(
   req: IncomingMessage,
   maxBytes = MAX_PLAN_BODY_BYTES,
+  signal?: AbortSignal,
 ): Promise<BodyReadResult> {
   const chunks: Buffer[] = [];
   let total = 0;
   let oversized = false;
   for await (const chunk of req as AsyncIterable<Buffer>) {
+    if (signal?.aborted || req.aborted) return { kind: "aborted" };
     total += chunk.length;
     if (total > maxBytes) {
       oversized = true;
@@ -130,11 +133,13 @@ const defaultPipeline = new NluPipeline();
 export async function handlePlanRequest(
   req: IncomingMessage,
   res: ServerResponse,
-  pipeline: NluPipeline = defaultPipeline
+  pipeline: NluPipeline = defaultPipeline,
+  signal?: AbortSignal
 ): Promise<void> {
   let raw: unknown;
   try {
-    const body = await readBody(req);
+    const body = await readBody(req, MAX_PLAN_BODY_BYTES, signal);
+    if (body.kind === "aborted" || signal?.aborted) return;
     if (body.kind === "too_large") {
       sendJson(res, 413, { error: "İstek boyutu izin verilen sınırı aşıyor." });
       return;
@@ -167,7 +172,8 @@ export async function handlePlanRequest(
   const context: ConversationContext = conversation ?? emptyContext(text);
   const outcome = context.lastMissingField
     ? pipeline.answerClarification(text, context)
-    : await pipeline.planAsync(text, context);
+    : await pipeline.planAsync(text, context, signal);
+  if (signal?.aborted) return;
 
   // Phase 4B: sağlayıcı (LLM ağ hatası/geçersiz JSON) hiç çalışamadıysa
   // — bu bir "anlaşılamadı" veya "desteklenmiyor" değil, sunucunun ayrı
@@ -328,11 +334,24 @@ export function createPlanServer(options: {
         return;
       }
       activePlans++;
-      void handlePlanRequest(req, res, pipeline)
+      const controller = new AbortController();
+      let responseFinished = false;
+      const onAborted = () => controller.abort();
+      const onFinish = () => { responseFinished = true; };
+      const onClose = () => { if (!responseFinished) controller.abort(); };
+      req.once("aborted", onAborted);
+      res.once("finish", onFinish);
+      res.once("close", onClose);
+      void handlePlanRequest(req, res, pipeline, controller.signal)
         .catch(() => {
           if (!res.headersSent && !res.destroyed) sendJson(res, 500, { error: "Beklenmeyen sunucu hatası." });
         })
-        .finally(() => { activePlans--; });
+        .finally(() => {
+          activePlans--;
+          req.off("aborted", onAborted);
+          res.off("finish", onFinish);
+          res.off("close", onClose);
+        });
       return;
     }
     sendJson(res, 404, { error: "Bulunamadı." });
