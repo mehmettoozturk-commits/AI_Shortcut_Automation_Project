@@ -11,6 +11,7 @@
 		191F2518DCE17C83615C65DE /* AutomationAppUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 875B9DA85EB7DFC225AE5011 /* AutomationAppUITests.swift */; };
 		51FDDDC4FF297E563EA1B78C /* AutomationCore in Frameworks */ = {isa = PBXBuildFile; productRef = C226F55C5C5154B953678F2E /* AutomationCore */; };
 		9910BFD01B66260E672B8506 /* AutomationUI in Frameworks */ = {isa = PBXBuildFile; productRef = 7AA54CACD4FF328B0FFD7BDF /* AutomationUI */; };
+		A6A95FE9548B40F8BB4ED15F /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8C4D93B85CB240D09BFB2E15 /* Assets.xcassets */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -24,11 +25,13 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		7920A0E603D04831B317A001 /* AutomationApp.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AutomationApp.entitlements; sourceTree = "<group>"; };
 		875B9DA85EB7DFC225AE5011 /* AutomationAppUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationAppUITests.swift; sourceTree = "<group>"; };
+		8C4D93B85CB240D09BFB2E15 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		97204726E3D38759BBE4C018 /* AutomationApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutomationApp.swift; sourceTree = "<group>"; };
-		AB0199DF7F334CDBEDBF7330 /* AutomationApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = AutomationApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AB0199DF7F334CDBEDBF7330 /* AutomationApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AutomationApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		ACC8AE95CA3C96E0C4EC2544 /* ios-bridge */ = {isa = PBXFileReference; lastKnownFileType = folder; name = "ios-bridge"; path = "../ios-bridge"; sourceTree = SOURCE_ROOT; };
-		E4201A2AD4F98DC4309F8E9B /* AutomationAppUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = AutomationAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		E4201A2AD4F98DC4309F8E9B /* AutomationAppUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = AutomationAppUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -81,6 +84,8 @@
 		EF41F5EA9FC03F008D5FC774 = {
 			isa = PBXGroup;
 			children = (
+				8C4D93B85CB240D09BFB2E15 /* Assets.xcassets */,
+				7920A0E603D04831B317A001 /* AutomationApp.entitlements */,
 				3D4282DAC45D24683637DB07 /* AutomationApp */,
 				9190E0FCAA56102C46C291CD /* Packages */,
 				AA14D4706B68F554F1601301 /* UITests */,
@@ -115,6 +120,7 @@
 			buildPhases = (
 				0E26E5CFA3E0F8032B7B0D34 /* Sources */,
 				A987DC5E56204038820FBFA3 /* Frameworks */,
+				C8B37EEA277B4E10B53A87F0 /* Resources */,
 			);
 			buildRules = (
 			);
@@ -136,14 +142,11 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 1430;
+				LastUpgradeCheck = 2660;
 				TargetAttributes = {
 					2233042581C83A0E08AAF6A5 = {
 						ProvisioningStyle = Automatic;
 						TestTargetID = D886774158481E8C188CB8B0;
-					};
-					D886774158481E8C188CB8B0 = {
-						ProvisioningStyle = Automatic;
 					};
 				};
 			};
@@ -169,6 +172,17 @@
 			);
 		};
 /* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C8B37EEA277B4E10B53A87F0 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A6A95FE9548B40F8BB4ED15F /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		0E26E5CFA3E0F8032B7B0D34 /* Sources */ = {
@@ -251,8 +265,10 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = C39Z292HB2;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -273,6 +289,7 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
@@ -283,17 +300,23 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_ENTITLEMENTS = AutomationApp.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = C39Z292HB2;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "AI Otomasyon";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Otomasyon isteğini sesle yazabilmen için yalnız mikrofon düğmesine bastığında mikrofonu kullanır.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Sesli otomasyon isteğini metne dönüştürmek için konuşma tanıma kullanır; metni göndermeden önce sen kontrol edersin.";
+				PLAN_BACKEND_URL_BUILD = "https://ai-shortcut-plan-api.onrender.com/plan";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.aishortcut.AutomationApp;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -303,17 +326,24 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGN_IDENTITY = "iPhone Developer";
+				CODE_SIGN_ENTITLEMENTS = AutomationApp.entitlements;
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = C39Z292HB2;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = "AutomationApp-Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "AI Otomasyon";
+				INFOPLIST_KEY_NSMicrophoneUsageDescription = "Otomasyon isteğini sesle yazabilmen için yalnız mikrofon düğmesine bastığında mikrofonu kullanır.";
+				INFOPLIST_KEY_NSSpeechRecognitionUsageDescription = "Sesli otomasyon isteğini metne dönüştürmek için konuşma tanıma kullanır; metni göndermeden önce sen kontrol edersin.";
+				PLAN_BACKEND_URL_BUILD = "https://ai-shortcut-plan-api.onrender.com/plan";
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.aishortcut.AutomationApp;
+				PROVISIONING_PROFILE_SPECIFIER = "";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
@@ -372,8 +402,10 @@
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = C39Z292HB2;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -387,6 +419,7 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_VERSION = 5.0;
