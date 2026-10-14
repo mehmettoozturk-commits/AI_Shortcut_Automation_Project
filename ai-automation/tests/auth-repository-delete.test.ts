@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, readdirSync, renameSync, rmSync, writeFileSy
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { FileBackedAuthRepository, InMemoryAuthRepository } from "../src/api/auth/repository.js";
+import { AuthUserNotFoundError, FileBackedAuthRepository, InMemoryAuthRepository } from "../src/api/auth/repository.js";
 
 vi.mock("node:fs", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs")>();
@@ -20,6 +20,38 @@ function seed(repo: InMemoryAuthRepository) {
   return { user, other };
 }
 describe("RH04 repository deletion", () => {
+  it.each(["missing", "deleted"])("rejects session creation for %s user without changing disk", (kind) => {
+    const dir = mkdtempSync(join(tmpdir(), "rh04-reference-")); const path = join(dir, "auth.json");
+    try {
+      const repo = new FileBackedAuthRepository(path); const { user } = seed(repo);
+      if (kind === "deleted") repo.deleteUserAndSessions(user.id);
+      const before = readFileSync(path, "utf8");
+      expect(() => repo.createSession({ id: "orphan", userId: kind === "deleted" ? user.id : "missing", tokenHash: "orphan", createdAt: now, expiresAt: "2027-01-01T00:00:00.000Z" })).toThrow(AuthUserNotFoundError);
+      expect(repo.findSession("orphan", now)).toBeNull();
+      expect(readFileSync(path, "utf8")).toBe(before);
+      expect(new FileBackedAuthRepository(path).findSession("orphan", now)).toBeNull();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+  it("rejects an orphan session loaded from an old file", () => {
+    const dir = mkdtempSync(join(tmpdir(), "rh04-orphan-")); const path = join(dir, "auth.json");
+    try {
+      writeFileSync(path, JSON.stringify({ users: [], challenges: [], sessions: [{ id: "orphan", userId: "missing", tokenHash: "orphan", createdAt: now, expiresAt: "2027-01-01T00:00:00.000Z" }] }));
+      expect(new FileBackedAuthRepository(path).findSession("orphan", now)).toBeNull();
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
+  it("keeps memory and disk unchanged when createSession persist fails", () => {
+    const dir = mkdtempSync(join(tmpdir(), "rh04-session-fault-")); const path = join(dir, "auth.json");
+    try {
+      const repo = new FileBackedAuthRepository(path); const { user } = seed(repo);
+      const before = readFileSync(path, "utf8");
+      vi.mocked(renameSync).mockImplementationOnce(() => { throw new Error("synthetic failure"); });
+      expect(() => repo.createSession({ id: "new", userId: user.id, tokenHash: "new", createdAt: now, expiresAt: "2027-01-01T00:00:00.000Z" })).toThrow();
+      expect(repo.findSession("new", now)).toBeNull();
+      expect(readFileSync(path, "utf8")).toBe(before);
+      expect(new FileBackedAuthRepository(path).findSession("new", now)).toBeNull();
+      expect(readdirSync(dir)).toEqual(["auth.json"]);
+    } finally { rmSync(dir, { recursive: true, force: true }); }
+  });
   it.each(["write", "rename"])("preserves memory, disk and restart on %s failure and removes temp data", async (stage) => {
     const dir = mkdtempSync(join(tmpdir(), "rh04-fault-")); const path = join(dir, "auth.json");
     const actual = await vi.importActual<typeof import("node:fs")>("node:fs");

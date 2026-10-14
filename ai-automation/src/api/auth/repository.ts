@@ -6,6 +6,10 @@ import type { AuthRepository, AuthSession, AuthUser } from "./types.js";
 interface Challenge { id: string; nonceHash: string; expiresAt: string; usedAt?: string }
 interface AuthData { users: AuthUser[]; sessions: AuthSession[]; challenges: Challenge[] }
 
+export class AuthUserNotFoundError extends Error {
+  constructor() { super("Session user does not exist."); this.name = "AuthUserNotFoundError"; }
+}
+
 /** Synchronous transactions keep challenge consumption atomic on this single Node process. */
 export class InMemoryAuthRepository implements AuthRepository {
   protected data: AuthData = { users: [], sessions: [], challenges: [] };
@@ -48,12 +52,15 @@ export class InMemoryAuthRepository implements AuthRepository {
   }
 
   createSession(session: AuthSession): void {
-    this.data.sessions.push(session);
-    this.persist();
+    if (!this.data.users.some(user => user.id === session.userId)) throw new AuthUserNotFoundError();
+    const candidate = { ...this.data, sessions: [...this.data.sessions, { ...session }] };
+    this.persist(candidate);
+    this.data = candidate;
   }
 
   findSession(tokenHash: string, now: string): AuthSession | null {
-    return this.data.sessions.find((session) => session.tokenHash === tokenHash && !session.revokedAt && session.expiresAt > now) ?? null;
+    return this.data.sessions.find((session) => session.tokenHash === tokenHash && !session.revokedAt && session.expiresAt > now
+      && this.data.users.some(user => user.id === session.userId)) ?? null;
   }
 
   revokeSession(tokenHash: string, now: string): boolean {
