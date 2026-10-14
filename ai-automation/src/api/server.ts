@@ -25,6 +25,8 @@ import type { AutomationPlan } from "../dsl/schema.js";
 import type { DraftAutomationPlan } from "../builder/types.js";
 import { PlanRequestSchema, PlanResponseSchema, type PlanResponse } from "./contract.js";
 import { AuthService } from "./auth/service.js";
+import { CreationTicketRejectedError } from "./auth/creation-tickets.js";
+import { z } from "zod";
 
 /** `DraftAutomationPlan` (eksik alanlar içerebilir) -> `AutomationPlan`
  * (validator zincirinin beklediği, doğrulanmamış ama TAM şekil). */
@@ -262,18 +264,62 @@ function authTransportAllowed(req: IncomingMessage): boolean {
   return remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
 }
 
-async function readAuthBody(req: IncomingMessage): Promise<Record<string, unknown> | null> {
-  let total = 0;
-  const chunks: Buffer[] = [];
-  for await (const chunk of req as AsyncIterable<Buffer>) {
-    total += chunk.length;
-    if (total > 20_000) return null;
-    chunks.push(chunk);
+const authProofSchema = z.object({ identityToken: z.string().min(1).max(16_384), challengeId: z.string().min(1).max(128), nonce: z.string().min(1).max(256) });
+const ticketSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
+const accountRequestSchema = authProofSchema.extend({ creationTicket: ticketSchema, confirmCreate: z.literal(true), requestId: z.string().min(1).max(128) }).strict();
+const invalidCreationTicket = { error: { code: "creation_ticket_invalid_or_expired", message: "Hesap oluşturma işleminin süresi doldu. Lütfen yeniden giriş yapın." } };
+
+async function handleAuthRequest(req: IncomingMessage, res: ServerResponse, auth: AuthService, signal: AbortSignal): Promise<void> {
+  if (req.method === "GET" && req.url === "/auth/session") {
+    const result = auth.session(bearerToken(req) ?? "");
+    sendJson(res, result ? 200 : 401, result ?? { error: "Oturum geçersiz." }); return;
   }
-  try {
-    const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-    return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
-  } catch { return null; }
+  if (req.method === "DELETE" && req.url === "/auth/session") {
+    const revoked = auth.logout(bearerToken(req) ?? "");
+    sendJson(res, revoked ? 200 : 401, revoked ? { status: "signed_out" } : { error: "Oturum geçersiz." }); return;
+  }
+  if (req.method !== "POST") { sendJson(res, 404, { error: "Bulunamadı." }); return; }
+  const raw = await readBody(req, MAX_PLAN_BODY_BYTES, signal);
+  if (signal.aborted || raw.kind === "aborted") return;
+  if (raw.kind === "too_large") { sendJson(res, 413, { error: "İstek boyutu sınırı aşıldı." }); return; }
+  if (req.url === "/auth/apple/challenge") { sendJson(res, 200, auth.challenge()); return; }
+  let body: unknown;
+  try { body = JSON.parse(raw.text); } catch { sendJson(res, 400, { error: "Geçersiz JSON." }); return; }
+  if (req.url === "/auth/apple") {
+    const parsed = authProofSchema.extend({ accountCreationSupported: z.boolean().optional() }).strict().safeParse(body);
+    if (!parsed.success) { sendJson(res, 400, { error: "Geçersiz istek." }); return; }
+    const result = await auth.prepareAccountCreation(parsed.data, signal);
+    if (signal.aborted) return;
+    if (!result) { sendJson(res, 401, { error: "Kimlik doğrulanamadı." }); return; }
+    if (result.status === "account_creation_required" && !parsed.data.accountCreationSupported) {
+      sendJson(res, 426, { status: "client_update_required", message: "Devam etmek için uygulamayı güncelleyin." }); return;
+    }
+    sendJson(res, 200, result); return;
+  }
+  if (req.url === "/auth/accounts/challenge") {
+    const parsed = z.object({ creationTicket: ticketSchema }).strict().safeParse(body);
+    if (!parsed.success) { sendJson(res, 400, { error: "Geçersiz istek." }); return; }
+    try { sendJson(res, 200, auth.creationChallenge(parsed.data.creationTicket)); }
+    catch (error) { if (!(error instanceof CreationTicketRejectedError)) throw error; sendJson(res, 410, invalidCreationTicket); }
+    return;
+  }
+  if (req.url === "/auth/accounts") {
+    const parsed = accountRequestSchema.safeParse(body);
+    if (!parsed.success) { sendJson(res, 400, { error: "Geçersiz istek." }); return; }
+    try {
+      auth.assertCreationTicket(parsed.data.creationTicket);
+      const result = await auth.completeAccountCreation(parsed.data.creationTicket, parsed.data.requestId, parsed.data, signal);
+      if (signal.aborted) return;
+      // Expiry/deletion during asynchronous verification uses the same safe response.
+      if (!result) auth.assertCreationTicket(parsed.data.creationTicket);
+      sendJson(res, !result ? 401 : result.status === "account_exists" ? 409 : result.status === "created" ? 200 : 503, result ?? { status: "creation_rejected" });
+    } catch (error) {
+      if (!(error instanceof CreationTicketRejectedError)) throw error;
+      sendJson(res, 410, invalidCreationTicket);
+    }
+    return;
+  }
+  sendJson(res, 404, { error: "Bulunamadı." });
 }
 
 export function createPlanServer(options: {
@@ -282,11 +328,16 @@ export function createPlanServer(options: {
   tls?: { key: string | Buffer; cert: string | Buffer };
   rateLimit?: PlanRateLimitOptions;
   maxConcurrentPlans?: number;
+  authRateLimit?: PlanRateLimitOptions;
+  maxConcurrentAuth?: number;
+  authRequestTimeoutMs?: number;
 } = {}) {
   const pipeline = options.pipeline ?? defaultPipeline;
   const checkPlanRateLimit = createPlanRateLimiter(options.rateLimit);
   const maxConcurrentPlans = options.maxConcurrentPlans ?? 8;
   let activePlans = 0;
+  let activeAuth = 0;
+  const checkAuthRateLimit = createPlanRateLimiter(options.authRateLimit);
   const handler = (req: IncomingMessage, res: ServerResponse) => {
     if (req.method === "GET" && req.url === "/health") {
       sendJson(res, 200, { status: "ok" });
@@ -296,29 +347,29 @@ export function createPlanServer(options: {
       sendJson(res, 403, { error: "Güvenli bağlantı gerekli." });
       return;
     }
-    if (options.auth && req.method === "POST" && req.url === "/auth/apple/challenge") {
-      sendJson(res, 200, options.auth.challenge());
-      return;
-    }
-    if (options.auth && req.method === "POST" && req.url === "/auth/apple") {
-      readAuthBody(req).then(async (body) => {
-        if (!body || typeof body.identityToken !== "string" || typeof body.challengeId !== "string" || typeof body.nonce !== "string") {
-          sendJson(res, 400, { error: "Geçersiz istek." });
-          return;
-        }
-        const result = await options.auth!.signIn(body.identityToken, body.challengeId, body.nonce);
-        sendJson(res, result ? 200 : 401, result ?? { error: "Kimlik doğrulanamadı." });
-      }).catch(() => sendJson(res, 401, { error: "Kimlik doğrulanamadı." }));
-      return;
-    }
-    if (options.auth && req.method === "GET" && req.url === "/auth/session") {
-      const result = options.auth.session(bearerToken(req) ?? "");
-      sendJson(res, result ? 200 : 401, result ?? { error: "Oturum geçersiz." });
-      return;
-    }
-    if (options.auth && req.method === "DELETE" && req.url === "/auth/session") {
-      const revoked = options.auth.logout(bearerToken(req) ?? "");
-      sendJson(res, revoked ? 200 : 401, revoked ? { status: "signed_out" } : { error: "Oturum geçersiz." });
+    if (options.auth && req.url?.startsWith("/auth/")) {
+      const retryAfter = checkAuthRateLimit(req);
+      if (retryAfter !== null) { res.setHeader("Retry-After", String(retryAfter)); sendJson(res, 429, { error: "Çok fazla istek." }); return; }
+      if (activeAuth >= (options.maxConcurrentAuth ?? 8)) { res.setHeader("Retry-After", "5"); sendJson(res, 503, { error: "Sunucu meşgul." }); return; }
+      activeAuth++;
+      const controller = new AbortController();
+      let finished = false;
+      const onFinish = () => { finished = true; };
+      const onAbort = () => controller.abort();
+      const onClose = () => { if (!finished) controller.abort(); };
+      req.once("aborted", onAbort); res.once("finish", onFinish); res.once("close", onClose);
+      // Includes slow/chunked body reads, not just Apple verification.
+      const deadline = setTimeout(() => {
+        controller.abort();
+        req.destroy();
+      }, options.authRequestTimeoutMs ?? 30_000);
+      deadline.unref();
+      void handleAuthRequest(req, res, options.auth, controller.signal).catch(() => {
+        if (!controller.signal.aborted && !res.headersSent && !res.destroyed) sendJson(res, 500, { error: { code: "internal_error", message: "İşlem tamamlanamadı." } });
+      }).finally(() => {
+        clearTimeout(deadline);
+        activeAuth--; req.off("aborted", onAbort); res.off("finish", onFinish); res.off("close", onClose);
+      });
       return;
     }
     if (req.method === "POST" && req.url === "/plan") {

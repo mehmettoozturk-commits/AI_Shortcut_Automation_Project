@@ -32,7 +32,7 @@ export class AuthService {
     return { challengeId, nonce, expiresAt };
   }
 
-  async prepareAccountCreation(proof: AppleProof): Promise<AccountPreparation | null> {
+  async prepareAccountCreation(proof: AppleProof, signal?: AbortSignal): Promise<AccountPreparation | null> {
     return this.withVerifiedProof(proof, "login", undefined, identity => {
       const user = this.repository.findUserBySubject(identity.subject);
       if (user) {
@@ -44,11 +44,15 @@ export class AuthService {
       }
       const ticket = this.tickets.issue(identity.subject, this.repository.deletionCheckpoint());
       return { status: "account_creation_required", creationTicket: ticket.token, expiresAt: new Date(ticket.expiresAt).toISOString() };
-    });
+    }, signal);
+  }
+
+  assertCreationTicket(ticket: string): void {
+    if (!this.tickets.check(ticket)) throw new CreationTicketRejectedError();
   }
 
   creationChallenge(ticket: string) {
-    if (!this.tickets.check(ticket)) throw new CreationTicketRejectedError();
+    this.assertCreationTicket(ticket);
     const challengeId = randomUUID();
     const nonce = randomBytes(32).toString("base64url");
     const expiresAt = new Date(this.now() + CHALLENGE_LIFETIME_MS).toISOString();
@@ -56,7 +60,7 @@ export class AuthService {
     return { challengeId, nonce, expiresAt };
   }
 
-  async completeAccountCreation(ticket: string, operationId: string, proof: AppleProof): Promise<AccountCompletion | null> {
+  async completeAccountCreation(ticket: string, operationId: string, proof: AppleProof, signal?: AbortSignal): Promise<AccountCompletion | null> {
     try { if (!this.tickets.check(ticket)) return null; }
     catch (error) { if (error instanceof CreationTicketRejectedError) return null; throw error; }
     return this.withVerifiedProof(proof, "account_creation", hash(ticket), identity => {
@@ -82,7 +86,7 @@ export class AuthService {
         try { this.tickets.requireRecovery(ticket, operationId); } catch { /* Missing/expired is already fail-closed. */ }
         return { status: "recovery_required" };
       }
-    });
+    }, signal);
   }
 
   /** Internal coordination only; no HTTP deletion route is exposed. */
@@ -93,19 +97,22 @@ export class AuthService {
     return true;
   }
 
-  private async withVerifiedProof<T>(proof: AppleProof, purpose: AuthChallengePurpose, ticketHash: string | undefined, action: (identity: VerifiedAppleIdentity) => T): Promise<T | null> {
+  private async withVerifiedProof<T>(proof: AppleProof, purpose: AuthChallengePurpose, ticketHash: string | undefined, action: (identity: VerifiedAppleIdentity) => T, signal?: AbortSignal): Promise<T | null> {
     if (!proof.identityToken || proof.identityToken.length > 16_384 || !proof.nonce || proof.nonce.length > 256 || !proof.challengeId) return null;
     let guard;
     try { guard = this.repository.beginLoginGuard(); }
     catch (error) { if (error instanceof LoginGuardRejectedError) return null; throw error; }
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
     try {
+      if (signal?.aborted) return null;
       if (!this.repository.consumeChallenge(proof.challengeId, hash(proof.nonce), new Date(this.now()).toISOString(), purpose, ticketHash)) return null;
       const identity = await Promise.race([
         this.verifier.verify(proof.identityToken, AUDIENCE, proof.nonce),
         new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 20_000); }),
+        new Promise<null>(resolve => { onAbort = () => resolve(null); signal?.addEventListener("abort", onAbort, { once: true }); }),
       ]);
-      if (!identity) return null;
+      if (!identity || signal?.aborted) return null;
       this.repository.validateLoginGuard(guard, identity.subject);
       return action(identity);
     } catch (error) {
@@ -113,6 +120,7 @@ export class AuthService {
       throw error;
     } finally {
       if (timer !== undefined) clearTimeout(timer);
+      if (onAbort) signal?.removeEventListener("abort", onAbort);
       this.repository.releaseLoginGuard(guard);
     }
   }
