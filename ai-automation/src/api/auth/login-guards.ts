@@ -1,5 +1,5 @@
 import { createHmac, randomBytes } from "node:crypto";
-import type { LoginGuard } from "./types.js";
+import type { DeletionCheckpoint, LoginGuard } from "./types.js";
 
 export class LoginGuardRejectedError extends Error {
   constructor() { super("Login guard rejected."); this.name = "LoginGuardRejectedError"; }
@@ -11,6 +11,7 @@ export class LoginGuards {
   private generation = 0;
   private lostThrough = 0;
   private readonly active = new Set<LoginGuard>();
+  private readonly checkpoints = new WeakSet<DeletionCheckpoint>();
   private events: Array<{ generation: number; subjectDigest: string }> = [];
   constructor(private readonly now: () => number = Date.now) {}
 
@@ -29,6 +30,17 @@ export class LoginGuards {
   }
 
   release(guard: LoginGuard): void { this.active.delete(guard); }
+  checkpoint(): DeletionCheckpoint {
+    const checkpoint = Object.freeze({ generation: this.generation });
+    this.checkpoints.add(checkpoint);
+    return checkpoint;
+  }
+  validateCheckpoint(checkpoint: DeletionCheckpoint, subject: string): void {
+    if (!this.checkpoints.has(checkpoint) || checkpoint.generation < this.lostThrough
+      || this.events.some(event => event.generation > checkpoint.generation && event.subjectDigest === this.digest(subject))) {
+      throw new LoginGuardRejectedError();
+    }
+  }
   digest(subject: string): string { return createHmac("sha256", this.key).update(subject).digest("hex"); }
   deleted(subjectDigest: string): void {
     this.events.push({ generation: ++this.generation, subjectDigest });

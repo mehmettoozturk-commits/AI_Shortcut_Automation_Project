@@ -27,6 +27,10 @@ export interface AuthSession {
 }
 
 export interface AuthRepository {
+  deletionCheckpoint(): DeletionCheckpoint;
+  validateDeletionCheckpoint(checkpoint: DeletionCheckpoint, verifiedSubject: string): void;
+  findUserBySubject(appleSubject: string): AuthUser | null;
+  findUserById(userId: string): AuthUser | null;
   createUserWithInitialSession(appleSubject: string, session: Omit<AuthSession, "userId">): CreateAccountResult;
   beginLoginGuard(): LoginGuard;
   validateLoginGuard(guard: LoginGuard, verifiedAppleSubject: string): void;
@@ -50,3 +54,5 @@ export type CreateAccountResult =
   | { status: "account_exists" };
 
 export type AuthChallengePurpose = "login" | "account_creation";
+
+export interface DeletionCheckpoint { readonly generation: number }

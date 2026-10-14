@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { AuthChallengePurpose, AuthRepository, AuthSession, AuthUser, CreateAccountResult, LoginGuard } from "./types.js";
+import type { AuthChallengePurpose, AuthRepository, AuthSession, AuthUser, CreateAccountResult, DeletionCheckpoint, LoginGuard } from "./types.js";
 import { LoginGuards } from "./login-guards.js";
 
 interface Challenge { id: string; nonceHash: string; expiresAt: string; usedAt?: string; purpose?: AuthChallengePurpose; ticketHash?: string }
@@ -15,6 +15,11 @@ export class AuthDataIntegrityError extends Error {
   constructor() { super("Auth account identity is not unique."); this.name = "AuthDataIntegrityError"; }
 }
 
+/** Only emitted by the file adapter before its successful rename commit boundary. */
+export class AuthPersistenceNotCommittedError extends Error {
+  constructor(cause: unknown) { super("Auth persistence did not commit.", { cause }); this.name = "AuthPersistenceNotCommittedError"; }
+}
+
 /** Synchronous transactions keep challenge consumption atomic on this single Node process. */
 export class InMemoryAuthRepository implements AuthRepository {
   protected data: AuthData = { users: [], sessions: [], challenges: [] };
@@ -22,6 +27,10 @@ export class InMemoryAuthRepository implements AuthRepository {
   beginLoginGuard(): LoginGuard { return this.loginGuards.begin(); }
   validateLoginGuard(guard: LoginGuard, subject: string): void { this.loginGuards.validate(guard, subject); }
   releaseLoginGuard(guard: LoginGuard): void { this.loginGuards.release(guard); }
+  deletionCheckpoint(): DeletionCheckpoint { return this.loginGuards.checkpoint(); }
+  validateDeletionCheckpoint(checkpoint: DeletionCheckpoint, subject: string): void { this.loginGuards.validateCheckpoint(checkpoint, subject); }
+  findUserBySubject(subject: string): AuthUser | null { const user = this.data.users.find(user => user.appleSubject === subject); return user ? { ...user } : null; }
+  findUserById(id: string): AuthUser | null { const user = this.data.users.find(user => user.id === id); return user ? { ...user } : null; }
 
   createUserWithInitialSession(appleSubject: string, input: Omit<AuthSession, "userId">): CreateAccountResult {
     if (this.data.users.some(user => user.appleSubject === appleSubject)) return { status: "account_exists" };
@@ -52,9 +61,11 @@ export class InMemoryAuthRepository implements AuthRepository {
   createChallenge(id: string, nonceHash: string, expiresAt: string, purpose: AuthChallengePurpose = "login", ticketHash?: string): void {
     if (purpose === "account_creation" && (!ticketHash || !/^[a-f0-9]{64}$/.test(ticketHash))) throw new Error("Creation challenge binding required.");
     const now = new Date().toISOString();
-    this.data.challenges = this.data.challenges.filter((item) => item.expiresAt > now && !item.usedAt);
-    this.data.challenges.push({ id, nonceHash, expiresAt, purpose, ...(purpose === "account_creation" ? { ticketHash } : {}) });
-    this.persist();
+    const challenges = this.data.challenges.filter((item) => item.expiresAt > now && !item.usedAt);
+    challenges.push({ id, nonceHash, expiresAt, purpose, ...(purpose === "account_creation" ? { ticketHash } : {}) });
+    const candidate = { ...this.data, challenges };
+    this.persist(candidate);
+    this.data = candidate;
   }
 
   consumeChallenge(id: string, nonceHash: string, now: string, purpose: AuthChallengePurpose = "login", ticketHash?: string): boolean {
@@ -117,16 +128,16 @@ export class FileBackedAuthRepository extends InMemoryAuthRepository {
   }
 
   protected override persist(candidate: AuthData = this.data): void {
-    mkdirSync(dirname(this.filePath), { recursive: true, mode: 0o700 });
     const temporary = `${this.filePath}.${randomUUID()}.tmp`;
     try {
+      mkdirSync(dirname(this.filePath), { recursive: true, mode: 0o700 });
       writeFileSync(temporary, JSON.stringify(candidate), { mode: 0o600, flag: "wx" });
       // Commit boundary: no fallible work follows a successful rename.
       // This does not promise power-loss durability (no file/directory fsync).
       renameSync(temporary, this.filePath);
     } catch (error) {
       try { unlinkSync(temporary); } catch { /* Preserve the original failure. */ }
-      throw error;
+      throw new AuthPersistenceNotCommittedError(error);
     }
   }
 }

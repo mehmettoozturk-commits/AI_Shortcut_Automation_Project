@@ -1,6 +1,7 @@
 import { createHash, createHmac, randomBytes } from "node:crypto";
+import type { DeletionCheckpoint } from "./types.js";
 
-type Ticket = { subjectDigest: string; expiresAt: number; state: "valid" | "reserved" | "recovery_required"; operationId?: string };
+type Ticket = { subjectDigest: string; expiresAt: number; state: "valid" | "reserved" | "recovery_required"; operationId?: string; checkpoint?: DeletionCheckpoint };
 export class CreationTicketRejectedError extends Error {
   constructor() { super("Creation ticket rejected."); this.name = "CreationTicketRejectedError"; }
 }
@@ -11,13 +12,24 @@ export class CreationTicketStore {
   private readonly tickets = new Map<string, Ticket>();
   constructor(private readonly now: () => number = Date.now) {}
 
-  issue(verifiedSubject: string): { token: string; expiresAt: number } {
+  issue(verifiedSubject: string, checkpoint?: DeletionCheckpoint): { token: string; expiresAt: number } {
     this.prune();
     if (!verifiedSubject || this.tickets.size >= 1024) throw new CreationTicketRejectedError();
     const token = randomBytes(32).toString("base64url");
     const expiresAt = this.now() + 300_000;
-    this.tickets.set(this.hash(token), { subjectDigest: this.subject(verifiedSubject), expiresAt, state: "valid" });
+    this.tickets.set(this.hash(token), { subjectDigest: this.subject(verifiedSubject), expiresAt, state: "valid", checkpoint });
     return { token, expiresAt };
+  }
+
+  check(token: string, verifiedSubject?: string): DeletionCheckpoint | undefined {
+    const ticket = this.lookup(token);
+    if (ticket.state !== "valid" || (verifiedSubject !== undefined && ticket.subjectDigest !== this.subject(verifiedSubject))) throw new CreationTicketRejectedError();
+    return ticket.checkpoint;
+  }
+
+  invalidateSubject(verifiedSubject: string): void {
+    const digest = this.subject(verifiedSubject);
+    for (const [hash, ticket] of this.tickets) if (ticket.subjectDigest === digest) this.tickets.delete(hash);
   }
 
   reserve(token: string, verifiedSubject: string, operationId: string): void {
