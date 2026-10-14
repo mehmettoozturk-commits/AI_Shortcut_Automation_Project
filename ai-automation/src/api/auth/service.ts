@@ -1,5 +1,6 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { AppleIdentityVerifier, AuthRepository } from "./types.js";
+import { LoginGuardRejectedError } from "./login-guards.js";
 
 const AUDIENCE = "com.aishortcut.AutomationApp";
 const CHALLENGE_LIFETIME_MS = 5 * 60_000;
@@ -23,16 +24,32 @@ export class AuthService {
 
   async signIn(identityToken: string, challengeId: string, nonce: string) {
     if (!identityToken || identityToken.length > 16_384 || !nonce || nonce.length > 256 || !challengeId) return null;
-    const now = new Date(this.now()).toISOString();
-    // Consume before any await: simultaneous requests can create at most one session.
-    if (!this.repository.consumeChallenge(challengeId, hash(nonce), now)) return null;
-    const identity = await this.verifier.verify(identityToken, AUDIENCE, nonce);
-    if (!identity) return null;
-    const user = this.repository.getOrCreateUser(identity.subject, now);
-    const token = randomBytes(32).toString("base64url");
-    const expiresAt = new Date(this.now() + SESSION_LIFETIME_MS).toISOString();
-    this.repository.createSession({ id: randomUUID(), userId: user.id, tokenHash: hash(token), createdAt: now, expiresAt });
-    return { userId: user.id, sessionToken: token, expiresAt };
+    let guard;
+    try { guard = this.repository.beginLoginGuard(); }
+    catch (error) { if (error instanceof LoginGuardRejectedError) return null; throw error; }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const now = new Date(this.now()).toISOString();
+      if (!this.repository.consumeChallenge(challengeId, hash(nonce), now)) return null;
+      // Only the winning branch mutates account state; late verification is observed by race.
+      const identity = await Promise.race([
+        this.verifier.verify(identityToken, AUDIENCE, nonce),
+        new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), 20_000); }),
+      ]);
+      if (!identity) return null;
+      this.repository.validateLoginGuard(guard, identity.subject);
+      const user = this.repository.getOrCreateUser(identity.subject, now);
+      const token = randomBytes(32).toString("base64url");
+      const expiresAt = new Date(this.now() + SESSION_LIFETIME_MS).toISOString();
+      this.repository.createSession({ id: randomUUID(), userId: user.id, tokenHash: hash(token), createdAt: now, expiresAt });
+      return { userId: user.id, sessionToken: token, expiresAt };
+    } catch (error) {
+      if (error instanceof LoginGuardRejectedError) return null;
+      throw error;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      this.repository.releaseLoginGuard(guard);
+    }
   }
 
   session(token: string) {

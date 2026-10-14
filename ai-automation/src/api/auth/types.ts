@@ -27,6 +27,9 @@ export interface AuthSession {
 }
 
 export interface AuthRepository {
+  beginLoginGuard(): LoginGuard;
+  validateLoginGuard(guard: LoginGuard, verifiedAppleSubject: string): void;
+  releaseLoginGuard(guard: LoginGuard): void;
   deleteUserAndSessions(userId: string): boolean;
   createChallenge(id: string, nonceHash: string, expiresAt: string): void;
   consumeChallenge(id: string, nonceHash: string, now: string): boolean;
@@ -34,4 +37,9 @@ export interface AuthRepository {
   createSession(session: AuthSession): void;
   findSession(tokenHash: string, now: string): AuthSession | null;
   revokeSession(tokenHash: string, now: string): boolean;
+}
+
+export interface LoginGuard {
+  readonly generation: number;
+  readonly expiresAt: number;
 }

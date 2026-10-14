@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { AuthRepository, AuthSession, AuthUser } from "./types.js";
+import type { AuthRepository, AuthSession, AuthUser, LoginGuard } from "./types.js";
+import { LoginGuards } from "./login-guards.js";
 
 interface Challenge { id: string; nonceHash: string; expiresAt: string; usedAt?: string }
 interface AuthData { users: AuthUser[]; sessions: AuthSession[]; challenges: Challenge[] }
@@ -13,10 +14,16 @@ export class AuthUserNotFoundError extends Error {
 /** Synchronous transactions keep challenge consumption atomic on this single Node process. */
 export class InMemoryAuthRepository implements AuthRepository {
   protected data: AuthData = { users: [], sessions: [], challenges: [] };
+  private readonly loginGuards = new LoginGuards();
+  beginLoginGuard(): LoginGuard { return this.loginGuards.begin(); }
+  validateLoginGuard(guard: LoginGuard, subject: string): void { this.loginGuards.validate(guard, subject); }
+  releaseLoginGuard(guard: LoginGuard): void { this.loginGuards.release(guard); }
 
   /** One synchronous transaction; callers must use a single repository instance. */
   deleteUserAndSessions(userId: string): boolean {
-    if (!this.data.users.some(user => user.id === userId)) return false;
+    const user = this.data.users.find(user => user.id === userId);
+    if (!user) return false;
+    const subjectDigest = this.loginGuards.digest(user.appleSubject);
     const candidate: AuthData = {
       users: this.data.users.filter(user => user.id !== userId),
       sessions: this.data.sessions.filter(session => session.userId !== userId),
@@ -24,6 +31,7 @@ export class InMemoryAuthRepository implements AuthRepository {
     };
     this.persist(candidate);
     this.data = candidate;
+    this.loginGuards.deleted(subjectDigest);
     return true;
   }
 
