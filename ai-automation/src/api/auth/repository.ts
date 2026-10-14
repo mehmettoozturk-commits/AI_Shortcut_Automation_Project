@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { AuthRepository, AuthSession, AuthUser, LoginGuard } from "./types.js";
+import type { AuthRepository, AuthSession, AuthUser, CreateAccountResult, LoginGuard } from "./types.js";
 import { LoginGuards } from "./login-guards.js";
 
 interface Challenge { id: string; nonceHash: string; expiresAt: string; usedAt?: string }
@@ -11,6 +11,10 @@ export class AuthUserNotFoundError extends Error {
   constructor() { super("Session user does not exist."); this.name = "AuthUserNotFoundError"; }
 }
 
+export class AuthDataIntegrityError extends Error {
+  constructor() { super("Auth account identity is not unique."); this.name = "AuthDataIntegrityError"; }
+}
+
 /** Synchronous transactions keep challenge consumption atomic on this single Node process. */
 export class InMemoryAuthRepository implements AuthRepository {
   protected data: AuthData = { users: [], sessions: [], challenges: [] };
@@ -18,6 +22,16 @@ export class InMemoryAuthRepository implements AuthRepository {
   beginLoginGuard(): LoginGuard { return this.loginGuards.begin(); }
   validateLoginGuard(guard: LoginGuard, subject: string): void { this.loginGuards.validate(guard, subject); }
   releaseLoginGuard(guard: LoginGuard): void { this.loginGuards.release(guard); }
+
+  createUserWithInitialSession(appleSubject: string, input: Omit<AuthSession, "userId">): CreateAccountResult {
+    if (this.data.users.some(user => user.appleSubject === appleSubject)) return { status: "account_exists" };
+    const user = { id: randomUUID(), appleSubject, createdAt: input.createdAt };
+    const session: AuthSession = { ...input, userId: user.id };
+    const candidate = { ...this.data, users: [...this.data.users, user], sessions: [...this.data.sessions, session] };
+    this.persist(candidate);
+    this.data = candidate;
+    return { status: "created", user: { ...user }, session: { ...session } };
+  }
 
   /** One synchronous transaction; callers must use a single repository instance. */
   deleteUserAndSessions(userId: string): boolean {
@@ -89,6 +103,8 @@ export class FileBackedAuthRepository extends InMemoryAuthRepository {
     try {
       const parsed = JSON.parse(readFileSync(filePath, "utf8")) as AuthData;
       if (Array.isArray(parsed.users) && Array.isArray(parsed.sessions) && Array.isArray(parsed.challenges)) {
+        const subjects = parsed.users.map(user => user.appleSubject);
+        if (new Set(subjects).size !== subjects.length) throw new AuthDataIntegrityError();
         this.data = parsed;
       }
     } catch (error) {

@@ -27,6 +27,7 @@ export interface AuthSession {
 }
 
 export interface AuthRepository {
+  createUserWithInitialSession(appleSubject: string, session: Omit<AuthSession, "userId">): CreateAccountResult;
   beginLoginGuard(): LoginGuard;
   validateLoginGuard(guard: LoginGuard, verifiedAppleSubject: string): void;
   releaseLoginGuard(guard: LoginGuard): void;
@@ -43,3 +44,7 @@ export interface LoginGuard {
   readonly generation: number;
   readonly expiresAt: number;
 }
+
+export type CreateAccountResult =
+  | { status: "created"; user: AuthUser; session: AuthSession }
+  | { status: "account_exists" };
