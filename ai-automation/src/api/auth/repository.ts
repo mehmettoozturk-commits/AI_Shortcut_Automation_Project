@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
-import type { AuthRepository, AuthSession, AuthUser, CreateAccountResult, LoginGuard } from "./types.js";
+import type { AuthChallengePurpose, AuthRepository, AuthSession, AuthUser, CreateAccountResult, LoginGuard } from "./types.js";
 import { LoginGuards } from "./login-guards.js";
 
-interface Challenge { id: string; nonceHash: string; expiresAt: string; usedAt?: string }
+interface Challenge { id: string; nonceHash: string; expiresAt: string; usedAt?: string; purpose?: AuthChallengePurpose; ticketHash?: string }
 interface AuthData { users: AuthUser[]; sessions: AuthSession[]; challenges: Challenge[] }
 
 export class AuthUserNotFoundError extends Error {
@@ -49,18 +49,22 @@ export class InMemoryAuthRepository implements AuthRepository {
     return true;
   }
 
-  createChallenge(id: string, nonceHash: string, expiresAt: string): void {
+  createChallenge(id: string, nonceHash: string, expiresAt: string, purpose: AuthChallengePurpose = "login", ticketHash?: string): void {
+    if (purpose === "account_creation" && (!ticketHash || !/^[a-f0-9]{64}$/.test(ticketHash))) throw new Error("Creation challenge binding required.");
     const now = new Date().toISOString();
     this.data.challenges = this.data.challenges.filter((item) => item.expiresAt > now && !item.usedAt);
-    this.data.challenges.push({ id, nonceHash, expiresAt });
+    this.data.challenges.push({ id, nonceHash, expiresAt, purpose, ...(purpose === "account_creation" ? { ticketHash } : {}) });
     this.persist();
   }
 
-  consumeChallenge(id: string, nonceHash: string, now: string): boolean {
+  consumeChallenge(id: string, nonceHash: string, now: string, purpose: AuthChallengePurpose = "login", ticketHash?: string): boolean {
     const challenge = this.data.challenges.find((item) => item.id === id);
     if (!challenge || challenge.usedAt || challenge.expiresAt <= now || challenge.nonceHash !== nonceHash) return false;
-    challenge.usedAt = now;
-    this.persist();
+    if ((challenge.purpose ?? "login") !== purpose) return false;
+    if (purpose === "account_creation" && (!ticketHash || challenge.ticketHash !== ticketHash)) return false;
+    const candidate = { ...this.data, challenges: this.data.challenges.map(item => item === challenge ? { ...item, usedAt: now } : item) };
+    this.persist(candidate);
+    this.data = candidate;
     return true;
   }
 

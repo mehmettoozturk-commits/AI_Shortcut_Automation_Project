@@ -32,8 +32,8 @@ export interface AuthRepository {
   validateLoginGuard(guard: LoginGuard, verifiedAppleSubject: string): void;
   releaseLoginGuard(guard: LoginGuard): void;
   deleteUserAndSessions(userId: string): boolean;
-  createChallenge(id: string, nonceHash: string, expiresAt: string): void;
-  consumeChallenge(id: string, nonceHash: string, now: string): boolean;
+  createChallenge(id: string, nonceHash: string, expiresAt: string, purpose?: AuthChallengePurpose, ticketHash?: string): void;
+  consumeChallenge(id: string, nonceHash: string, now: string, purpose?: AuthChallengePurpose, ticketHash?: string): boolean;
   getOrCreateUser(appleSubject: string, now: string): AuthUser;
   createSession(session: AuthSession): void;
   findSession(tokenHash: string, now: string): AuthSession | null;
@@ -48,3 +48,5 @@ export interface LoginGuard {
 export type CreateAccountResult =
   | { status: "created"; user: AuthUser; session: AuthSession }
   | { status: "account_exists" };
+
+export type AuthChallengePurpose = "login" | "account_creation";
