@@ -17,16 +17,22 @@ public struct AutomationRootView: View {
     }
 
     public var body: some View {
-        content
+        VStack(spacing: 8) {
+            if let message = viewModel.persistenceMessage ?? viewModel.storageMessage {
+                Text(message).foregroundStyle(.red)
+                    .accessibilityIdentifier("persistenceErrorMessage")
+            }
+            content
+        }
             .task { await viewModel.restoreAccount() }
+            .task(id: isIdle) {
+                if isIdle { await viewModel.start() }
+            }
             #if os(iOS)
             .onReceive(NotificationCenter.default.publisher(for: ASAuthorizationAppleIDProvider.credentialRevokedNotification)) { _ in
                 Task { await viewModel.restoreAccount() }
             }
             #endif
-            .task(id: isIdle) {
-                if isIdle { await viewModel.start() }
-            }
     }
 
     /// `BuilderStep` `Equatable` değil (Codable eklemek yeterliydi, bkz.
@@ -39,6 +45,9 @@ public struct AutomationRootView: View {
 
     @ViewBuilder
     private var content: some View {
+        if let selected = viewModel.selectedAutomation {
+            AutomationDetailView(viewModel: viewModel, automation: selected)
+        } else {
         switch viewModel.step {
         case .idle, .capturing:
             HomeView(viewModel: viewModel)
@@ -66,6 +75,7 @@ public struct AutomationRootView: View {
             SuccessView(viewModel: viewModel, automation: automation)
         case .setupFailed(let draft, let setup, let reason):
             SetupFailedView(viewModel: viewModel, draft: draft, setup: setup, reason: reason)
+        }
         }
     }
 }

@@ -114,7 +114,7 @@ final class ConversationLeakageTests: XCTestCase {
         guard case .userAssistedImport = machine.step else { return XCTFail("userAssistedImport bekleniyordu") }
         await machine.handOffToShortcuts()
         guard case .waitingForUser = machine.step else { return XCTFail("waitingForUser bekleniyordu") }
-        machine.confirmShortcutAdded()
+        await machine.confirmShortcutAdded()
         guard case .linkingTrigger = machine.step else { return XCTFail("linkingTrigger bekleniyordu") }
         await machine.confirmTriggerLinked()
 
@@ -228,7 +228,7 @@ final class ConversationLeakageTests: XCTestCase {
         await machine.create()
         await machine.prepareHandoff()
         await machine.handOffToShortcuts()
-        machine.confirmShortcutAdded()
+        await machine.confirmShortcutAdded()
         await machine.confirmTriggerLinked()
         guard case .installed(let automation) = machine.step else { return XCTFail("installed expected") }
         XCTAssertEqual(automation.installStatus, .installed)

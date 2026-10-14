@@ -16,26 +16,36 @@ public actor InMemoryAutomationRepository: AutomationRepository {
     }
 
     public func list() async -> [Automation] { items }
+    public func storageState() async -> AutomationStorageState { .ready }
 
     /// Phase 3C-3: gerçek bir UPSERT — aynı `id` ile tekrar save()
     /// çağrısı kaydı GÜNCELLER, çoğaltmaz. `BuilderMachine` artık
     /// `create()`'te erken bir kayıt oluşturup aynı id'yi akış boyunca
     /// güncellediği için bu düzeltme zorunlu hale geldi.
-    public func save(_ automation: Automation) async {
+    @discardableResult public func save(_ automation: Automation) async -> Bool {
         if let idx = items.firstIndex(where: { $0.id == automation.id }) {
             items[idx] = automation
         } else {
             items.insert(automation, at: 0)
         }
+        return true
     }
 
-    public func setActive(_ id: String, active: Bool) async {
+    public func setActive(_ id: String, active: Bool) async -> Bool {
+        guard items.contains(where: { $0.id == id }) else { return false }
         items = items.map { a in
             guard a.id == id else { return a }
             var copy = a
             copy.status = active ? .active : .paused
             return copy
         }
+        return true
+    }
+
+    public func deleteLocalRecord(_ id: String) async -> Bool {
+        guard items.contains(where: { $0.id == id }) else { return false }
+        items.removeAll { $0.id == id }
+        return true
     }
 }
 

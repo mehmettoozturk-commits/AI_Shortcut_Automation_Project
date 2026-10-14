@@ -19,6 +19,8 @@ import Combine
 @MainActor
 public final class BuilderMachine: ObservableObject {
     @Published public private(set) var step: BuilderStep = .idle
+    @Published public private(set) var plannerFailure: PlannerError?
+    @Published public private(set) var persistenceMessage: String?
 
     private let registry: CapabilityRegistry
     private let planner: Planner
@@ -42,6 +44,8 @@ public final class BuilderMachine: ObservableObject {
     /// kayda güncelleme (upsert) yapmak için taşınır — `pendingHandoff`
     /// ile aynı patern, `BuilderStep`'in şeklini bozmamak için private.
     private var currentAutomationId: String?
+    private var currentCreatedAt: Date?
+    private var revisionSource: (id: String, version: Int)?
 
     public init(
         registry: CapabilityRegistry,
@@ -72,8 +76,30 @@ public final class BuilderMachine: ObservableObject {
     // MARK: - idle <-> capturing
 
     public func open(prefillText: String = "") async {
+        persistenceMessage = nil
+        plannerFailure = nil
+        currentAutomationId = nil
+        currentCreatedAt = nil
+        revisionSource = nil
+        pendingHandoff = nil
         await planner.resetConversation()
         step = .capturing(text: prefillText, draft: nil, notUnderstood: false)
+    }
+
+    /// Editing an installed record starts a new plan/setup attempt; the old
+    /// record and any Shortcuts artifact remain untouched.
+    public func openRevision(of id: String) async -> Bool {
+        guard let original = await repository.list().first(where: { $0.id == id }),
+              original.installStatus == .installed else { return false }
+        currentAutomationId = nil
+        currentCreatedAt = nil
+        pendingHandoff = nil
+        revisionSource = (original.id, original.version)
+        plannerFailure = nil
+        await planner.resetConversation()
+        let draft = DraftAutomationPlan(name: original.name, trigger: original.trigger, steps: original.workflow)
+        step = .capturing(text: "", draft: draft, notUnderstood: false)
+        return true
     }
 
     /// ✕ — akıştan tamamen çıkış. `create()`'ten beri bir `pendingUser`
@@ -82,7 +108,11 @@ public final class BuilderMachine: ObservableObject {
     /// kendi bağlantısı (`currentAutomationId`) sıfırlanır ki bir
     /// sonraki `create()` YENİ bir kayıt üretsin.
     public func close() async {
+        persistenceMessage = nil
+        plannerFailure = nil
         currentAutomationId = nil
+        currentCreatedAt = nil
+        revisionSource = nil
         pendingHandoff = nil
         await planner.resetConversation()
         step = .idle
@@ -100,7 +130,11 @@ public final class BuilderMachine: ObservableObject {
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return }
 
+        plannerFailure = nil
         let result = await planner.plan(text: text, existingDraft: existingDraft)
+        if case .notUnderstood = result, let httpPlanner = planner as? HTTPBackedPlanner {
+            plannerFailure = await httpPlanner.lastError
+        }
 
         let draft: DraftAutomationPlan
         switch result {
@@ -246,14 +280,65 @@ public final class BuilderMachine: ObservableObject {
             return
         }
         let setupKind = resolveSetupKind(draft)
-        let id = idGenerator()
+        let id = currentAutomationId ?? idGenerator()
         currentAutomationId = id
-        let pending = buildAutomation(draft, setup: setupKind, installStatus: .pendingUser, id: id)
-        await repository.save(pending)
+        currentCreatedAt = currentCreatedAt ?? now()
+        let pending = buildAutomation(draft, setup: setupKind, installStatus: .pendingUser, id: id, progress: .setup)
+        guard await saveRequired(pending) else { return }
         if await repository.list().contains(where: { $0.id == id }) {
             await recordActivity(.automationCreated, source: .appObserved, for: pending, eventId: "created-\(id)")
+            if pending.sourceAutomationId != nil {
+                await recordActivity(.revisionCreated, source: .appObserved, for: pending, eventId: "revision-\(id)")
+            }
         }
         step = .setup(draft: draft, setup: setupKind)
+    }
+
+    /// Opens an existing pending record. No planner call, new ID, or implicit
+    /// Shortcuts installation occurs; old records without a checkpoint start
+    /// at the safe setup entrance.
+    public func resumePending(_ id: String) async -> Bool {
+        guard await repository.storageState() == .ready else {
+            persistenceMessage = "Otomasyon kayıtları okunamıyor. Veri korunuyor; kurtarma gerekiyor."
+            return false
+        }
+        guard let automation = await repository.list().first(where: { $0.id == id }),
+              automation.installStatus == .pendingUser, automation.status == .active else { return false }
+        persistenceMessage = nil
+        let draft = DraftAutomationPlan(name: automation.name, trigger: automation.trigger, steps: automation.workflow)
+        let resolved = resolveSetupKind(draft)
+        let setupKind: SetupKind
+        if automation.requiresGuidedSetup {
+            if case .guidedManual = resolved {
+                setupKind = resolved
+            } else {
+                setupKind = .guidedManual(steps: ["Kestirmeler'deki mevcut kurulumu kontrol et."])
+            }
+        } else {
+            setupKind = .userAssistedImport
+        }
+        currentAutomationId = automation.id
+        currentCreatedAt = automation.createdAt
+        revisionSource = automation.sourceAutomationId.map { ($0, max(1, automation.version - 1)) }
+        pendingHandoff = nil
+        await planner.resetConversation()
+        switch automation.setupProgress ?? .setup {
+        case .setup:
+            step = .setup(draft: draft, setup: setupKind)
+        case .importReady:
+            switch await setup.prepare(draft) {
+            case .ready(let url, let suggestedName):
+                pendingHandoff = (url, suggestedName)
+                step = .userAssistedImport(draft: draft, setup: setupKind)
+            case .noTemplateAvailable(let reason):
+                step = .setupFailed(draft: draft, setup: setupKind, reason: reason)
+            }
+        case .waitingForUser:
+            step = .waitingForUser(draft: draft, setup: setupKind)
+        case .linkingTrigger:
+            step = .linkingTrigger(draft: draft, setup: setupKind, steps: triggerLinkingSteps(draft))
+        }
+        return true
     }
 
     /// Phase 3C-3: `.noTemplateAvailable` durumunda kayıt `failed`
@@ -268,6 +353,7 @@ public final class BuilderMachine: ObservableObject {
             step = .setupFailed(draft: draft, setup: setupKind, reason: reason)
         case .ready(let url, let suggestedName):
             pendingHandoff = (url, suggestedName)
+            guard await savePending(draft, setup: setupKind, progress: .importReady) else { return }
             step = .userAssistedImport(draft: draft, setup: setupKind)
         }
     }
@@ -284,13 +370,16 @@ public final class BuilderMachine: ObservableObject {
         guard case .userAssistedImport(let draft, let setupKind) = step,
               let handoff = pendingHandoff
         else { return }
+        // Persist before opening another app: retrying a failed write must
+        // never repeat an external handoff implicitly.
+        guard await savePending(draft, setup: setupKind, progress: .waitingForUser) else { return }
         let opened = await shortcutsHandoff.open(handoff.url)
         guard opened else {
             // OS'un URL'i açamaması GERÇEKTEN bilinen bir hata (örn.
             // Shortcuts kurulu değil) — kayıt `.failed` olarak güncellenir.
             if let id = currentAutomationId {
                 let failed = buildAutomation(draft, setup: setupKind, installStatus: .failed, id: id)
-                await repository.save(failed)
+                guard await saveRequired(failed) else { return }
             }
             step = .setupFailed(draft: draft, setup: setupKind, reason: "Kestirmeler uygulaması açılamadı.")
             return
@@ -306,8 +395,9 @@ public final class BuilderMachine: ObservableObject {
     /// Phase 3B Test 2 (gerçek cihaz): bu, otomasyon tetikleyicisinin
     /// BAĞLANDIĞI anlamına GELMEZ — o programatik değil. Bu yüzden
     /// `installed`'a değil `linkingTrigger`'a geçilir.
-    public func confirmShortcutAdded() {
+    public func confirmShortcutAdded() async {
         guard case .waitingForUser(let draft, let setupKind) = step else { return }
+        guard await savePending(draft, setup: setupKind, progress: .linkingTrigger) else { return }
         step = .linkingTrigger(draft: draft, setup: setupKind, steps: triggerLinkingSteps(draft))
     }
 
@@ -320,7 +410,7 @@ public final class BuilderMachine: ObservableObject {
         guard case .linkingTrigger(let draft, let setupKind, _) = step else { return }
         let id = currentAutomationId ?? idGenerator()
         let automation = buildAutomation(draft, setup: setupKind, installStatus: .installed, id: id)
-        await repository.save(automation)
+        guard await saveRequired(automation) else { return }
         await recordActivity(.setupUserConfirmed, source: .userReported, for: automation, eventId: "confirmed-\(id)")
         step = .installed(automation: automation)
     }
@@ -332,7 +422,7 @@ public final class BuilderMachine: ObservableObject {
         guard case .setup(let draft, let setupKind) = step, isGuidedManual(setupKind) else { return }
         let id = currentAutomationId ?? idGenerator()
         let automation = buildAutomation(draft, setup: setupKind, installStatus: .installed, id: id)
-        await repository.save(automation)
+        guard await saveRequired(automation) else { return }
         await recordActivity(.setupUserConfirmed, source: .userReported, for: automation, eventId: "confirmed-\(id)")
         step = .installed(automation: automation)
     }
@@ -354,7 +444,7 @@ public final class BuilderMachine: ObservableObject {
         }
         if let id = currentAutomationId {
             let failed = buildAutomation(draft, setup: setupKind, installStatus: .failed, id: id)
-            await repository.save(failed)
+            guard await saveRequired(failed) else { return }
         }
         step = .setupFailed(draft: draft, setup: setupKind, reason: reason)
     }
@@ -365,8 +455,8 @@ public final class BuilderMachine: ObservableObject {
     public func retrySetup() async {
         guard case .setupFailed(let draft, let setupKind, _) = step else { return }
         if let id = currentAutomationId {
-            let pending = buildAutomation(draft, setup: setupKind, installStatus: .pendingUser, id: id)
-            await repository.save(pending)
+            let pending = buildAutomation(draft, setup: setupKind, installStatus: .pendingUser, id: id, progress: .setup)
+            guard await saveRequired(pending) else { return }
         }
         step = .setup(draft: draft, setup: setupKind)
     }
@@ -541,23 +631,42 @@ public final class BuilderMachine: ObservableObject {
     /// kaydını GÜNCELLEMEK (upsert) için, her çağrıda yeni bir id
     /// üretilmiyor.
     private func buildAutomation(
-        _ draft: DraftAutomationPlan, setup: SetupKind, installStatus: InstallStatus, id: String
+        _ draft: DraftAutomationPlan, setup: SetupKind, installStatus: InstallStatus, id: String,
+        progress: SetupProgress? = nil
     ) -> Automation {
         let timestamp = now()
         return Automation(
             id: id,
-            userId: "local",
+            userId: AccountState.localAutomationOwnerID,
             name: draft.name,
             platform: platform,
             status: .active,
             trigger: draft.trigger,
             workflow: draft.steps,
-            version: 1,
-            createdAt: timestamp,
+            version: (revisionSource?.version ?? 0) + 1,
+            createdAt: currentCreatedAt ?? timestamp,
             updatedAt: timestamp,
             requiresGuidedSetup: isGuidedManual(setup),
-            installStatus: installStatus
+            installStatus: installStatus,
+            setupProgress: progress,
+            sourceAutomationId: revisionSource?.id
         )
+    }
+
+    private func savePending(_ draft: DraftAutomationPlan, setup: SetupKind, progress: SetupProgress) async -> Bool {
+        guard let id = currentAutomationId else { return false }
+        return await saveRequired(buildAutomation(draft, setup: setup, installStatus: .pendingUser, id: id, progress: progress))
+    }
+
+    private func saveRequired(_ automation: Automation) async -> Bool {
+        guard await repository.save(automation) else {
+            persistenceMessage = await repository.storageState() == .ready
+                ? "Değişiklik kaydedilemedi. Bu adım tamamlanmadı; tekrar denemek için düğmeye yeniden bas."
+                : "Otomasyon kayıtları okunamıyor. Veri korunuyor; kurtarma yapılmadan kayıt değiştirilemez."
+            return false
+        }
+        persistenceMessage = nil
+        return true
     }
 
     private func recordActivity(
@@ -566,8 +675,12 @@ public final class BuilderMachine: ObservableObject {
     ) async {
         guard let activityStore else { return }
         let event = AutomationActivity(
-            eventId: eventId, automationId: automation.sourceAutomationId ?? automation.id,
-            revisionId: automation.id, eventType: type, source: source, timestamp: now()
+            eventId: eventId,
+            automationId: automation.sourceAutomationId ?? automation.id,
+            revisionId: automation.id,
+            eventType: type,
+            source: source,
+            timestamp: now()
         )
         _ = await activityStore.append(event)
     }

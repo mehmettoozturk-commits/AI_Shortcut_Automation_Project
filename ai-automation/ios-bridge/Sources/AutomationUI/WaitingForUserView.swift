@@ -17,7 +17,7 @@ struct WaitingForUserView: View {
                 .font(.headline)
 
             Button("Ekledim") {
-                viewModel.confirmShortcutAdded()
+                Task { await viewModel.confirmShortcutAdded() }
             }
             .accessibilityIdentifier("confirmShortcutAddedButton")
 

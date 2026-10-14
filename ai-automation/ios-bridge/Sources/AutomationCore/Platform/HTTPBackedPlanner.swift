@@ -140,6 +140,9 @@ public actor HTTPBackedPlanner: Planner {
         } catch let error as PlannerError {
             lastError = error
             return .notUnderstood
+        } catch let error as URLError where error.code == .timedOut {
+            lastError = .requestTimedOut
+            return .notUnderstood
         } catch {
             lastError = .plannerUnreachable(message: "\(error)")
             return .notUnderstood
@@ -181,7 +184,7 @@ public actor HTTPBackedPlanner: Planner {
             let raw = try? JSONDecoder().decode(RawPlanResponse.self, from: result.body)
             throw PlannerError.providerUnavailable(message: raw?.message ?? "Sağlayıcı şu anda kullanılamıyor.")
         default:
-            throw PlannerError.plannerUnreachable(message: "Beklenmeyen HTTP durumu: \(result.statusCode)")
+            throw PlannerError.serverUnavailable(status: result.statusCode)
         }
     }
 

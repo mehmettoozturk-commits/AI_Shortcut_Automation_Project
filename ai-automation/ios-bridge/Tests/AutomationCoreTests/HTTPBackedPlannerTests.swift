@@ -118,7 +118,7 @@ final class HTTPBackedPlannerTests: XCTestCase {
             await machine.create()
             await machine.prepareHandoff()
             await machine.handOffToShortcuts()
-            machine.confirmShortcutAdded()
+            await machine.confirmShortcutAdded()
 
             guard case .linkingTrigger(_, _, let steps) = machine.step else {
                 return XCTFail("iOS \(osVersion): tetikleyici bağlama ekranı bekleniyordu")
@@ -448,16 +448,30 @@ final class HTTPBackedPlannerTests: XCTestCase {
         XCTAssertTrue(saved.isEmpty)
     }
 
-    func testNetworkTimeout_mapsToPlannerUnreachable() async throws {
+    func testNetworkTimeout_hasDistinctType() async throws {
         let transport = FakeTransport(throwing: URLError(.timedOut))
         let planner = HTTPBackedPlanner(transport: transport, permissions: MockPermissionService(granted: ["bluetooth", "tesla_account"]))
 
         let result = await planner.plan(text: "x", existingDraft: nil)
         XCTAssertEqual(result, .notUnderstood)
         let lastError = await planner.lastError
-        guard case .plannerUnreachable = lastError else {
-            return XCTFail("plannerUnreachable bekleniyordu, gelen: \(String(describing: lastError))")
+        guard case .requestTimedOut = lastError else {
+            return XCTFail("requestTimedOut bekleniyordu, gelen: \(String(describing: lastError))")
         }
+    }
+
+    func testServerFailureIsNotNetworkTimeoutOrUnreachable() async {
+        let planner = HTTPBackedPlanner(transport: FakeTransport(responses: [PlanHTTPResult(statusCode: 503, body: Data("{}".utf8))]), permissions: MockPermissionService())
+        _ = await planner.plan(text: "x", existingDraft: nil)
+        let error = await planner.lastError
+        XCTAssertEqual(error, .serverUnavailable(status: 503))
+    }
+
+    func testConnectionFailureIsNotTimeout() async {
+        let planner = HTTPBackedPlanner(transport: FakeTransport(throwing: URLError(.cannotConnectToHost)), permissions: MockPermissionService())
+        _ = await planner.plan(text: "x", existingDraft: nil)
+        let error = await planner.lastError
+        guard case .plannerUnreachable = error else { return XCTFail("connection failure must remain distinct") }
     }
 
     // MARK: - Mimari değişmez: capability id hardcode edilmemiş

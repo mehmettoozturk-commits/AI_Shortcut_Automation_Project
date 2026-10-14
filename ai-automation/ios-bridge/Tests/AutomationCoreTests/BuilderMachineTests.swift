@@ -146,7 +146,7 @@ final class BuilderMachineTests: XCTestCase {
         XCTAssertEqual(beforeConfirm.first?.installStatus, .pendingUser)
 
         // "Ekledim" — Phase 3B Test 2: bu HENÜZ installed'a götürmez.
-        machine.confirmShortcutAdded()
+        await machine.confirmShortcutAdded()
         guard case .linkingTrigger(_, _, let steps) = machine.step else {
             return XCTFail("linkingTrigger bekleniyordu")
         }
@@ -162,6 +162,44 @@ final class BuilderMachineTests: XCTestCase {
 
         let saved = await repo.list()
         XCTAssertEqual(saved.count, 1)
+    }
+
+    func testActivityLogSeparatesAppActionsFromUserReportedInstall() async throws {
+        let registry = try makeRegistry()
+        let repo = InMemoryAutomationRepository()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let activityStore = FileBackedAutomationActivityStore(directory: directory)
+        let machine = BuilderMachine(
+            registry: registry,
+            planner: MockPlanner(registry: registry),
+            permissions: MockPermissionService(granted: ["bluetooth", "tesla_account"]),
+            setup: MockSetupService(),
+            shortcutsHandoff: MockShortcutsHandoff(),
+            repository: repo,
+            activityStore: activityStore,
+            device: DeviceContext(osVersion: 26, hasCarPlay: false),
+            idGenerator: { "activity-auto" }
+        )
+        await machine.open()
+        machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
+        await machine.submit()
+        await machine.confirmUnderstanding()
+        await machine.create()
+        await machine.prepareHandoff()
+        await machine.handOffToShortcuts()
+        await machine.confirmShortcutAdded()
+        await machine.confirmTriggerLinked()
+        await machine.confirmTriggerLinked() // repeat must not create another report
+
+        let events = await FileBackedAutomationActivityStore(directory: directory).list()
+        XCTAssertEqual(events.count, 3)
+        XCTAssertEqual(Set(events.map(\.eventType)), [
+            .automationCreated, .setupHandoffOpened, .setupUserConfirmed
+        ])
+        XCTAssertEqual(events.first(where: { $0.eventType == .setupUserConfirmed })?.source, .userReported)
+        XCTAssertTrue(events.filter { $0.eventType != .setupUserConfirmed }.allSatisfy { $0.source == .appObserved })
+        XCTAssertTrue(events.allSatisfy { $0.automationId == "activity-auto" && $0.revisionId == "activity-auto" })
     }
 
     func testWaitingForUser_noAutomaticProgression() async throws {
@@ -183,6 +221,106 @@ final class BuilderMachineTests: XCTestCase {
         let saved = await repo.list()
         XCTAssertEqual(saved.count, 1)
         XCTAssertEqual(saved.first?.installStatus, .pendingUser)
+    }
+
+    func testPendingSetupResumesSameRecordAfterMachineRestart() async throws {
+        let registry = try makeRegistry()
+        let (first, repo) = makeMachine(registry: registry)
+        await first.open()
+        first.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
+        await first.submit()
+        await first.confirmUnderstanding()
+        await first.create()
+        guard let before = await repo.list().first else { return XCTFail("pending kayıt bekleniyordu") }
+        XCTAssertEqual(before.setupProgress, .setup)
+        await first.close()
+
+        let restarted = BuilderMachine(
+            registry: registry,
+            planner: MockPlanner(registry: registry),
+            permissions: MockPermissionService(granted: ["bluetooth", "tesla_account"]),
+            setup: MockSetupService(),
+            shortcutsHandoff: MockShortcutsHandoff(),
+            repository: repo,
+            device: DeviceContext(osVersion: 26, hasCarPlay: false),
+            idGenerator: { "must-not-generate-new-id" }
+        )
+        let resumed = await restarted.resumePending(before.id)
+        XCTAssertTrue(resumed)
+        guard case .setup = restarted.step else { return XCTFail("setup aşamasından devam etmeli") }
+        await restarted.prepareHandoff()
+        let after = await repo.list()
+        XCTAssertEqual(after.count, 1)
+        XCTAssertEqual(after.first?.id, before.id)
+        XCTAssertEqual(after.first?.createdAt, before.createdAt)
+        XCTAssertEqual(after.first?.setupProgress, .importReady)
+    }
+
+    func testLinkingStageResumesWithoutClaimingInstalled() async throws {
+        let registry = try makeRegistry()
+        let (first, repo) = makeMachine(registry: registry)
+        await first.open()
+        first.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
+        await first.submit()
+        await first.confirmUnderstanding()
+        await first.create()
+        await first.prepareHandoff()
+        await first.handOffToShortcuts()
+        await first.confirmShortcutAdded()
+        guard let before = await repo.list().first else { return XCTFail("pending kayıt bekleniyordu") }
+        XCTAssertEqual(before.setupProgress, .linkingTrigger)
+
+        let restarted = BuilderMachine(
+            registry: registry,
+            planner: MockPlanner(registry: registry),
+            permissions: MockPermissionService(granted: ["bluetooth", "tesla_account"]),
+            setup: MockSetupService(),
+            shortcutsHandoff: MockShortcutsHandoff(),
+            repository: repo,
+            device: DeviceContext(osVersion: 26, hasCarPlay: false),
+            idGenerator: { "must-not-generate-new-id" }
+        )
+        let resumed = await restarted.resumePending(before.id)
+        XCTAssertTrue(resumed)
+        guard case .linkingTrigger = restarted.step else { return XCTFail("tetikleyici bağlama aşaması bekleniyordu") }
+        let after = await repo.list()
+        XCTAssertEqual(after.count, 1)
+        XCTAssertEqual(after.first?.installStatus, .pendingUser)
+    }
+
+    func testEditingInstalledCreatesSeparatePendingRevisionWithoutMutatingOriginal() async throws {
+        let registry = try makeRegistry()
+        let (machine, repo) = makeMachine(registry: registry)
+        await machine.open()
+        machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
+        await machine.submit()
+        await machine.confirmUnderstanding()
+        await machine.create()
+        await machine.prepareHandoff()
+        await machine.handOffToShortcuts()
+        await machine.confirmShortcutAdded()
+        await machine.confirmTriggerLinked()
+        guard let original = await repo.list().first else { return XCTFail("installed kayıt bekleniyordu") }
+        XCTAssertEqual(original.installStatus, .installed)
+
+        let opened = await machine.openRevision(of: original.id)
+        XCTAssertTrue(opened)
+        guard case .capturing(_, let existingDraft, _) = machine.step else { return XCTFail("capturing bekleniyordu") }
+        XCTAssertNotNil(existingDraft)
+        machine.setText("Arabadan inince Tesla Model Y Sentry Mode'u aç")
+        await machine.submit()
+        await machine.confirmUnderstanding()
+        await machine.create()
+
+        let records = await repo.list()
+        XCTAssertEqual(records.count, 2)
+        let newAttempt = try XCTUnwrap(records.first { $0.id != original.id })
+        XCTAssertEqual(newAttempt.installStatus, .pendingUser)
+        XCTAssertEqual(newAttempt.sourceAutomationId, original.id)
+        XCTAssertEqual(newAttempt.version, original.version + 1)
+        let unchangedOriginal = try XCTUnwrap(records.first { $0.id == original.id })
+        XCTAssertEqual(unchangedOriginal.installStatus, .installed)
+        XCTAssertNil(unchangedOriginal.sourceAutomationId)
     }
 
     func testShowSuccessRequiresInstalledFirst() async throws {
@@ -213,7 +351,7 @@ final class BuilderMachineTests: XCTestCase {
         await machine.create()
         await machine.prepareHandoff()
         await machine.handOffToShortcuts()
-        machine.confirmShortcutAdded() // "Ekledim"
+        await machine.confirmShortcutAdded() // "Ekledim"
         guard case .linkingTrigger = machine.step else { return XCTFail("linkingTrigger bekleniyordu") }
         let saved = await repo.list()
         XCTAssertEqual(saved.count, 1)
@@ -256,7 +394,7 @@ final class BuilderMachineTests: XCTestCase {
         await machine.create()
         await machine.prepareHandoff()
         await machine.handOffToShortcuts()
-        machine.confirmShortcutAdded()
+        await machine.confirmShortcutAdded()
 
         try await Task.sleep(nanoseconds: 30_000_000)
 
@@ -281,7 +419,7 @@ final class BuilderMachineTests: XCTestCase {
         await machine.create()
         await machine.prepareHandoff()
         await machine.handOffToShortcuts()
-        machine.confirmShortcutAdded()
+        await machine.confirmShortcutAdded()
         await machine.reportInstallFailed(reason: "Otomasyon tetikleyicisi bağlanamadı.")
         guard case .setupFailed(_, _, let reason) = machine.step else {
             return XCTFail("setupFailed bekleniyordu")

@@ -18,6 +18,11 @@ struct SetupView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
+            Button("Ana ekrana dön") {
+                Task { await viewModel.close() }
+            }
+            .accessibilityIdentifier("returnHomeButton")
+
             Text("Son adım: kurulum")
                 .font(.headline)
 

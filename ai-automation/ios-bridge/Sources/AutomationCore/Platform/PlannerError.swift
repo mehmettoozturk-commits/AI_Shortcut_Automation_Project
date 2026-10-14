@@ -22,4 +22,6 @@ public enum PlannerError: Sendable, Equatable, Error {
     /// Ağ zaman aşımı, beklenmeyen bir HTTP durumu, ya da sunucuya hiç
     /// ulaşılamaması.
     case plannerUnreachable(message: String)
+    case requestTimedOut
+    case serverUnavailable(status: Int)
 }

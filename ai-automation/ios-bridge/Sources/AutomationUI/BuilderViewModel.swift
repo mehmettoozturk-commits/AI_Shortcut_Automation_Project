@@ -13,6 +13,10 @@ import Foundation
 @MainActor
 public final class BuilderViewModel: ObservableObject {
     @Published public private(set) var step: BuilderStep
+    @Published public private(set) var plannerFailure: PlannerError?
+    @Published public private(set) var persistenceMessage: String?
+    @Published public private(set) var storageMessage: String?
+    @Published public private(set) var isSubmitting = false
     /// Phase 5A İş 0 — "Otomasyonlarım" listesinin TEK kaynağı. `machine`
     /// içindeki repository ile AYNI örnek (constructor'dan enjekte
     /// edilir) — ikinci bir kaynak/kopya oluşturulmaz, aksi halde
@@ -23,24 +27,42 @@ public final class BuilderViewModel: ObservableObject {
     @Published public private(set) var accountMessage: String?
     @Published public private(set) var accountBusy = false
     @Published public private(set) var accountCreationPending = false
+    @Published public private(set) var selectedAutomation: Automation?
+    @Published public private(set) var lifecycleMessage: String?
+    @Published public private(set) var activities: [AutomationActivity] = []
+    @Published public private(set) var testInProgress = false
+    @Published public private(set) var activityMessage: String?
     public let accountLinkAvailable: Bool
-    private let accountService: AccountService?
-    private let activityStore: AutomationActivityStore?
+    public var notificationStarterAvailable: Bool {
+        registry.find("ios.notification.show")?.template != nil
+    }
     private let machine: BuilderMachine
     private let registry: CapabilityRegistry
     private let repository: AutomationRepository
+    private let accountService: AccountService?
+    private let activityStore: AutomationActivityStore?
+    private var currentTestRequestID: String?
+    private var activityBusy = false
     private var cancellable: AnyCancellable?
+    private var plannerFailureCancellable: AnyCancellable?
+    private var persistenceCancellable: AnyCancellable?
 
     public init(machine: BuilderMachine, registry: CapabilityRegistry, repository: AutomationRepository, accountService: AccountService? = nil, accountLinkAvailable: Bool = false, activityStore: AutomationActivityStore? = nil) {
         self.machine = machine
         self.registry = registry
         self.repository = repository
         self.accountService = accountService
-        self.accountLinkAvailable = accountLinkAvailable
         self.activityStore = activityStore
+        self.accountLinkAvailable = accountLinkAvailable
         self.step = machine.step
         self.cancellable = machine.$step.sink { [weak self] newStep in
             self?.step = newStep
+        }
+        self.plannerFailureCancellable = machine.$plannerFailure.sink { [weak self] error in
+            self?.plannerFailure = error
+        }
+        self.persistenceCancellable = machine.$persistenceMessage.sink { [weak self] message in
+            self?.persistenceMessage = message
         }
     }
 
@@ -49,7 +71,12 @@ public final class BuilderViewModel: ObservableObject {
     public func start(prefillText: String = "") async { await machine.open(prefillText: prefillText) }
     public func close() async { await machine.close() }
     public func updateText(_ text: String) { machine.setText(text) }
-    public func submit() async { await machine.submit() }
+    public func submit() async {
+        guard !isSubmitting else { return }
+        isSubmitting = true
+        defer { isSubmitting = false }
+        await machine.submit()
+    }
     public func confirmUnderstanding() async { await machine.confirmUnderstanding() }
     public func revise() { machine.revise() }
     /// `.previewConfirm`'den geri dönüş — `revise()`'dan farklı olarak
@@ -65,7 +92,7 @@ public final class BuilderViewModel: ObservableObject {
     public func createAutomation() async { await machine.create() }
     public func prepareHandoff() async { await machine.prepareHandoff() }
     public func handOffToShortcuts() async { await machine.handOffToShortcuts() }
-    public func confirmShortcutAdded() { machine.confirmShortcutAdded() }
+    public func confirmShortcutAdded() async { await machine.confirmShortcutAdded() }
     public func confirmTriggerLinked() async { await machine.confirmTriggerLinked() }
     public func confirmGuidedSetupDone() async { await machine.confirmGuidedSetupDone() }
     public func reportInstallFailed(reason: String) async { await machine.reportInstallFailed(reason: reason) }
@@ -78,26 +105,132 @@ public final class BuilderViewModel: ObservableObject {
     /// kapat/aç sonrası bu çağrı, dosyadan YENİDEN okur).
     public func refreshAutomations() async {
         automations = await repository.list()
+        storageMessage = await repository.storageState() == .ready ? nil
+            : "Otomasyon kayıtları okunamıyor. Mevcut veri korunuyor; kurtarma gerekiyor."
     }
 
-    // MARK: - Semantik → insan dili (capability id ASLA dışarı sızmaz)
-    public func deleteAccount() async {
-        guard let accountService, !accountBusy else { return }
-        accountBusy = true
-        defer { accountBusy = false }
-        accountCreationPending = false
-        let result = await accountService.deleteAccountWithResult()
-        accountState = await accountService.state()
-        switch result {
-        case .deleted(let revocation, let cleared):
-            accountMessage = "Sunucudaki hesabın silindi. Bu iPhone'daki otomasyonların ve Kestirmeler'in korundu."
-            if revocation == "not_configured" { accountMessage! += " Apple yetkilendirmesini otomatik kaldırma henüz yapılandırılmadı." }
-            else if revocation != "succeeded" { accountMessage! += " Apple yetkilendirmesini kaldırma henüz doğrulanmadı." }
-            if !cleared { accountMessage! += " Yerel oturum temizliği tamamlanamadı; eski oturum geçerli sayılmıyor." }
-        case .cancelled: accountMessage = "Hesap silme iptal edildi."
-        case .unknown: accountMessage = "İşlemin tamamlanıp tamamlanmadığı doğrulanamadı. Hesap durumunu yeniden kontrol et."
-        case .failed(let message): accountMessage = message
+    public func showAutomation(_ automation: Automation) {
+        selectedAutomation = automation
+        lifecycleMessage = nil
+        activityMessage = nil
+        testInProgress = false
+        currentTestRequestID = nil
+        Task { await refreshActivities() }
+    }
+
+    public func dismissAutomation() {
+        selectedAutomation = nil
+        lifecycleMessage = nil
+        activities = []
+        activityMessage = nil
+        testInProgress = false
+        currentTestRequestID = nil
+    }
+
+    public func resumeSelectedAutomation() async {
+        guard let selectedAutomation, selectedAutomation.status == .active else { return }
+        let id = selectedAutomation.id
+        if await machine.resumePending(id) {
+            self.selectedAutomation = nil
         }
+    }
+
+    public func toggleLocalPause() async {
+        guard let selectedAutomation else { return }
+        let shouldActivate = selectedAutomation.status == .paused
+        guard await repository.setActive(selectedAutomation.id, active: shouldActivate) else {
+            lifecycleMessage = "Bu değişiklik kaydedilemedi. Tekrar dene."
+            return
+        }
+        automations = await repository.list()
+        self.selectedAutomation = automations.first { $0.id == selectedAutomation.id }
+        await appendActivity(.lifecycleChanged, source: .appObserved, for: selectedAutomation)
+        lifecycleMessage = nil
+    }
+
+    public func deleteSelectedLocalRecord() async {
+        guard let selectedAutomation else { return }
+        guard await repository.deleteLocalRecord(selectedAutomation.id) else {
+            lifecycleMessage = "Kayıt silinemedi. Tekrar dene."
+            return
+        }
+        automations = await repository.list()
+        await appendActivity(.lifecycleChanged, source: .appObserved, for: selectedAutomation)
+        self.selectedAutomation = nil
+        lifecycleMessage = nil
+    }
+
+    public func editSelectedAsNewSetup() async {
+        guard let selectedAutomation else { return }
+        if await machine.openRevision(of: selectedAutomation.id) {
+            self.selectedAutomation = nil
+            lifecycleMessage = nil
+        } else {
+            lifecycleMessage = "Bu kayıt yeni kurulum taslağına açılamadı."
+        }
+    }
+
+    public func beginUserTest() async {
+        guard let selectedAutomation, !testInProgress, !activityBusy else { return }
+        activityBusy = true
+        defer { activityBusy = false }
+        let requestID = UUID().uuidString
+        guard await appendActivity(.testRequested, source: .appObserved, for: selectedAutomation, eventId: requestID) else {
+            activityMessage = "Test isteği kaydedilemedi. Tekrar dene."
+            return
+        }
+        currentTestRequestID = requestID
+        testInProgress = true
+        activityMessage = nil
+    }
+
+    public func cancelUserTest() {
+        testInProgress = false
+        currentTestRequestID = nil
+    }
+
+    public func reportUserTest(worked: Bool) async {
+        guard let selectedAutomation, testInProgress, let requestID = currentTestRequestID,
+              !activityBusy else { return }
+        activityBusy = true
+        defer { activityBusy = false }
+        let type: ActivityEventType = worked ? .testUserPassed : .testUserFailed
+        guard await appendActivity(type, source: .userReported, for: selectedAutomation, eventId: "result-\(requestID)") else {
+            activityMessage = "Test bildirimi kaydedilemedi. Tekrar dene."
+            return
+        }
+        testInProgress = false
+        currentTestRequestID = nil
+        activityMessage = worked
+            ? "Kullanıcı testin başarılı olduğunu bildirdi. Uygulama bunu doğrulayamadı."
+            : "Kullanıcı testin başarısız olduğunu bildirdi."
+    }
+
+    private func refreshActivities() async {
+        guard let selectedAutomation, let activityStore else {
+            activities = []
+            return
+        }
+        activities = await activityStore.list().filter { $0.revisionId == selectedAutomation.id }
+    }
+
+    @discardableResult
+    private func appendActivity(
+        _ type: ActivityEventType, source: ActivitySource, for automation: Automation,
+        eventId: String = UUID().uuidString
+    ) async -> Bool {
+        guard let activityStore else { return false }
+        let event = AutomationActivity(
+            eventId: eventId,
+            automationId: automation.sourceAutomationId ?? automation.id,
+            revisionId: automation.id,
+            eventType: type,
+            source: source,
+            timestamp: Date()
+        )
+        let saved = await activityStore.append(event)
+        if saved { await refreshActivities() }
+        return saved
     }
 
     public func restoreAccount() async {
@@ -156,6 +289,26 @@ public final class BuilderViewModel: ObservableObject {
         }
     }
 
+    public func deleteAccount() async {
+        guard let accountService, !accountBusy else { return }
+        accountBusy = true
+        defer { accountBusy = false }
+        accountCreationPending = false
+        let result = await accountService.deleteAccountWithResult()
+        accountState = await accountService.state()
+        switch result {
+        case .deleted(let revocation, let cleared):
+            accountMessage = "Sunucudaki hesabın silindi. Bu iPhone'daki otomasyonların ve Kestirmeler'in korundu."
+            if revocation == "not_configured" { accountMessage! += " Apple yetkilendirmesini otomatik kaldırma henüz yapılandırılmadı." }
+            else if revocation != "succeeded" { accountMessage! += " Apple yetkilendirmesini kaldırma henüz doğrulanmadı." }
+            if !cleared { accountMessage! += " Yerel oturum temizliği tamamlanamadı; eski oturum geçerli sayılmıyor." }
+        case .cancelled: accountMessage = "Hesap silme iptal edildi."
+        case .unknown: accountMessage = "İşlemin tamamlanıp tamamlanmadığı doğrulanamadı. Hesap durumunu yeniden kontrol et."
+        case .failed(let message): accountMessage = message
+        }
+    }
+
+    // MARK: - Semantik → insan dili (capability id ASLA dışarı sızmaz)
 
     /// "🚗 Arabadan uzaklaşınca" gibi bir tetikleyici özeti. Phase 4E-2:
     /// `cap.description` (mekanizma odaklı, resmi dil) DEĞİL,

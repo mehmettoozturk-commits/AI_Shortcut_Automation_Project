@@ -1,8 +1,6 @@
 // Phase 4D-1 — ilk ekran (docs/ mockup: "Bugün neyi otomatikleştirelim?").
 //
-// Ses girişi (🎙️) bu fazın kapsamında değil — buton görsel olarak
-// duruyor ama devre dışı; kapsam dışı olduğunu açıkça belirtiyoruz,
-// sessizce "çalışıyormuş gibi" davranmıyoruz (CLAUDE.md ilkesi).
+// Ses dökümü mevcut yazılı planner akışına girer; otomatik gönderilmez.
 //
 // Phase 5A İş 0 — "Otomasyonlarım" listesi eklendi. Kaynak
 // `viewModel.automations` → `AutomationRepository.list()` — bu View
@@ -21,6 +19,9 @@ struct HomeView: View {
     @State private var text: String = ""
     @State private var showingAccount = false
     @State private var showingDeletionConfirmation = false
+    #if os(iOS)
+    @StateObject private var voice = VoiceInputController()
+    #endif
 
     private static let chips: [(label: String, hint: String)] = [
         ("🚗 Arabam", "Arabadan inince "),
@@ -30,6 +31,7 @@ struct HomeView: View {
     ]
 
     var body: some View {
+        ScrollView {
         VStack(spacing: 24) {
             HStack {
                 Spacer()
@@ -40,16 +42,46 @@ struct HomeView: View {
                 .font(.title)
                 .multilineTextAlignment(.center)
 
+            if case .capturing(_, let existingDraft, _) = viewModel.step, existingDraft != nil {
+                Text("Yeni kurulum için neyi değiştirmek istediğini yaz. Eski kurulum olduğu gibi kalır.")
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("revisionHint")
+            }
+
             HStack(spacing: 12) {
                 TextField("Ne yapmak istediğini yaz…", text: $text, axis: .vertical)
                     .textFieldStyle(.roundedBorder)
                     .accessibilityIdentifier("promptField")
                     .onSubmit(send)
 
-                Image(systemName: "mic.fill")
-                    .foregroundStyle(.secondary)
-                    .accessibilityIdentifier("micButtonDisabled")
+                #if os(iOS)
+                Button {
+                    if voice.isRecording {
+                        voice.stop()
+                    } else {
+                        Task { await voice.start() }
+                    }
+                } label: {
+                    Image(systemName: voice.isRecording ? "stop.circle.fill" : "mic.fill")
+                }
+                .accessibilityLabel(voice.isRecording ? "Ses kaydını durdur" : "Sesle yaz")
+                .accessibilityIdentifier("micButton")
+                #else
+                Image(systemName: "mic.fill").foregroundStyle(.secondary)
+                #endif
             }
+
+            #if os(iOS)
+            if voice.isRecording {
+                Text("Dinliyorum… Metni kontrol edip Gönder'e bas.")
+                    .foregroundStyle(.secondary)
+                    .accessibilityIdentifier("voiceListeningStatus")
+            }
+            if let message = voice.message {
+                Text(message).foregroundStyle(.secondary)
+                    .accessibilityIdentifier("voiceMessage")
+            }
+            #endif
 
             HStack(spacing: 8) {
                 ForEach(Self.chips, id: \.label) { chip in
@@ -57,12 +89,30 @@ struct HomeView: View {
                 }
             }
 
+            if viewModel.notificationStarterAvailable {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Hazır eylem şablonu").font(.headline)
+                    Button("Pil %20 → bildirim") {
+                        text = "Pil yüzde 20'ye düşünce bana haber ver"
+                    }
+                    .accessibilityIdentifier("batteryNotificationTemplateButton")
+                    Text("Bildirim kestirmesi için paylaşılmış bir şablon var. Pil tetikleyicisini Kestirmeler'de ayrıca sen bağlayacaksın; bu seçim otomasyon kurmaz.")
+                        .foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             Button("Gönder", action: send)
                 .accessibilityIdentifier("sendButton")
-                .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(viewModel.isSubmitting || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+
+            if viewModel.isSubmitting {
+                ProgressView("Plan hazırlanıyor…")
+                    .accessibilityIdentifier("planningProgress")
+            }
 
             if case .capturing(_, _, let notUnderstood) = viewModel.step, notUnderstood {
-                Text("Anlayamadım, başka türlü ifade eder misin?")
+                Text(plannerFailureMessage)
                     .foregroundStyle(.red)
                     .accessibilityIdentifier("notUnderstoodNote")
             }
@@ -72,8 +122,17 @@ struct HomeView: View {
             }
         }
         .padding()
+        }
         .task { await viewModel.refreshAutomations() }
-        .sheet(isPresented: $showingAccount) { accountSheet }
+        #if os(iOS)
+        .onReceive(voice.$transcript) { transcript in
+            if !transcript.isEmpty { text = transcript }
+        }
+        .onDisappear { voice.stop() }
+        #endif
+        .sheet(isPresented: $showingAccount) {
+            accountSheet
+        }
     }
 
     private var accountSheet: some View {
@@ -170,11 +229,20 @@ struct HomeView: View {
                 .accessibilityIdentifier("automationsListTitle")
 
             ForEach(viewModel.automations) { automation in
-                HStack {
-                    Text(automation.name)
-                    Spacer()
-                    Text(statusLabel(automation.installStatus))
-                        .foregroundStyle(.secondary)
+                Button {
+                    viewModel.showAutomation(automation)
+                } label: {
+                    VStack(alignment: .leading, spacing: 3) {
+                        HStack {
+                            Text(automation.name)
+                            Spacer()
+                            Text(statusLabel(automation.installStatus))
+                                .foregroundStyle(.secondary)
+                        }
+                        Text(triggerLabel(for: automation.trigger))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
                 .accessibilityIdentifier("automationRow-\(automation.id)")
             }
@@ -189,11 +257,38 @@ struct HomeView: View {
         }
     }
 
+    private func triggerLabel(for trigger: TriggerDTO) -> String {
+        if trigger.type == "ios.battery.falls_below",
+           let level = trigger.params?["level"]?.value as? Double {
+            return "Pil %\(Int(level)) altına düşünce"
+        }
+        return viewModel.triggerSummary(for: DraftAutomationPlan(name: "", trigger: trigger, steps: []))
+    }
+
     private func send() {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         viewModel.updateText(trimmed)
         Task { await viewModel.submit() }
+    }
+
+    private var plannerFailureMessage: String {
+        switch viewModel.plannerFailure {
+        case .invalidRequest:
+            return "Plan isteği geçersiz. Lütfen uygulamayı güncelle."
+        case .validationFailed:
+            return "Bu plan doğrulanamadı. Lütfen isteği gözden geçir."
+        case .providerUnavailable:
+            return "Planlama servisi şu anda kullanılamıyor. Biraz sonra tekrar dene."
+        case .plannerUnreachable:
+            return "Plan sunucusuna bağlanılamadı. İnternet bağlantını kontrol edip tekrar dene. Yerel geliştirme sunucusu kullanıyorsan ağ ve sertifika ayarını da kontrol et."
+        case .requestTimedOut:
+            return "Plan isteği zaman aşımına uğradı. Otomatik tekrar gönderilmedi; yeniden denemek için Gönder'e bas."
+        case .serverUnavailable:
+            return "Plan sunucusu isteği tamamlayamadı. Biraz sonra yeniden dene."
+        case nil:
+            return "Anlayamadım, başka türlü ifade eder misin?"
+        }
     }
 }
 

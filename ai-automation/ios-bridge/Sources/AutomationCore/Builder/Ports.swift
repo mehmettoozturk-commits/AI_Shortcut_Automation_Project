@@ -66,8 +66,15 @@ public protocol SetupService: Sendable {
     func prepare(_ plan: DraftAutomationPlan) async -> PrepareResult
 }
 
+public enum AutomationStorageState: Sendable, Equatable {
+    case ready, readError, corrupt
+}
+
 public protocol AutomationRepository: Sendable {
     func list() async -> [Automation]
-    func save(_ automation: Automation) async
-    func setActive(_ id: String, active: Bool) async
+    func storageState() async -> AutomationStorageState
+    @discardableResult func save(_ automation: Automation) async -> Bool
+    func setActive(_ id: String, active: Bool) async -> Bool
+    /// Deletes only the app's local record; never a Shortcuts artifact.
+    func deleteLocalRecord(_ id: String) async -> Bool
 }

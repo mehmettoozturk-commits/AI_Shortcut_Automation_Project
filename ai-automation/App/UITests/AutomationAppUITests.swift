@@ -48,6 +48,17 @@ final class AutomationAppUITests: XCTestCase {
         XCTAssertTrue(app.buttons["reviseButton"].exists)
     }
 
+    func testVerifiedTemplateOnlyPrefillsPrompt() throws {
+        let app = makeApp()
+        app.launch()
+        let template = app.buttons["batteryNotificationTemplateButton"]
+        XCTAssertTrue(template.waitForExistence(timeout: 5))
+        template.tap()
+        XCTAssertEqual(app.textFields["promptField"].value as? String, "Pil yüzde 20'ye düşünce bana haber ver")
+        XCTAssertFalse(app.staticTexts["triggerSummary"].exists)
+        XCTAssertFalse(app.buttons["createAutomationButton"].exists)
+    }
+
     // EN ÖNEMLİ TEST.
     func testUnderstandingScreenNeverShowsCapabilityId() throws {
         let app = makeApp()
@@ -178,6 +189,163 @@ final class AutomationAppUITests: XCTestCase {
         // göründü, boş/çökmüş ekran değil" diye kanıtlıyor — gerçek
         // gözlem (backToHome mü resumedMidSetup mı) konsol çıktısında.
         print("Phase 5A Test 4 (Simulator) gözlemi: reachedWaitingForUser=\(reachedWaitingForUser), backToHome=\(backToHome), resumedMidSetup=\(resumedMidSetup)")
+    }
+
+    func testPendingAutomationOpensDetailAndResumesAfterRestart() throws {
+        let app = makeApp()
+        app.launch()
+        let field = app.textFields["promptField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("Pil yüzde 20'ye düşünce bana haber ver")
+        app.buttons["sendButton"].tap()
+        XCTAssertTrue(app.staticTexts["triggerSummary"].waitForExistence(timeout: 10))
+        app.buttons["confirmButton"].tap()
+        XCTAssertTrue(app.buttons["createAutomationButton"].waitForExistence(timeout: 10))
+        app.buttons["createAutomationButton"].tap()
+        XCTAssertTrue(app.buttons["prepareHandoffButton"].waitForExistence(timeout: 10))
+        app.terminate()
+
+        let relaunched = makeApp()
+        relaunched.launch()
+        XCTAssertTrue(relaunched.textFields["promptField"].waitForExistence(timeout: 10))
+        let row = relaunched.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "automationRow-")
+        ).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        row.tap()
+        XCTAssertTrue(relaunched.buttons["resumeSetupButton"].waitForExistence(timeout: 5))
+        XCTAssertTrue(relaunched.staticTexts["detailStatus"].label.contains("Kurulum bekliyor"))
+        relaunched.buttons["resumeSetupButton"].tap()
+        XCTAssertTrue(relaunched.buttons["prepareHandoffButton"].waitForExistence(timeout: 10))
+        XCTAssertFalse(relaunched.staticTexts["installedAutomationName"].exists)
+    }
+
+    func testLocalPauseAndDeleteDoNotClaimShortcutsChanged() throws {
+        let app = makeApp()
+        app.launch()
+        let field = app.textFields["promptField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("Pil yüzde 20'ye düşünce bana haber ver")
+        app.buttons["sendButton"].tap()
+        XCTAssertTrue(app.staticTexts["triggerSummary"].waitForExistence(timeout: 10))
+        app.buttons["confirmButton"].tap()
+        XCTAssertTrue(app.buttons["createAutomationButton"].waitForExistence(timeout: 10))
+        app.buttons["createAutomationButton"].tap()
+        XCTAssertTrue(app.buttons["prepareHandoffButton"].waitForExistence(timeout: 10))
+        app.terminate()
+
+        let relaunched = makeApp()
+        relaunched.launch()
+        XCTAssertTrue(relaunched.textFields["promptField"].waitForExistence(timeout: 10))
+        let row = relaunched.buttons.matching(
+            NSPredicate(format: "identifier BEGINSWITH %@", "automationRow-")
+        ).firstMatch
+        XCTAssertTrue(row.waitForExistence(timeout: 10))
+        let rowID = row.identifier
+        row.tap()
+        XCTAssertTrue(relaunched.buttons["resumeSetupButton"].waitForExistence(timeout: 5))
+        XCTAssertTrue(relaunched.staticTexts.containing(NSPredicate(format: "label CONTAINS %@", "Kestirmeler'de kurulu otomasyon")).firstMatch.exists)
+        relaunched.buttons["toggleLocalPauseButton"].tap()
+        XCTAssertTrue(relaunched.staticTexts["detailLocalLifecycle"].waitForExistence(timeout: 5))
+        XCTAssertEqual(relaunched.staticTexts["detailLocalLifecycle"].label, "Uygulamada duraklatıldı")
+        XCTAssertFalse(relaunched.buttons["resumeSetupButton"].exists)
+        relaunched.buttons["toggleLocalPauseButton"].tap()
+        XCTAssertTrue(relaunched.buttons["resumeSetupButton"].waitForExistence(timeout: 5))
+
+        relaunched.buttons["deleteLocalRecordButton"].tap()
+        XCTAssertTrue(relaunched.alerts["Yalnız uygulama kaydı silinsin mi?"].waitForExistence(timeout: 5))
+        relaunched.alerts.buttons["Kaydı sil"].tap()
+        XCTAssertTrue(relaunched.textFields["promptField"].waitForExistence(timeout: 5))
+        XCTAssertFalse(relaunched.buttons[rowID].exists)
+    }
+
+    // Phase 5B Test 5B-5 (Simulator) — "Ekleyemedim" yolu. Zincir:
+    // waiting_for_user → Ekleyemedim → setup_failed → repository=failed
+    // → installed YOK. Simulator'da handoff sonrası waitingForUser VEYA
+    // doğrudan setupFailed görülebilir (mevcut Test 4 ile aynı belirsizlik);
+    // iki durumda da "installed'a ulaşılmadı" değişmezi doğrulanır.
+    // Bu test FİZİKSEL cihaz kriterinin yerini TUTMAZ — bkz.
+    // docs/phase5b-failure-matrix-plan.md Test 5B-5.
+    func testReportInstallFailed_reachesSetupFailed_neverInstalled() throws {
+        let app = runToWaitingForUserOrSetupFailed()
+
+        let reportNotAdded = app.buttons["reportShortcutNotAddedButton"]
+        if reportNotAdded.exists {
+            reportNotAdded.tap() // "Ekleyemedim" — kullanıcı Shortcuts'ta iptal etti
+        }
+
+        let reason = app.staticTexts["setupFailedReason"]
+        XCTAssertTrue(reason.waitForExistence(timeout: 10), "setupFailed ekranı bekleniyordu")
+        XCTAssertFalse(reason.label.isEmpty, "setupFailedReason boş olmamalı")
+
+        // installed'a HİÇBİR noktada ulaşılmadı:
+        XCTAssertFalse(app.staticTexts["installedAutomationName"].exists)
+        XCTAssertFalse(app.buttons["installedDoneButton"].exists)
+
+        print("Phase 5B Test 5B-5a (Simulator) gözlemi: reason=\"\(reason.label)\", installedGorunumu=false, retryButonuVar=\(app.buttons["retrySetupButton"].exists)")
+    }
+
+    // Phase 5B Test 5B-5 (Simulator) — retry davranışı: setup_failed →
+    // "Tekrar Dene" → setup (hazırlık) ekranına dönüş; installed YOK.
+    func testRetrySetup_fromSetupFailed_returnsToSetup() throws {
+        let app = runToWaitingForUserOrSetupFailed()
+
+        let reportNotAdded = app.buttons["reportShortcutNotAddedButton"]
+        if reportNotAdded.exists {
+            reportNotAdded.tap()
+        }
+
+        let retryButton = app.buttons["retrySetupButton"]
+        XCTAssertTrue(retryButton.waitForExistence(timeout: 10), "retrySetupButton bekleniyordu")
+        retryButton.tap()
+
+        // retrySetup(): .setup'a döner → prepareHandoffButton yeniden görünür.
+        let prepareAgain = app.buttons["prepareHandoffButton"]
+        XCTAssertTrue(prepareAgain.waitForExistence(timeout: 10), "retry sonrası setup ekranı bekleniyordu")
+        XCTAssertFalse(app.staticTexts["installedAutomationName"].exists)
+
+        print("Phase 5B Test 5B-5b (Simulator) gözlemi: retrySonrasi=setup ekrani, installedGorunumu=false")
+    }
+
+    /// Ortak akış: plan → preview → create → setup → handoff → ara durum
+    /// (waitingForUser veya setupFailed). Shortcuts URL'i açılıp uygulama
+    /// arka plana düşebileceği için `activate()` ile "kullanıcının
+    /// uygulamaya dönüşü" simüle edilir.
+    private func runToWaitingForUserOrSetupFailed() -> XCUIApplication {
+        let app = makeApp()
+        app.launch()
+
+        let field = app.textFields["promptField"]
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        field.tap()
+        field.typeText("Pil yüzde 20'ye düşünce bana haber ver")
+        app.buttons["sendButton"].tap()
+
+        XCTAssertTrue(app.staticTexts["triggerSummary"].waitForExistence(timeout: 10))
+        app.buttons["confirmButton"].tap()
+
+        XCTAssertTrue(app.buttons["createAutomationButton"].waitForExistence(timeout: 10))
+        app.buttons["createAutomationButton"].tap()
+
+        XCTAssertTrue(app.buttons["prepareHandoffButton"].waitForExistence(timeout: 10))
+        app.buttons["prepareHandoffButton"].tap()
+
+        XCTAssertTrue(app.buttons["handOffButton"].waitForExistence(timeout: 10))
+        app.buttons["handOffButton"].tap()
+
+        // Shortcuts URL'i açılmış olabilir; kullanıcının uygulamaya geri
+        // dönüşünü simüle et.
+        Thread.sleep(forTimeInterval: 2)
+        app.activate()
+        Thread.sleep(forTimeInterval: 1)
+
+        let reportNotAdded = app.buttons["reportShortcutNotAddedButton"]
+        let reason = app.staticTexts["setupFailedReason"]
+        let reached = reportNotAdded.waitForExistence(timeout: 10) || reason.exists
+        XCTAssertTrue(reached, "ne waitingForUser (Ekleyemedim) ne setupFailed'e ulaşıldı")
+        return app
     }
 
     /// Ekrandaki HİÇBİR statik metin bir capability id gibi görünmüyor

@@ -17,6 +17,7 @@ import Foundation
 public actor FileBackedAutomationRepository: AutomationRepository {
     private let fileURL: URL
     private var cache: [Automation]?
+    private var failure: AutomationStorageState?
 
     public init(fileURL: URL) {
         self.fileURL = fileURL
@@ -29,56 +30,81 @@ public actor FileBackedAutomationRepository: AutomationRepository {
     }
 
     public func list() async -> [Automation] {
-        load()
+        load() ?? []
     }
 
-    public func save(_ automation: Automation) async {
-        var items = load()
+    public func storageState() async -> AutomationStorageState {
+        _ = load()
+        return failure ?? .ready
+    }
+
+    @discardableResult public func save(_ automation: Automation) async -> Bool {
+        guard var items = load() else { return false }
         if let idx = items.firstIndex(where: { $0.id == automation.id }) {
             items[idx] = automation
         } else {
             items.insert(automation, at: 0)
         }
-        persist(items)
+        return persist(items)
     }
 
-    public func setActive(_ id: String, active: Bool) async {
-        var items = load()
+    public func setActive(_ id: String, active: Bool) async -> Bool {
+        guard var items = load() else { return false }
+        guard items.contains(where: { $0.id == id }) else { return false }
         items = items.map { automation in
             guard automation.id == id else { return automation }
             var copy = automation
             copy.status = active ? .active : .paused
             return copy
         }
-        persist(items)
+        return persist(items)
+    }
+
+    public func deleteLocalRecord(_ id: String) async -> Bool {
+        guard let items = load(), items.contains(where: { $0.id == id }) else { return false }
+        return persist(items.filter { $0.id != id })
     }
 
     // MARK: - dosya G/Ç
 
-    private func load() -> [Automation] {
+    private func load() -> [Automation]? {
+        guard failure == nil else { return nil }
         if let cache { return cache }
-        guard let data = try? Data(contentsOf: fileURL) else {
-            cache = []
-            return []
+        let data: Data
+        do {
+            data = try Data(contentsOf: fileURL)
+        } catch {
+            let cocoa = error as NSError
+            if cocoa.domain == NSCocoaErrorDomain && cocoa.code == NSFileReadNoSuchFileError {
+                cache = []
+                return []
+            }
+            failure = .readError
+            return nil
         }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         guard let decoded = try? decoder.decode([Automation].self, from: data) else {
-            cache = []
-            return []
+            failure = .corrupt
+            return nil
         }
         cache = decoded
         return decoded
     }
 
-    private func persist(_ items: [Automation]) {
-        cache = items
+    private func persist(_ items: [Automation]) -> Bool {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
-        guard let data = try? encoder.encode(items) else { return }
-        try? FileManager.default.createDirectory(
-            at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true
-        )
-        try? data.write(to: fileURL, options: .atomic)
+        do {
+            let data = try encoder.encode(items)
+            try FileManager.default.createDirectory(
+                at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true
+            )
+            try data.write(to: fileURL, options: .atomic)
+            cache = items
+            return true
+        } catch {
+            return false
+        }
     }
 }

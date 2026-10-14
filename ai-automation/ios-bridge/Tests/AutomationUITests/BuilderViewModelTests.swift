@@ -12,6 +12,12 @@ import XCTest
 
 @MainActor
 final class BuilderViewModelTests: XCTestCase {
+    func testUnknownHistoryTriggerDoesNotExposeRawID() throws {
+        let viewModel = makeViewModel(registry: try makeRegistry())
+        let summary = viewModel.triggerSummary(for: DraftAutomationPlan(name: "", trigger: TriggerDTO(type: "private.unknown.trigger", device: nil), steps: []))
+        XCTAssertEqual(summary, "Bir tetikleyici")
+        XCTAssertFalse(summary.contains("private.unknown.trigger"))
+    }
     func makeRegistry() throws -> CapabilityRegistry {
         try CapabilityRegistry.loadFromBundle()
     }
@@ -116,7 +122,7 @@ final class BuilderViewModelTests: XCTestCase {
         await viewModel.createAutomation()
         await viewModel.prepareHandoff()
         await viewModel.handOffToShortcuts()
-        viewModel.confirmShortcutAdded()
+        await viewModel.confirmShortcutAdded()
         await viewModel.confirmTriggerLinked()
 
         guard case .installed(let automation) = viewModel.step else {
@@ -137,5 +143,53 @@ final class BuilderViewModelTests: XCTestCase {
         // `close()` kaydı SİLMEZ (bkz. BuilderMachine.close() yorumu).
         await viewModel.refreshAutomations()
         XCTAssertEqual(viewModel.automations.count, 1)
+    }
+
+    func testUserTestLogDistinguishesRequestAndReportAndDoesNotInventSuccessOnCancel() async throws {
+        let registry = try makeRegistry()
+        let repository = InMemoryAutomationRepository()
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let activityStore = FileBackedAutomationActivityStore(directory: directory)
+        let machine = BuilderMachine(
+            registry: registry,
+            planner: MockPlanner(registry: registry),
+            permissions: MockPermissionService(granted: []),
+            setup: MockSetupService(),
+            shortcutsHandoff: MockShortcutsHandoff(),
+            repository: repository,
+            activityStore: activityStore,
+            device: DeviceContext(osVersion: 26, hasCarPlay: false)
+        )
+        let viewModel = BuilderViewModel(
+            machine: machine, registry: registry, repository: repository, activityStore: activityStore
+        )
+        let automation = Automation(
+            id: "revision-2", userId: "local", name: "Test", platform: .ios,
+            status: .active, trigger: TriggerDTO(type: "ios.battery.level_below", device: nil),
+            workflow: [.action(type: "ios.notification.show", params: nil)], version: 2,
+            createdAt: Date(), updatedAt: Date(), requiresGuidedSetup: false,
+            installStatus: .installed, sourceAutomationId: "root-1"
+        )
+        await repository.save(automation)
+        viewModel.showAutomation(automation)
+
+        await viewModel.beginUserTest()
+        await viewModel.beginUserTest() // a repeated tap must not create another request
+        viewModel.cancelUserTest()
+        var events = await activityStore.list()
+        XCTAssertEqual(events.count, 1)
+        XCTAssertEqual(events.first?.eventType, .testRequested)
+        XCTAssertEqual(events.first?.source, .appObserved)
+
+        await viewModel.beginUserTest()
+        await viewModel.reportUserTest(worked: true)
+        await viewModel.reportUserTest(worked: true) // duplicate report ignored
+        events = await FileBackedAutomationActivityStore(directory: directory).list()
+        XCTAssertEqual(events.count, 3)
+        XCTAssertEqual(events.filter { $0.eventType == .testUserPassed }.count, 1)
+        XCTAssertEqual(events.filter { $0.eventType == .testUserFailed }.count, 0)
+        XCTAssertTrue(events.allSatisfy { $0.automationId == "root-1" && $0.revisionId == "revision-2" })
+        XCTAssertEqual(events.first?.source, .userReported)
     }
 }

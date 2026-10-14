@@ -45,6 +45,15 @@ public enum InstallStatus: String, Codable, Sendable {
     case failed
 }
 
+/// Local setup checkpoint, not proof that iOS installed or ran anything.
+/// Older records omit this field and resume from the safe setup entrance.
+public enum SetupProgress: String, Codable, Sendable {
+    case setup
+    case importReady = "import_ready"
+    case waitingForUser = "waiting_for_user"
+    case linkingTrigger = "linking_trigger"
+}
+
 public struct Automation: Codable, Sendable, Identifiable {
     public var id: String
     public var userId: String
@@ -58,13 +67,16 @@ public struct Automation: Codable, Sendable, Identifiable {
     public var updatedAt: Date
     public var requiresGuidedSetup: Bool
     public var installStatus: InstallStatus
+    public var setupProgress: SetupProgress?
+    /// A new local setup attempt derived from an older record. This does not
+    /// mean an existing Shortcuts automation was edited or removed.
     public var sourceAutomationId: String?
 
     public init(
         id: String, userId: String, name: String, platform: Platform, status: AutomationStatus,
         trigger: TriggerDTO, workflow: [WorkflowStepDTO], version: Int,
         createdAt: Date, updatedAt: Date, requiresGuidedSetup: Bool, installStatus: InstallStatus,
-        sourceAutomationId: String? = nil
+        setupProgress: SetupProgress? = nil, sourceAutomationId: String? = nil
     ) {
         self.id = id
         self.userId = userId
@@ -78,6 +90,7 @@ public struct Automation: Codable, Sendable, Identifiable {
         self.updatedAt = updatedAt
         self.requiresGuidedSetup = requiresGuidedSetup
         self.installStatus = installStatus
+        self.setupProgress = setupProgress
         self.sourceAutomationId = sourceAutomationId
     }
 }
