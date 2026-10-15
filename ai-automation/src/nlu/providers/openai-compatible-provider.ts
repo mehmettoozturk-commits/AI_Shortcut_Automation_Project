@@ -23,6 +23,7 @@ import type { NluProvider, RepairHint } from "../ports.js";
 import type { ConversationContext, IntentResult } from "../types.js";
 import { LlmPlanOutputJsonSchema, LlmPlanOutputSchema, systemPrompt, toIntentResult, userPrompt } from "./llm-schema.js";
 import { LlmProviderError, type ProviderErrorDiagnostic } from "./errors.js";
+import { invokeProvider, type PlanningTrace } from "../planning-provenance.js";
 
 /** Inspect only SDK status/name/code. Never retain or log raw error details. */
 export function classifyOpenAICompatibleError(error: unknown): ProviderErrorDiagnostic {
@@ -104,12 +105,12 @@ export class OpenAICompatibleIntentProvider implements NluProvider {
       options.client ?? (new OpenAI({ apiKey: options.apiKey, baseURL: options.baseURL, timeout: options.timeoutMs ?? 20_000, maxRetries: 0 }) as unknown as OpenAICompatibleChatClient);
   }
 
-  async plan(input: string, context?: ConversationContext, repair?: RepairHint, signal?: AbortSignal): Promise<IntentResult> {
+  async plan(input: string, context?: ConversationContext, repair?: RepairHint, signal?: AbortSignal, trace?: PlanningTrace): Promise<IntentResult> {
     let response: { choices: Array<{ message: { content?: string | null } }> };
     let system = `${systemPrompt()}\n\n${schemaInstruction()}`;
     if (repair) system = `${system}\n\n${repair.instruction}`;
     try {
-      response = await this.client.chat.completions.create({
+      const params = {
         model: this.model,
         messages: [
           { role: "system", content: system },
@@ -120,7 +121,9 @@ export class OpenAICompatibleIntentProvider implements NluProvider {
         // modeller (bkz. yorum yukarıda) — düşük bir sınır, asıl JSON
         // hiç üretilmeden kesilmesine (`content: null`) yol açabiliyor.
         max_tokens: 2000,
-      }, { signal });
+      };
+      response = await invokeProvider(trace, "openai_compatible", Boolean(repair),
+        () => this.client.chat.completions.create(params, { signal }));
     } catch (err) {
       // Ağ/istek hatası — Phase 4E-3: RETRY EDİLMEZ.
       throw new LlmProviderError(`${this.providerLabel} isteği başarısız oldu.`, err, false, classifyOpenAICompatibleError(err));

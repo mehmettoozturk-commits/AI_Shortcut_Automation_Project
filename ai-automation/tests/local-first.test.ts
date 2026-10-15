@@ -128,7 +128,7 @@ describe("local-first planning", () => {
     const signal = new AbortController().signal;
     const repair = { instruction: "retry" };
     await provider.plan("unmatched", ctx, repair, signal);
-    expect(fallback.plan).toHaveBeenCalledWith("unmatched", ctx, repair, signal);
+    expect(fallback.plan).toHaveBeenCalledWith("unmatched", ctx, repair, signal, undefined);
     await expect(provider.plan("Saat 08.00'de bildirim gönder", ctx, undefined, AbortSignal.abort())).rejects.toBeDefined();
   });
 

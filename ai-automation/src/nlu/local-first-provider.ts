@@ -1,6 +1,7 @@
 import type { NluProvider, RepairHint } from "./ports.js";
 import { normalizeTime } from "./turkish.js";
 import type { ConversationContext, IntentResult } from "./types.js";
+import type { PlanningTrace } from "./planning-provenance.js";
 
 /** Only typography is normalized. Negation, numbers and extra clauses survive. */
 export function normalizeLocalInput(input: string): string {
@@ -72,10 +73,14 @@ export function resolveLocalPlan(input: string, context?: ConversationContext): 
 export class LocalFirstProvider implements NluProvider {
   constructor(private readonly fallback: NluProvider) {}
 
-  async plan(input: string, context?: ConversationContext, repair?: RepairHint, signal?: AbortSignal): Promise<IntentResult> {
+  async plan(input: string, context?: ConversationContext, repair?: RepairHint, signal?: AbortSignal, trace?: PlanningTrace): Promise<IntentResult> {
     signal?.throwIfAborted();
     const result = resolveLocalPlan(input, context);
-    if (result.route === "local_template") return result.intent;
-    return this.fallback.plan(input, context, repair, signal);
+    if (result.route === "local_template") {
+      trace?.localTemplate();
+      return result.intent;
+    }
+    trace?.requireAI();
+    return this.fallback.plan(input, context, repair, signal, trace);
   }
 }

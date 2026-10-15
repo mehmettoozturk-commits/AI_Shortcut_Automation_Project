@@ -8,6 +8,7 @@
 
 import type { DraftAutomationPlan, MissingInfoField } from "../builder/types.js";
 import type { ConversationContext, Entities, IntentResult, PlanningOutcome } from "./types.js";
+import type { PlanningTrace } from "./planning-provenance.js";
 
 export interface IntentExtractor {
   extract(input: string, context?: ConversationContext): IntentResult;
@@ -62,7 +63,7 @@ export interface NluPlanner {
  * sözleşmeye (capability id YOK, yalnızca semantik isim) uyar.
  */
 export interface NluProvider {
-  plan(input: string, context?: ConversationContext, repair?: RepairHint, signal?: AbortSignal): Promise<IntentResult>;
+  plan(input: string, context?: ConversationContext, repair?: RepairHint, signal?: AbortSignal, trace?: PlanningTrace): Promise<IntentResult>;
 }
 
 /**

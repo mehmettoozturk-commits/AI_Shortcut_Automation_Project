@@ -32,6 +32,7 @@ import type { NluProvider, RepairHint } from "../ports.js";
 import type { ConversationContext, IntentResult } from "../types.js";
 import { LlmPlanOutputSchema, systemPrompt, toIntentResult, userPrompt } from "./llm-schema.js";
 import { LlmProviderError } from "./errors.js";
+import { invokeProvider, type PlanningTrace } from "../planning-provenance.js";
 
 export { LlmProviderError };
 
@@ -57,16 +58,17 @@ export class ClaudeIntentProvider implements NluProvider {
     this.client = options.client ?? (new Anthropic({ apiKey: options.apiKey ?? resolveApiKey() }) as unknown as ClaudeMessagesClient);
   }
 
-  async plan(input: string, context?: ConversationContext, repair?: RepairHint): Promise<IntentResult> {
+  async plan(input: string, context?: ConversationContext, repair?: RepairHint, _signal?: AbortSignal, trace?: PlanningTrace): Promise<IntentResult> {
     let response: { parsed_output: unknown };
     try {
-      response = await this.client.messages.parse({
+      const params = {
         model: this.model,
         max_tokens: 4096,
         system: repair ? `${systemPrompt()}\n\n${repair.instruction}` : systemPrompt(),
         messages: [{ role: "user", content: userPrompt(input, context) }],
         output_config: { format: zodOutputFormat(LlmPlanOutputSchema) },
-      });
+      };
+      response = await invokeProvider(trace, "anthropic", Boolean(repair), () => this.client.messages.parse(params));
     } catch (err) {
       // Ağ/istek hatası — Phase 4E-3: RETRY EDİLMEZ (bkz. errors.ts).
       throw new LlmProviderError("LLM isteği başarısız oldu.", err, false);

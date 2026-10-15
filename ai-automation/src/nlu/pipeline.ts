@@ -14,6 +14,7 @@ import { findBySemantic, findCapability } from "../capability-registry/registry.
 import type { WorkflowStep } from "../dsl/schema.js";
 import { buildPlan } from "./plan-builder.js";
 import { normalizeLocalInput, vehicleCorrectionTarget } from "./local-first-provider.js";
+import { observePlanning, PlanningTrace, type PlanningObserver } from "./planning-provenance.js";
 import type { ClarificationEngine, EntityExtractor, IntentExtractor, NluPlanner, NluProvider, PlanRevisionEngine } from "./ports.js";
 import { LlmProviderError, type ProviderErrorDiagnostic } from "./providers/errors.js";
 import { buildRepairInstruction, checkSemanticCompleteness, describeSemanticViolation, hardenTemporalAmbiguity } from "./providers/llm-schema.js";
@@ -226,6 +227,9 @@ function groundVehicleForAction(intent: IntentResult, input: string, context: Co
 /* ---------------- planlayıcı ---------------- */
 
 export class NluPipeline implements NluPlanner {
+  /** Legacy workflow-attempt counters, including deterministic results.
+   * Not AI usage/billing metrics. Use request provenance for SDK call counts.
+   */
   public readonly retryMetrics: RetryMetrics = { firstPassSuccess: 0, repairSuccess: 0, deterministicFallback: 0, providerError: 0 };
 
   constructor(
@@ -234,6 +238,7 @@ export class NluPipeline implements NluPlanner {
     private revision: PlanRevisionEngine = new DefaultPlanRevisionEngine(),
     private provider: NluProvider = new RuleBasedProvider(),
     private onProviderFailure?: (telemetry: ProviderFailureTelemetry) => void,
+    private onPlanningComplete?: PlanningObserver,
   ) {}
 
   plan(input: string, context: ConversationContext): PlanningOutcome {
@@ -260,6 +265,17 @@ export class NluPipeline implements NluPlanner {
    * çalışılmaz, en fazla iki gerçek istek yapılır.
    */
   async planAsync(input: string, context: ConversationContext, signal?: AbortSignal): Promise<PlanningOutcome> {
+    const trace = new PlanningTrace();
+    let outcome: PlanningOutcome | undefined;
+    try {
+      outcome = await this.planAsyncTraced(input, context, signal, trace);
+      return outcome;
+    } finally {
+      observePlanning(this.onPlanningComplete, trace.finish(outcome, signal));
+    }
+  }
+
+  private async planAsyncTraced(input: string, context: ConversationContext, signal: AbortSignal | undefined, trace: PlanningTrace): Promise<PlanningOutcome> {
     const started = performance.now();
     const finalFailure = (failure: Extract<AttemptResult, { ok: false }>, stage: "first" | "repair"): PlanningOutcome => {
       this.retryMetrics.providerError++;
@@ -276,7 +292,7 @@ export class NluPipeline implements NluPlanner {
       } catch { /* Diagnostic observers are best-effort only. */ }
       return { status: "provider_error", message: failure.message };
     };
-    const first = await this.attemptPlan(input, context, undefined, signal);
+    const first = await this.attemptPlan(input, context, undefined, signal, trace);
     if (first.ok) {
       if (first.deterministicFallback) this.retryMetrics.deterministicFallback++;
       else this.retryMetrics.firstPassSuccess++;
@@ -287,7 +303,7 @@ export class NluPipeline implements NluPlanner {
     }
 
     if (signal?.aborted) return { status: "provider_error", message: "İstek iptal edildi." };
-    const second = await this.attemptPlan(input, context, first.repair, signal);
+    const second = await this.attemptPlan(input, context, first.repair, signal, trace);
     if (second.ok) {
       if (second.deterministicFallback) this.retryMetrics.deterministicFallback++;
       else this.retryMetrics.repairSuccess++;
@@ -301,13 +317,15 @@ export class NluPipeline implements NluPlanner {
     input: string,
     context: ConversationContext,
     repair?: Parameters<typeof buildRepairInstruction>[0],
-    signal?: AbortSignal
+    signal?: AbortSignal,
+    trace?: PlanningTrace
   ): Promise<AttemptResult> {
     let intent: IntentResult;
     const started = performance.now();
+    trace?.beginAttempt();
     try {
       const hint = repair ? { instruction: buildRepairInstruction(repair) } : undefined;
-      intent = await this.provider.plan(input, context, hint, signal);
+      intent = await this.provider.plan(input, context, hint, signal, trace);
     } catch (err) {
       if (err instanceof LlmProviderError) {
         return { ok: false, retryable: err.retryable, message: err.message, diagnostic: err.diagnostic,
@@ -333,6 +351,7 @@ export class NluPipeline implements NluPlanner {
         && fallback.trigger?.type === "time"
         && fallback.steps.some((step) => step.type === "notify")
         && fallback.missing.some((field) => field.field === "time_of_day")) {
+        trace?.deterministicFallback();
         return { ok: true, intent: fallback, deterministicFallback: true };
       }
     }
@@ -396,9 +415,22 @@ export class NluPipeline implements NluPlanner {
    * Cevap, bağlamdaki plana yazılır; önceki bilgiler KORUNUR.
    */
   answerClarification(answer: string, context: ConversationContext): PlanningOutcome {
+    const trace = new PlanningTrace();
+    trace.clarificationAnswer();
+    let outcome: PlanningOutcome | undefined;
+    try {
+      outcome = this.answerClarificationTraced(answer, context, trace);
+      return outcome;
+    } finally {
+      observePlanning(this.onPlanningComplete, trace.finish(outcome));
+    }
+  }
+
+  private answerClarificationTraced(answer: string, context: ConversationContext, trace: PlanningTrace): PlanningOutcome {
     const plan = context.currentPlan;
     const field = context.lastMissingField;
     if (!plan || !field) {
+      trace.ruleBased();
       return this.plan(answer, context);
     }
 

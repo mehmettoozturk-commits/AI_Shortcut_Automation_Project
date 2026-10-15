@@ -12,11 +12,14 @@
 import type { NluProvider } from "../ports.js";
 import { RuleBasedIntentExtractor } from "../rule-based.js";
 import type { ConversationContext, IntentResult } from "../types.js";
+import type { PlanningTrace } from "../planning-provenance.js";
+import type { RepairHint } from "../ports.js";
 
 export class RuleBasedProvider implements NluProvider {
   constructor(private extractor: RuleBasedIntentExtractor = new RuleBasedIntentExtractor()) {}
 
-  async plan(input: string, context?: ConversationContext): Promise<IntentResult> {
+  async plan(input: string, context?: ConversationContext, _repair?: RepairHint, _signal?: AbortSignal, trace?: PlanningTrace): Promise<IntentResult> {
+    trace?.ruleBased();
     return this.extractor.extract(input, context);
   }
 }

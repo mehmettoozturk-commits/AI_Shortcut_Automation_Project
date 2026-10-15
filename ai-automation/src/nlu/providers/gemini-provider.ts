@@ -23,6 +23,7 @@ import type { NluProvider, RepairHint } from "../ports.js";
 import type { ConversationContext, IntentResult } from "../types.js";
 import { LlmPlanOutputJsonSchema, LlmPlanOutputSchema, systemPrompt, toIntentResult, userPrompt } from "./llm-schema.js";
 import { LlmProviderError } from "./errors.js";
+import { invokeProvider, type PlanningTrace } from "../planning-provenance.js";
 
 /** `ai.models.generateContent`'in bu dosyanın ihtiyacı kadarı — testte sahte bir istemci enjekte edilebilsin diye. */
 export interface GeminiClient {
@@ -44,10 +45,10 @@ export class GeminiIntentProvider implements NluProvider {
     this.client = options.client ?? (new GoogleGenAI({ apiKey: options.apiKey ?? resolveApiKey() }) as unknown as GeminiClient);
   }
 
-  async plan(input: string, context?: ConversationContext, repair?: RepairHint): Promise<IntentResult> {
+  async plan(input: string, context?: ConversationContext, repair?: RepairHint, _signal?: AbortSignal, trace?: PlanningTrace): Promise<IntentResult> {
     let response: { text?: string };
     try {
-      response = await this.client.models.generateContent({
+      const params = {
         model: this.model,
         contents: userPrompt(input, context),
         config: {
@@ -55,7 +56,8 @@ export class GeminiIntentProvider implements NluProvider {
           responseMimeType: "application/json",
           responseJsonSchema: LlmPlanOutputJsonSchema,
         },
-      });
+      };
+      response = await invokeProvider(trace, "gemini", Boolean(repair), () => this.client.models.generateContent(params));
     } catch (err) {
       // Ağ/istek hatası — Phase 4E-3: RETRY EDİLMEZ.
       throw new LlmProviderError("LLM isteği başarısız oldu.", err, false);
