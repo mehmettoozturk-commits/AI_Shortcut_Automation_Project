@@ -612,8 +612,27 @@ public final class BuilderMachine: ObservableObject {
     /// kaydedilen akış) türetilir. Doğrulanmış adım yoksa genel/
     /// doğrulanmamış bir patern kullanılır — tek doğrulanmış örnek şu an
     /// `ios.bluetooth.disconnected` (Test 2).
-    private func triggerLinkingSteps(_ draft: DraftAutomationPlan) -> [String] {
-        if device.osVersion >= 27, draft.trigger.type == "ios.battery.falls_below" {
+    func triggerLinkingSteps(_ draft: DraftAutomationPlan) -> [String] {
+        if draft.trigger.type == "ios.battery.falls_below" {
+            let summary = registry.triggerDescription(draft.trigger)
+            guard let condition = draft.trigger.params?["condition"]?.value as? String,
+                  ["below", "above"].contains(condition), !summary.contains("netleştir") else {
+                return ["Pil yüzdesi veya koşulu eksik ya da geçersiz. Planı düzeltmeden kurulum yapma."]
+            }
+            if condition == "above" {
+                return [
+                    "Plandaki koşul: \(summary).",
+                    "Kestirmeler'de Pil Seviyesi için Üstüne Çıkarsa seçeneği cihazında varsa plandaki yüzdeyi seç.",
+                    "Bu yöndeki kurulum cihazında doğrulanmadı. Seçenek yoksa veya bağlayamadıysan Bağladım'a basma.",
+                ]
+            }
+            if device.osVersion < 27 {
+                return [
+                    "Kestirmeler'de Otomasyon bölümünü aç. Sağ üstten + ile yeni otomasyon oluştur, Pil Seviyesi seçeneğini bul.",
+                    "Plandaki yüzdeyi ve Altına Düşerse koşulunu seç; Bildirimi Göster kestirmesine bağla.",
+                    "Seçenek cihazında yoksa veya bağlayamadıysan Bağladım'a basma.",
+                ]
+            }
             return [
                 "Kestirmeler'de eklediğin Bildirimi Göster kestirmesine uzun basıp Düzenle'yi aç.",
                 "Düzenle > Otomasyon > Pil Seviyesi yolundan plandaki yüzdeyi ve Altına Düşerse koşulunu seç.",

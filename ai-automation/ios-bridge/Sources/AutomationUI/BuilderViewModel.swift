@@ -316,10 +316,7 @@ public final class BuilderViewModel: ObservableObject {
     /// dosyadaki İKİ ÇAĞRI, `displayDescription`'ın gerçekten UI'a
     /// ulaştığı TEK yer.
     public func triggerSummary(for draft: DraftAutomationPlan) -> String {
-        guard let cap = registry.find(draft.trigger.type) else {
-            return "Bir tetikleyici"
-        }
-        return trimTrailingDot(cap.displayDescription)
+        return trimTrailingDot(registry.triggerDescription(draft.trigger))
     }
 
     /// "🚨 Tesla Sentry Mode'u aç" gibi eylem özetleri — `ask_confirmation`/

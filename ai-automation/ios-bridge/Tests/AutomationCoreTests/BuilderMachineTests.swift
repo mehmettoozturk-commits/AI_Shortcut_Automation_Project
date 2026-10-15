@@ -11,6 +11,32 @@ import XCTest
 
 @MainActor
 final class BuilderMachineTests: XCTestCase {
+    func testBatterySetupDirectionsAcrossVersionsAndInvalidConditions() throws {
+        let registry = try makeRegistry()
+        for version in [26, 27] {
+            let machine = BuilderMachine(registry: registry, planner: MockPlanner(registry: registry),
+                permissions: MockPermissionService(), setup: MockSetupService(),
+                shortcutsHandoff: MockShortcutsHandoff(), repository: InMemoryAutomationRepository(),
+                device: DeviceContext(osVersion: version, hasCarPlay: false))
+            for condition in ["above", "below", "invalid", ""] {
+                var params = ["level": AnyCodable(25.0)]
+                if !condition.isEmpty { params["condition"] = AnyCodable(condition) }
+                let draft = DraftAutomationPlan(name: "", trigger: TriggerDTO(type: "ios.battery.falls_below", params: params), steps: [])
+                let text = machine.triggerLinkingSteps(draft).joined(separator: " ")
+                if condition == "above" {
+                    XCTAssertTrue(text.contains("Üstüne Çıkarsa"))
+                    XCTAssertTrue(text.contains("doğrulanmadı"))
+                    XCTAssertFalse(text.contains("Altına Düşerse"))
+                } else if condition == "below" {
+                    XCTAssertTrue(text.contains("Altına Düşerse"))
+                    XCTAssertFalse(text.contains("Üstüne Çıkarsa"))
+                } else {
+                    XCTAssertTrue(text.contains("Planı düzeltmeden kurulum yapma"))
+                    XCTAssertFalse(text.contains("Altına Düşerse"))
+                }
+            }
+        }
+    }
     func makeRegistry() throws -> CapabilityRegistry {
         try CapabilityRegistry.loadFromBundle()
     }

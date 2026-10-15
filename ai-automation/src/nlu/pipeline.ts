@@ -13,6 +13,7 @@ import type { Planner, PlannerResult } from "../builder/ports.js";
 import { findBySemantic, findCapability } from "../capability-registry/registry.js";
 import type { WorkflowStep } from "../dsl/schema.js";
 import { buildPlan } from "./plan-builder.js";
+import { normalizeLocalInput, vehicleCorrectionTarget } from "./local-first-provider.js";
 import type { ClarificationEngine, EntityExtractor, IntentExtractor, NluPlanner, NluProvider, PlanRevisionEngine } from "./ports.js";
 import { LlmProviderError, type ProviderErrorDiagnostic } from "./providers/errors.js";
 import { buildRepairInstruction, checkSemanticCompleteness, describeSemanticViolation, hardenTemporalAmbiguity } from "./providers/llm-schema.js";
@@ -66,7 +67,8 @@ export class DefaultPlanRevisionEngine implements PlanRevisionEngine {
     }
 
     // 3. Araç düzeltmesi
-    const e = this.entities.extract(correction, context);
+    const target = vehicleCorrectionTarget(correction);
+    const e = this.entities.extract(target ?? correction, context);
     if (e.vehicle) {
       const vehicle = e.vehicle.value;
       plan = {
@@ -362,6 +364,8 @@ export class NluPipeline implements NluPlanner {
     if (intent.intent === "modify_automation" && context.currentPlan) {
       const revised = this.revision.revise(context.currentPlan, input, context);
       context.currentPlan = revised;
+      const correctedVehicle = vehicleCorrectionTarget(input);
+      if (correctedVehicle) context.selectedEntities.vehicle = { value: correctedVehicle, raw: input };
       const question = this.clarification.nextQuestion(revised, context);
       if (question) return { status: "needs_clarification", question, intent };
       return { status: "plan", plan: revised, intent, band: "high" };
@@ -415,7 +419,25 @@ export class NluPipeline implements NluPlanner {
       updated.trigger.device = vehicle;
       updated.trigger.params = { ...(updated.trigger.params ?? {}), vehicle };
       updated.answers.vehicle = vehicle;
+    } else if (field === "battery_level") {
+      const level = answer.trim().match(/^(?:%\s*|yüzde\s+)?(\d{1,3})$/i);
+      if (!level || Number(level[1]) > 100) {
+        return { status: "needs_clarification", question: this.clarification.nextQuestion(plan, context)!, intent: context.lastIntent! };
+      }
+      updated.trigger.params = { ...(updated.trigger.params ?? {}), level: Number(level[1]) };
+    } else if (field === "time") {
+      const normalized = normalizeLocalInput(answer);
+      const isTimeOnly = /^(?:(?:sabah|akşam|gece|öğlen) )?(?:saat )?\d{1,2}(?:[.:]\d{2})?(?:'?(?:de|da|te|ta))?$/.test(normalized);
+      const time = isTimeOnly ? normalizeTime(normalized.includes("saat ") ? normalized : normalized.replace(/\d/, digit => `saat ${digit}`)) : null;
+      if (!time) return { status: "needs_clarification", question: this.clarification.nextQuestion(plan, context)!, intent: context.lastIntent! };
+      updated.trigger.params = { ...(updated.trigger.params ?? {}), time: time.value };
+      if (time.ambiguous) {
+        updated.missing = [...updated.missing, { id: "time_of_day", kind: "trigger", question: "Sabah mı, akşam mı?", options: ["Sabah", "Akşam"] }];
+      }
     } else if (field === "time_of_day") {
+      if (!/^(sabah|akşam|gece|öğlen)$/.test(normalizeLocalInput(answer))) {
+        return { status: "needs_clarification", question: this.clarification.nextQuestion(plan, context)!, intent: context.lastIntent! };
+      }
       const previous = (updated.trigger.params as { time?: string } | undefined)?.time;
       const hour = previous ? Number(previous.split(":")[0]) % 12 : null;
       if (hour !== null) {

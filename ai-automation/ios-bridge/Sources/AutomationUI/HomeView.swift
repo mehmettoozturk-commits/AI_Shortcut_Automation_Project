@@ -258,10 +258,6 @@ struct HomeView: View {
     }
 
     private func triggerLabel(for trigger: TriggerDTO) -> String {
-        if trigger.type == "ios.battery.falls_below",
-           let level = trigger.params?["level"]?.value as? Double {
-            return "Pil %\(Int(level)) altına düşünce"
-        }
         return viewModel.triggerSummary(for: DraftAutomationPlan(name: "", trigger: trigger, steps: []))
     }
 

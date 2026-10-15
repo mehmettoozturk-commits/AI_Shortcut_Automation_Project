@@ -1,6 +1,8 @@
 /** `npm run serve` giriş noktası — bkz. server.ts. */
 import { createPlanServer } from "./server.js";
 import { NluPipeline } from "../nlu/pipeline.js";
+import { LocalFirstProvider } from "../nlu/local-first-provider.js";
+import { RuleBasedProvider } from "../nlu/providers/rule-based-provider.js";
 import type { NluProvider } from "../nlu/ports.js";
 import { ClaudeIntentProvider } from "../nlu/providers/claude-provider.js";
 import { GeminiIntentProvider } from "../nlu/providers/gemini-provider.js";
@@ -64,7 +66,8 @@ if (process.env.LLM_PROVIDER && providerName !== process.env.LLM_PROVIDER.toLowe
 }
 
 const providerAvailable = hasKey(providerName);
-const pipeline = providerAvailable ? new NluPipeline(undefined, undefined, undefined, buildProvider(providerName)) : new NluPipeline();
+const pipeline = new NluPipeline(undefined, undefined, undefined,
+  new LocalFirstProvider(providerAvailable ? buildProvider(providerName) : new RuleBasedProvider()));
 
 if (!providerAvailable) {
   console.warn(

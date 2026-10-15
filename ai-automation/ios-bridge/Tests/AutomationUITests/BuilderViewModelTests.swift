@@ -12,6 +12,18 @@ import XCTest
 
 @MainActor
 final class BuilderViewModelTests: XCTestCase {
+    func testBatterySummaryPreservesDirectionAndRejectsMissingOrInvalidValues() throws {
+        let viewModel = makeViewModel(registry: try makeRegistry())
+        for (condition, expected) in [("below", "Pil %25 altına düşünce"), ("above", "Pil %25 üstüne çıkınca"), ("equals", "Pil koşulunu netleştir"), ("invalid", "Pil koşulunu netleştir")] {
+            let trigger = TriggerDTO(type: "ios.battery.falls_below", params: ["level": AnyCodable(25.0), "condition": AnyCodable(condition)])
+            XCTAssertEqual(viewModel.triggerSummary(for: DraftAutomationPlan(name: "", trigger: trigger, steps: [])), expected)
+        }
+        for params: [String: AnyCodable] in [[:], ["level": AnyCodable(25)], ["condition": AnyCodable("above")], ["condition": AnyCodable("above"), "level": AnyCodable(101)], ["condition": AnyCodable("above"), "level": AnyCodable(25.5)]] {
+            let summary = viewModel.triggerSummary(for: DraftAutomationPlan(name: "", trigger: TriggerDTO(type: "ios.battery.falls_below", params: params), steps: []))
+            XCTAssertTrue(summary.contains("netleştir"))
+            XCTAssertFalse(summary.contains("altına"))
+        }
+    }
     func testUnknownHistoryTriggerDoesNotExposeRawID() throws {
         let viewModel = makeViewModel(registry: try makeRegistry())
         let summary = viewModel.triggerSummary(for: DraftAutomationPlan(name: "", trigger: TriggerDTO(type: "private.unknown.trigger", device: nil), steps: []))

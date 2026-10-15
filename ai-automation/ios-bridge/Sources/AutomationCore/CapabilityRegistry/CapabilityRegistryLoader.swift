@@ -69,6 +69,25 @@ public final class CapabilityRegistry: @unchecked Sendable {
 
     public func find(_ id: String) -> Capability? { byId[id] }
 
+    /// Parameterized presentation must not inherit the snapshot's historical
+    /// below-only label when the actual comparison differs or is missing.
+    public func triggerDescription(_ trigger: TriggerDTO) -> String {
+        guard let cap = find(trigger.type) else { return "Bir tetikleyici" }
+        guard trigger.type == "ios.battery.falls_below" else { return cap.displayDescription }
+        guard let condition = trigger.params?["condition"]?.value as? String,
+              condition == "below" || condition == "above" else {
+            return "Pil koşulunu netleştir"
+        }
+        let value = trigger.params?["level"]?.value
+        let level = (value as? Double) ?? (value as? Int).map(Double.init)
+        guard let level, level.isFinite, (0...100).contains(level), level.rounded() == level else {
+            return "Pil yüzdesini netleştir"
+        }
+        return condition == "above"
+            ? "Pil %\(Int(level)) üstüne çıkınca"
+            : "Pil %\(Int(level)) altına düşünce"
+    }
+
     public func capabilities(platform: Platform) -> [Capability] {
         capabilities.filter { $0.platform == platform }
     }
