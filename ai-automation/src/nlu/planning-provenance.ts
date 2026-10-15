@@ -13,6 +13,9 @@ export interface ProviderInvocation {
 
 export interface PlanningProvenance {
   readonly requestId: string;
+  readonly routingAccess: "free" | "premium" | "unavailable" | null;
+  readonly routingChannel: "free" | "premium" | null;
+  readonly routingConfigurationId: string | null;
   /** Null means an uninstrumented/custom provider did not identify its route. */
   readonly route: PlanningRoute | null;
   readonly aiRequired: boolean;
@@ -42,9 +45,22 @@ export class PlanningTrace {
   private source: ResolutionSource = "unknown";
   private attempts = 0;
   private accountingKnown = false;
+  private routingAccess: PlanningProvenance["routingAccess"] = null;
+  private routingChannel: PlanningProvenance["routingChannel"] = null;
+  private routingConfigurationId: string | null = null;
   private calls: Array<{ sdk: ProviderSDK; stage: "first" | "repair"; result: ProviderInvocation["result"] }> = [];
 
   beginAttempt(): void { this.attempts++; }
+  routerSelection(access: "free" | "premium" | "unavailable", configurationId: string | null): void {
+    this.routingAccess = access;
+    this.routingChannel = access === "unavailable" ? null : access;
+    this.routingConfigurationId = configurationId;
+  }
+  routerBlocked(): void {
+    if (this.routingAccess === null) this.routerSelection("unavailable", null);
+    this.providerUnavailable = true;
+    if (this.calls.length === 0) this.accountingKnown = true;
+  }
   localTemplate(): void { this.route = "local_template"; this.source = "local_template"; this.accountingKnown = true; }
   requireAI(): void { this.aiRequired = true; this.route = "ai_required"; }
   ruleBased(): void {
@@ -88,7 +104,9 @@ export class PlanningTrace {
     }
     const invocations = Object.freeze(this.calls.map(call => Object.freeze({ ...call })));
     return Object.freeze({
-      requestId: this.requestId, route, aiRequired: this.aiRequired, providerUnavailable: unavailable,
+      requestId: this.requestId, routingAccess: this.routingAccess, routingChannel: this.routingChannel,
+      routingConfigurationId: this.routingConfigurationId,
+      route, aiRequired: this.aiRequired, providerUnavailable: unavailable,
       resolutionSource: this.source, pipelineAttempts: this.attempts,
       providerCallCount: invocations.length, providerInvocations: invocations,
       callAccounting: this.accountingKnown ? "known" : "unknown",

@@ -19,6 +19,9 @@ import { createServer, type IncomingMessage, type ServerResponse } from "node:ht
 import { createServer as createHttpsServer } from "node:https";
 import { TLSSocket } from "node:tls";
 import { NluPipeline } from "../nlu/pipeline.js";
+import { LocalFirstProvider } from "../nlu/local-first-provider.js";
+import { bindAccessResolver, RequestProviderRouter, snapshotChannelBindings, type ProviderRoutingOptions } from "../nlu/provider-router.js";
+import { defaultAccessResolver, type RoutingSubject } from "../nlu/routing-access.js";
 import { emptyContext, type ConversationContext } from "../nlu/types.js";
 import { runValidationPipeline } from "../validators/pipeline.js";
 import type { AutomationPlan } from "../dsl/schema.js";
@@ -136,7 +139,8 @@ export async function handlePlanRequest(
   req: IncomingMessage,
   res: ServerResponse,
   pipeline: NluPipeline = defaultPipeline,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  requestPipeline?: () => NluPipeline
 ): Promise<void> {
   let raw: unknown;
   try {
@@ -161,6 +165,9 @@ export async function handlePlanRequest(
     return;
   }
   const { text, conversation, platform, grantedPermissions } = parsedRequest.data;
+  // Only after existing HTTP admission and body/schema checks. The new
+  // request pipeline still performs semantic/registry/safety validation below.
+  pipeline = requestPipeline?.() ?? pipeline;
 
   // Sunucu DURUMSUZ: istemci bir önceki `conversation`'ı aynen geri
   // gönderir. İlk turda (conversation yok) boş bir bağlamla başlanır.
@@ -345,8 +352,15 @@ export function createPlanServer(options: {
   authRateLimit?: PlanRateLimitOptions;
   maxConcurrentAuth?: number;
   authRequestTimeoutMs?: number;
+  routing?: ProviderRoutingOptions;
 } = {}) {
   const pipeline = options.pipeline ?? defaultPipeline;
+  const routing = options.routing?.enabled === true ? Object.freeze({
+    channels: snapshotChannelBindings(options.routing.channels),
+    resolveAccess: options.routing.resolveAccess ?? defaultAccessResolver,
+    resolverTimeoutMs: options.routing.resolverTimeoutMs,
+    onPlanningComplete: options.routing.onPlanningComplete,
+  }) : undefined;
   const checkPlanRateLimit = createPlanRateLimiter(options.rateLimit);
   const maxConcurrentPlans = options.maxConcurrentPlans ?? 8;
   let activePlans = 0;
@@ -407,7 +421,17 @@ export function createPlanServer(options: {
       req.once("aborted", onAborted);
       res.once("finish", onFinish);
       res.once("close", onClose);
-      void handlePlanRequest(req, res, pipeline, controller.signal)
+      const requestPipeline = routing ? () => new NluPipeline(undefined, undefined, undefined,
+        new LocalFirstProvider(new RequestProviderRouter(routing.channels,
+          bindAccessResolver((): RoutingSubject | null => {
+            if (req.headers.authorization === undefined) return Object.freeze({ kind: "guest" });
+            const token = bearerToken(req);
+            if (!token || !options.auth || !authTransportAllowed(req)) return null;
+            const session = options.auth.session(token);
+            return session && typeof session.userId === "string" && session.userId.length > 0
+              ? Object.freeze({ kind: "account", userId: session.userId }) : null;
+          }, routing.resolveAccess), routing.resolverTimeoutMs)), undefined, routing.onPlanningComplete) : undefined;
+      void handlePlanRequest(req, res, pipeline, controller.signal, requestPipeline)
         .catch(() => {
           if (!res.headersSent && !res.destroyed) sendJson(res, 500, { error: "Beklenmeyen sunucu hatası." });
         })
