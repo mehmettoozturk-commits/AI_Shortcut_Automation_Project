@@ -198,9 +198,9 @@ describe("P2-B1 backend router foundation", () => {
   it("invalid bearer identity fails closed before the entitlement resolver", async () => {
     const f = fixture(); const url = await start(f.server);
     try {
-      expect((await post(url, { text: aiText }, "invalid-token-value-that-is-long-enough")).status).toBe(502);
+      expect((await post(url, { text: aiText }, "invalid-token-value-that-is-long-enough")).status).toBe(401);
       expect(f.resolveAccess).not.toHaveBeenCalled(); expect(f.free.create).not.toHaveBeenCalled();
-      expect(f.records[0]).toMatchObject({ routingAccess: "unavailable", providerCallCount: 0 });
+      expect(f.records).toEqual([]); // Rejected at the API identity gate, before planning/provenance begins.
     } finally { await stop(f.server); }
   });
 

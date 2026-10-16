@@ -22,6 +22,20 @@ public protocol PlanHTTPTransport: Sendable {
     func send(requestBody: Data) async throws -> PlanHTTPResult
 }
 
+/// Missing credentials are guest; a credential-store failure must throw, not silently become guest.
+public protocol PlanCredentialSource: Sendable {
+    func planSession() async throws -> SecureAccountSession?
+}
+
+/// No authenticated redirect is followed, even to the same host. Reconfiguration must be explicit.
+final class PlanCredentialRedirectBlocker: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
 /// Gerçek `URLSession` tabanlı taşıma — yalnızca `serve()` çalışan gerçek
 /// bir backend'e karşı elle/production'da kullanılır, XCTest'te DEĞİL.
 public struct URLSessionPlanTransport: PlanHTTPTransport {
@@ -31,19 +45,65 @@ public struct URLSessionPlanTransport: PlanHTTPTransport {
     public static let requestTimeout: TimeInterval = 50
     private let url: URL
     private let session: URLSession
+    private let credentials: (any PlanCredentialSource)?
+    private let credentialOrigin: URL?
 
-    public init(url: URL, session: URLSession = .shared) {
+    public init(url: URL, session: URLSession = .shared,
+                credentials: (any PlanCredentialSource)? = nil, credentialOrigin: URL? = nil) {
         self.url = url
         self.session = session
+        self.credentials = credentials
+        self.credentialOrigin = credentialOrigin
+    }
+
+    private func trustedCredentialTarget() -> Bool {
+        guard let origin = credentialOrigin,
+              url.scheme?.lowercased() == "https", origin.scheme?.lowercased() == "https",
+              let host = url.host, let expectedHost = origin.host,
+              !host.isEmpty, host.lowercased() == expectedHost.lowercased(),
+              (url.port ?? 443) == (origin.port ?? 443),
+              url.user == nil, url.password == nil, origin.user == nil, origin.password == nil
+        else { return false }
+        return true
     }
 
     public func send(requestBody: Data) async throws -> PlanHTTPResult {
+        let account: SecureAccountSession?
+        do { account = try await credentials?.planSession() }
+        catch { throw PlannerError.plannerUnreachable(message: "Hesap oturumu güvenli biçimde okunamadı.") }
+        if let account {
+            guard trustedCredentialTarget(), !account.accountID.isEmpty, !account.appleUserID.isEmpty,
+                  account.token.range(of: "^[A-Za-z0-9_-]{20,256}$", options: .regularExpression) != nil
+            else { throw PlannerError.plannerUnreachable(message: "Hesap oturumu bu plan sunucusuna güvenli biçimde gönderilemiyor.") }
+        }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = Self.requestTimeout
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        if let account { request.setValue("Bearer \(account.token)", forHTTPHeaderField: "Authorization") }
         request.httpBody = requestBody
-        let (data, response) = try await session.data(for: request)
+        let configuration = session.configuration
+        configuration.urlCache = nil
+        configuration.urlCredentialStorage = nil
+        configuration.httpCookieStorage = nil
+        configuration.httpShouldSetCookies = false
+        configuration.httpAdditionalHeaders = configuration.httpAdditionalHeaders?.filter {
+            String(describing: $0.key).lowercased() != "authorization"
+        }
+        let boundSession = URLSession(configuration: configuration,
+                                      delegate: account == nil ? nil : PlanCredentialRedirectBlocker(), delegateQueue: nil)
+        defer { boundSession.finishTasksAndInvalidate() }
+        let data: Data
+        let response: URLResponse
+        do { (data, response) = try await boundSession.data(for: request) }
+        catch {
+            if let urlError = error as? URLError, urlError.code == .timedOut {
+                throw URLError(.timedOut) // Preserve the existing timeout mapping without arbitrary userInfo.
+            }
+            if account != nil { throw PlannerError.plannerUnreachable(message: "Hesaplı plan isteği tamamlanamadı.") }
+            throw error
+        }
         guard let http = response as? HTTPURLResponse else {
             throw PlannerError.plannerUnreachable(message: "Geçersiz HTTP yanıtı (HTTPURLResponse değil).")
         }

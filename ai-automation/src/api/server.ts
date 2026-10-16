@@ -20,7 +20,7 @@ import { createServer as createHttpsServer } from "node:https";
 import { TLSSocket } from "node:tls";
 import { NluPipeline } from "../nlu/pipeline.js";
 import { LocalFirstProvider } from "../nlu/local-first-provider.js";
-import { bindAccessResolver, RequestProviderRouter, snapshotChannelBindings, type ProviderRoutingOptions } from "../nlu/provider-router.js";
+import { bindAccessResolver, RequestProviderRouter, snapshotChannelBindings, type ChannelBinding, type ProviderRoutingOptions } from "../nlu/provider-router.js";
 import { defaultAccessResolver, type RoutingSubject } from "../nlu/routing-access.js";
 import { emptyContext, type ConversationContext } from "../nlu/types.js";
 import { runValidationPipeline } from "../validators/pipeline.js";
@@ -140,7 +140,8 @@ export async function handlePlanRequest(
   res: ServerResponse,
   pipeline: NluPipeline = defaultPipeline,
   signal?: AbortSignal,
-  requestPipeline?: () => NluPipeline
+  requestPipeline?: () => NluPipeline,
+  identity?: PlanIdentityBinding,
 ): Promise<void> {
   let raw: unknown;
   try {
@@ -165,6 +166,10 @@ export async function handlePlanRequest(
     return;
   }
   const { text, conversation, platform, grantedPermissions } = parsedRequest.data;
+  if (identity && !identity.current()) {
+    sendPlanIdentityRejection(res, identity.rejection() ?? 401);
+    return;
+  }
   // Only after existing HTTP admission and body/schema checks. The new
   // request pipeline still performs semantic/registry/safety validation below.
   pipeline = requestPipeline?.() ?? pipeline;
@@ -183,6 +188,8 @@ export async function handlePlanRequest(
     ? pipeline.answerClarification(text, context)
     : await pipeline.planAsync(text, context, signal);
   if (signal?.aborted) return;
+  const identityRejection = identity?.rejection();
+  if (identityRejection) { sendPlanIdentityRejection(res, identityRejection); return; }
 
   // Phase 4B: sağlayıcı (LLM ağ hatası/geçersiz JSON) hiç çalışamadıysa
   // — bu bir "anlaşılamadı" veya "desteklenmiyor" değil, sunucunun ayrı
@@ -269,6 +276,37 @@ function authTransportAllowed(req: IncomingMessage): boolean {
   if (req.socket instanceof TLSSocket && req.socket.encrypted) return true;
   const remote = req.socket.remoteAddress;
   return remote === "127.0.0.1" || remote === "::1" || remote === "::ffff:127.0.0.1";
+}
+
+type PlanIdentityBinding = { subject: RoutingSubject; current: () => RoutingSubject | null; rejection: () => 401 | 503 | null };
+function sendPlanIdentityRejection(res: ServerResponse, status: 401 | 403 | 503): void {
+  sendJson(res, status, { error: status === 403 ? "Güvenli bağlantı gerekli."
+    : status === 503 ? "Hesap doğrulaması şu anda kullanılamıyor." : "Geçerli hesap oturumu gerekli." });
+}
+/** Credential identity only, never entitlement. Missing and invalid are not interchangeable. */
+function planIdentity(req: IncomingMessage, auth?: AuthService):
+  | PlanIdentityBinding
+  | { rejected: 401 | 403 | 503 } {
+  const count = req.rawHeaders.filter((_, i) => i % 2 === 0 && req.rawHeaders[i]!.toLowerCase() === "authorization").length;
+  if (count === 0 && req.headers.authorization === undefined) {
+    const subject = Object.freeze({ kind: "guest" as const });
+    return { subject, current: () => subject, rejection: () => null };
+  }
+  if (count !== 1) return { rejected: 401 };
+  if (!authTransportAllowed(req)) return { rejected: 403 };
+  const token = bearerToken(req);
+  if (!token || !auth) return { rejected: 401 };
+  try {
+    const session = auth.session(token);
+    if (!session || typeof session.userId !== "string" || session.userId.length === 0) return { rejected: 401 };
+    const subject = Object.freeze({ kind: "account" as const, userId: session.userId });
+    let denied: 401 | 503 | null = null;
+    return { subject, current: () => {
+      if (denied) return null;
+      try { if (auth.session(token)?.userId === subject.userId) return subject; denied = 401; return null; }
+      catch { denied = 503; return null; } // Uncertain storage never becomes guest or grants entitlement.
+    }, rejection: () => denied };
+  } catch { return { rejected: 503 }; }
 }
 
 const authProofSchema = z.object({ identityToken: z.string().min(1).max(16_384), challengeId: z.string().min(1).max(128), nonce: z.string().min(1).max(256) });
@@ -407,6 +445,11 @@ export function createPlanServer(options: {
         sendJson(res, 429, { error: "Çok fazla istek gönderildi. Lütfen tekrar dene." });
         return;
       }
+      const identity = planIdentity(req, options.auth);
+      if ("rejected" in identity) {
+        sendPlanIdentityRejection(res, identity.rejected);
+        return;
+      }
       if (activePlans >= maxConcurrentPlans) {
         res.setHeader("Retry-After", "5");
         sendJson(res, 503, { error: "Sunucu meşgul. Lütfen tekrar dene." });
@@ -421,17 +464,15 @@ export function createPlanServer(options: {
       req.once("aborted", onAborted);
       res.once("finish", onFinish);
       res.once("close", onClose);
+      const guarded = (binding: ChannelBinding | undefined): ChannelBinding | undefined => binding ? { ...binding,
+        provider: { plan: (...args) => {
+          if (!identity.current()) throw new Error("Hesap doğrulaması şu anda kullanılamıyor.");
+          return binding.provider.plan(...args);
+        } } } : undefined;
       const requestPipeline = routing ? () => new NluPipeline(undefined, undefined, undefined,
-        new LocalFirstProvider(new RequestProviderRouter(routing.channels,
-          bindAccessResolver((): RoutingSubject | null => {
-            if (req.headers.authorization === undefined) return Object.freeze({ kind: "guest" });
-            const token = bearerToken(req);
-            if (!token || !options.auth || !authTransportAllowed(req)) return null;
-            const session = options.auth.session(token);
-            return session && typeof session.userId === "string" && session.userId.length > 0
-              ? Object.freeze({ kind: "account", userId: session.userId }) : null;
-          }, routing.resolveAccess), routing.resolverTimeoutMs)), undefined, routing.onPlanningComplete) : undefined;
-      void handlePlanRequest(req, res, pipeline, controller.signal, requestPipeline)
+        new LocalFirstProvider(new RequestProviderRouter({ free: guarded(routing.channels.free), premium: guarded(routing.channels.premium) },
+          bindAccessResolver(identity.current, routing.resolveAccess), routing.resolverTimeoutMs)), undefined, routing.onPlanningComplete) : undefined;
+      void handlePlanRequest(req, res, pipeline, controller.signal, requestPipeline, identity)
         .catch(() => {
           if (!res.headersSent && !res.destroyed) sendJson(res, 500, { error: "Beklenmeyen sunucu hatası." });
         })

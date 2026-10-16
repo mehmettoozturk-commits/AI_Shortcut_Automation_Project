@@ -21,12 +21,20 @@ public protocol SecureSessionStore: Sendable {
 }
 
 /// One non-synchronizing, this-device-only generic-password item.
-public actor KeychainSessionStore: SecureSessionStore {
+public actor KeychainSessionStore: SecureSessionStore, PlanCredentialSource {
     private let service: String
     private let account = "apple-app-session"
+    private let copyMatching: @Sendable (CFDictionary, UnsafeMutablePointer<CFTypeRef?>?) -> OSStatus
 
     public init(service: String) {
         self.service = service
+        self.copyMatching = { query, result in SecItemCopyMatching(query, result) }
+    }
+
+    /// Internal syscall seam: tests never read real Keychain items or secrets.
+    init(service: String, copyMatching: @escaping @Sendable (CFDictionary, UnsafeMutablePointer<CFTypeRef?>?) -> OSStatus) {
+        self.service = service
+        self.copyMatching = copyMatching
     }
 
     private func query() -> [String: Any] {
@@ -39,15 +47,25 @@ public actor KeychainSessionStore: SecureSessionStore {
     }
 
     public func load() async -> SecureAccountSession? {
+        try? readSession()
+    }
+
+    public func planSession() async throws -> SecureAccountSession? {
+        try readSession()
+    }
+
+    private func readSession() throws -> SecureAccountSession? {
         var attributes = query()
         attributes[kSecReturnData as String] = kCFBooleanTrue
         attributes[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        guard SecItemCopyMatching(attributes as CFDictionary, &result) == errSecSuccess,
+        let status = copyMatching(attributes as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess,
               let data = result as? Data,
               let session = try? JSONDecoder().decode(SecureAccountSession.self, from: data),
               !session.appleUserID.isEmpty, !session.accountID.isEmpty, !session.token.isEmpty
-        else { return nil }
+        else { throw PlannerError.plannerUnreachable(message: "Hesap oturumu güvenli biçimde okunamadı.") }
         return session
     }
 

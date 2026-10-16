@@ -49,7 +49,11 @@ struct AutomationApp: App {
             return nil
         }
         let registry = try! CapabilityRegistry.loadFromBundle()
-        let transport = URLSessionPlanTransport(url: backendURL)
+        let sessions = KeychainSessionStore(service: "com.aishortcut.AutomationApp.session")
+        let authURLString = ProcessInfo.processInfo.environment["AUTH_BACKEND_URL"]
+            ?? Bundle.main.object(forInfoDictionaryKey: "AuthBackendURL") as? String
+        let authOrigin = authURLString.flatMap(URL.init(string:))
+        let transport = URLSessionPlanTransport(url: backendURL, credentials: sessions, credentialOrigin: authOrigin)
 
         let permissions = NoAppRuntimePermissionService()
         let planner = HTTPBackedPlanner(transport: transport, permissions: permissions)
@@ -57,9 +61,7 @@ struct AutomationApp: App {
         let activityStore = FileBackedAutomationActivityStore(directory: applicationSupportDirectory())
         // A durable Info.plist value works after an ordinary icon relaunch;
         // the environment override is for Xcode development runs only.
-        let authURLString = ProcessInfo.processInfo.environment["AUTH_BACKEND_URL"]
-            ?? Bundle.main.object(forInfoDictionaryKey: "AuthBackendURL") as? String
-        let authBackend = authURLString.flatMap(URL.init(string:)).flatMap {
+        let authBackend = authOrigin.flatMap {
             try? URLSessionAccountAuthBackend(baseURL: $0)
         }
         let accountAuthorizer: any AccountAuthorizer
@@ -67,7 +69,7 @@ struct AutomationApp: App {
             accountAuthorizer = AppleAccountAuthorizer(
                 credentials: NativeAppleCredentialProvider(),
                 backend: authBackend,
-                sessions: KeychainSessionStore(service: "com.aishortcut.AutomationApp.session")
+                sessions: sessions
             )
         } else {
             accountAuthorizer = UnavailableAccountAuthorizer()
