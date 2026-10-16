@@ -1,0 +1,13 @@
+# P4-FREE-02 — Template-only / no-SDK boundary
+
+Local development only. No deployment, provider activation, key provisioning or billing authorization.
+
+`FREE_TEMPLATE_ONLY=1` explicitly selects `FreeTemplateProvider` in the real server bootstrap. Missing or `0` preserves legacy startup; every other supplied value stops startup before provider construction. Existing provider keys do not override template-only policy. No fallback/provider dependency is injected into the free provider.
+
+Only existing whole-input `resolveLocalPlan` grammars are accepted: numeric battery below/above notifications, strict time notifications and their safe missing-slot clarification, plus existing contextual Tesla model correction. No new grammar, registry capability or 500-case corpus is introduced. Unmatched input, including camera requests, returns the existing `not_understood` contract, not a fabricated 422 or positive action. This deliberately uses the product-approved safe-unknown policy rather than adding an unsupported-capability classifier.
+
+The pipeline policy snapshots an explicit option. In this mode its internal legacy AM/PM fallback is disabled; the synchronous legacy entry point conservatively returns unknown. HTTP uses the async entry point. Default callers preserve existing behavior. Clarification and validation continue through existing code; schema/capability/permission/setup/safety and HTTP identity/admission remain mandatory. No claim of universal natural-language understanding or zero production errors is made.
+
+Tests cover real bootstrap with synthetic provider-constructor traps and synthetic environment keys, strict positive/negative/direction/multiple-slot cases, cancellation, repair hints, internal fallback, default behavior, 200/422 validation and rejected credentials. Synthetic keys are never transmitted. No actual provider or paid request is used. Constructor isolation is tested at all four provider factory boundaries; SDK invocation is unreachable when those constructors are never reached. A standalone unused invocation counter is not evidence of network isolation.
+
+Known limits: Local-First still runs on the backend, not offline on iPhone. Current legacy production deployment is unchanged; this flag is not activated there. Imported provider modules may still load SDK code, but no SDK client construction is allowed on the free branch. New grammar/coverage, independent holdout, real device checks and publication security/privacy are separate gates. Contextual Tesla correction is not new Tesla creation support. API quota/router behavior is not reconfigured here.

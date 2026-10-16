@@ -239,9 +239,16 @@ export class NluPipeline implements NluPlanner {
     private provider: NluProvider = new RuleBasedProvider(),
     private onProviderFailure?: (telemetry: ProviderFailureTelemetry) => void,
     private onPlanningComplete?: PlanningObserver,
-  ) {}
+    options: { freeTemplateOnly?: boolean } = {},
+  ) { this.freeTemplateOnly = options.freeTemplateOnly === true; }
+
+  private readonly freeTemplateOnly: boolean;
 
   plan(input: string, context: ConversationContext): PlanningOutcome {
+    // Synchronous legacy extraction is not an escape hatch from template-only mode.
+    if (this.freeTemplateOnly) return { status: "not_understood", intent: {
+      intent: "not_understood", confidence: 0, steps: [], entities: {}, missing: [], sourceText: input,
+    } };
     const intent = this.intentExtractor.extract(input, context);
     return this.continueFromIntent(intent, input, context);
   }
@@ -345,7 +352,7 @@ export class NluPipeline implements NluPlanner {
     // time-triggered notification must not strand a fresh attempt. The
     // deterministic extractor is a narrow fallback, not a second model
     // inference, and its use is counted separately from model success.
-    if (intent.intent === "not_understood" && context.currentPlan === null) {
+    if (!this.freeTemplateOnly && intent.intent === "not_understood" && context.currentPlan === null) {
       const fallback = new RuleBasedIntentExtractor().extract(input, context);
       if (fallback.intent === "create_automation"
         && fallback.trigger?.type === "time"

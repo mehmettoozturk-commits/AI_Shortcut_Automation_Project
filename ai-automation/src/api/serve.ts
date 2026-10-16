@@ -2,6 +2,7 @@
 import { createPlanServer } from "./server.js";
 import { NluPipeline } from "../nlu/pipeline.js";
 import { LocalFirstProvider } from "../nlu/local-first-provider.js";
+import { FreeTemplateProvider } from "../nlu/free-template-provider.js";
 import { RuleBasedProvider } from "../nlu/providers/rule-based-provider.js";
 import type { NluProvider } from "../nlu/ports.js";
 import { ClaudeIntentProvider } from "../nlu/providers/claude-provider.js";
@@ -65,11 +66,21 @@ if (process.env.LLM_PROVIDER && providerName !== process.env.LLM_PROVIDER.toLowe
   console.warn(`Bilinmeyen LLM_PROVIDER="${process.env.LLM_PROVIDER}" — "anthropic" varsayılıyor.`);
 }
 
-const providerAvailable = hasKey(providerName);
+// Missing preserves legacy startup. Any supplied value other than 0/1 fails closed.
+const freeMode = process.env.FREE_TEMPLATE_ONLY;
+if (freeMode !== undefined && freeMode !== "0" && freeMode !== "1") {
+  throw new Error("FREE_TEMPLATE_ONLY yalnızca 0 veya 1 olabilir.");
+}
+const freeTemplateOnly = freeMode === "1";
+const providerAvailable = !freeTemplateOnly && hasKey(providerName);
 const pipeline = new NluPipeline(undefined, undefined, undefined,
-  new LocalFirstProvider(providerAvailable ? buildProvider(providerName) : new RuleBasedProvider()));
+  freeTemplateOnly ? new FreeTemplateProvider()
+    : new LocalFirstProvider(providerAvailable ? buildProvider(providerName) : new RuleBasedProvider()),
+  undefined, undefined, { freeTemplateOnly });
 
-if (!providerAvailable) {
+if (freeTemplateOnly) {
+  console.log("FREE_TEMPLATE_ONLY etkin — yalnız doğrulanmış şablonlar, AI ve legacy fallback kapalı.");
+} else if (!providerAvailable) {
   console.warn(
     `LLM_API_KEY/${PROVIDER_KEY_ENV[providerName]} tanımlı değil — kural tabanlı (deterministik) sağlayıcı kullanılıyor.`
   );
