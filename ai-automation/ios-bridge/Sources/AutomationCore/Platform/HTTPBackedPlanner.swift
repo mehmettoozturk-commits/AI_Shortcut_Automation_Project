@@ -82,19 +82,50 @@ public actor HTTPBackedPlanner: Planner {
     private let permissions: PermissionService
 
     /// Test ortamında / thread-safe erişimde konuşma durumunu saklar.
+    private struct RequestTicket: Equatable { let generation: UUID; let id: UUID }
     private final class ConversationBox: @unchecked Sendable {
         private let lock = NSLock()
         private var _value: AnyCodable?
+        private var generation = UUID()
+        private var active: RequestTicket?
+        private var pending: (body: Data, id: UUID)?
+        private var task: Task<PlanHTTPResult, Error>?
+        private var _error: PlannerError?
         init(value: AnyCodable? = nil) { self._value = value }
         var value: AnyCodable? {
             get { lock.lock(); defer { lock.unlock() }; return _value }
-            set { lock.lock(); defer { lock.unlock() }; _value = newValue }
         }
-        func reset() {
+        var error: PlannerError? { lock.lock(); defer { lock.unlock() }; return _error }
+        func begin() -> RequestTicket? {
+            lock.lock(); defer { lock.unlock() }; guard active == nil else { return nil }
+            let ticket = RequestTicket(generation: generation, id: UUID()); active = ticket; _error = nil; return ticket
+        }
+        func current(_ ticket: RequestTicket) -> Bool { lock.lock(); defer { lock.unlock() }; return active == ticket && generation == ticket.generation }
+        func operation(_ body: Data, ticket: RequestTicket) -> UUID? {
+            lock.lock(); defer { lock.unlock() }; guard active == ticket && generation == ticket.generation else { return nil }
+            if pending?.body != body { pending = (body, UUID()) }; return pending?.id
+        }
+        func register(_ task: Task<PlanHTTPResult, Error>, ticket: RequestTicket) {
+            lock.lock(); let valid = active == ticket && generation == ticket.generation
+            if valid { self.task = task }; lock.unlock(); if !valid { task.cancel() }
+        }
+        func accept(_ value: AnyCodable?, ticket: RequestTicket) -> Bool {
+            lock.lock(); defer { lock.unlock() }; guard active == ticket && generation == ticket.generation else { return false }
+            _value = value; pending = nil; return true
+        }
+        func setError(_ error: PlannerError, ticket: RequestTicket) {
+            lock.lock(); defer { lock.unlock() }; guard active == ticket && generation == ticket.generation else { return }; _error = error
+        }
+        func end(_ ticket: RequestTicket) { lock.lock(); defer { lock.unlock() }; if active == ticket { active = nil; task = nil } }
+        func invalidateInFlight(preserveAttempt: Bool) {
             lock.lock()
-            _value = nil
+            let oldTask = task
+            if !preserveAttempt { _value = nil; pending = nil }
+            generation = UUID(); active = nil; task = nil; _error = nil
             lock.unlock()
+            oldTask?.cancel()
         }
+        func reset() { invalidateInFlight(preserveAttempt: false) }
     }
 
     private let conversationBox = ConversationBox()
@@ -106,12 +137,11 @@ public actor HTTPBackedPlanner: Planner {
     /// (backend'in `hydrate` ettiği TEK doğruluk kaynağı budur).
     private var conversation: AnyCodable? {
         get { conversationBox.value }
-        set { conversationBox.value = newValue }
     }
 
     /// Son isteğin domain-level hatası (varsa) — `Planner` protokolünün
     /// dar `.notUnderstood`'una ek, gözlemlenebilir bir yan kanal.
-    public private(set) var lastError: PlannerError?
+    public var lastError: PlannerError? { conversationBox.error }
 
     public init(transport: PlanHTTPTransport, permissions: PermissionService, platform: Platform = .ios) {
         self.transport = transport
@@ -126,25 +156,47 @@ public actor HTTPBackedPlanner: Planner {
     public nonisolated func resetConversation() {
         conversationBox.reset()
     }
+    /// Superseding a UI submit must cancel its consumer without allocating a
+    /// second operation for an identical uncertain request. Keep conversation
+    /// and pending UUID; a changed body still receives a new operation UUID.
+    public nonisolated func invalidateInFlightRequest() {
+        conversationBox.invalidateInFlight(preserveAttempt: true)
+    }
 
     public func plan(text: String, existingDraft: DraftAutomationPlan?) async -> PlannerResult {
-        lastError = nil
+        guard let ticket = conversationBox.begin() else { return .notUnderstood }
+        defer { conversationBox.end(ticket) }
         let granted = await permissions.grantedPermissions()
+        guard conversationBox.current(ticket) else { return .notUnderstood }
         let payload = PlanRequestPayload(
             text: text, conversation: conversation, platform: platform, grantedPermissions: granted
         )
         do {
-            let body = try JSONEncoder().encode(payload)
-            let result = try await transport.send(requestBody: body)
-            return try interpret(result)
+            let encoder = JSONEncoder(); encoder.outputFormatting = [.sortedKeys]
+            let body = try encoder.encode(payload)
+            guard let operationID = conversationBox.operation(body, ticket: ticket) else { return .notUnderstood }
+            let transport = self.transport
+            let task = Task {
+                if let bound = transport as? any OperationBoundPlanHTTPTransport {
+                    return try await bound.send(requestBody: body, operationID: operationID)
+                }
+                return try await transport.send(requestBody: body)
+            }
+            conversationBox.register(task, ticket: ticket)
+            let result = try await task.value
+            guard conversationBox.current(ticket) else { return .notUnderstood }
+            let interpreted = try interpret(result, ticket: ticket)
+            return conversationBox.current(ticket) ? interpreted : .notUnderstood
         } catch let error as PlannerError {
-            lastError = error
+            conversationBox.setError(error, ticket: ticket)
             return .notUnderstood
         } catch let error as URLError where error.code == .timedOut {
-            lastError = .requestTimedOut
+            conversationBox.setError(.requestTimedOut, ticket: ticket)
+            return .notUnderstood
+        } catch is CancellationError {
             return .notUnderstood
         } catch {
-            lastError = .plannerUnreachable(message: "\(error)")
+            conversationBox.setError(.plannerUnreachable(message: "Plan isteği tamamlanamadı."), ticket: ticket)
             return .notUnderstood
         }
     }
@@ -157,7 +209,7 @@ public actor HTTPBackedPlanner: Planner {
     ///   400 → istek gövdesi/şeması geçersiz
     ///   502 → LLM sağlayıcısı hiç çalışamadı (provider_error)
     ///   diğer her şey → plannerUnreachable
-    private func interpret(_ result: PlanHTTPResult) throws -> PlannerResult {
+    private func interpret(_ result: PlanHTTPResult, ticket: RequestTicket) throws -> PlannerResult {
         switch result.statusCode {
         case 200, 422:
             let raw = try JSONDecoder().decode(RawPlanResponse.self, from: result.body)
@@ -165,17 +217,18 @@ public actor HTTPBackedPlanner: Planner {
             // 422'de bile konuşma durumu geçerli/güncel, yalnızca
             // ÇALIŞTIRILABİLİRLİK başarısız. Sıradaki turun aynı adımı
             // tekrarlamaması için her iki durumda da kaydedilir.
-            conversation = raw.conversation
             if result.statusCode == 422 {
                 let issues = raw.validation?.issues.map(\.message) ?? []
-                lastError = .validationFailed(issues: issues)
                 guard raw.status == "plan", let draft = raw.plan,
                       let rawIssues = raw.validation?.issues, !rawIssues.isEmpty
                 else { throw PlannerError.validationFailed(issues: issues) }
+                guard conversationBox.accept(raw.conversation, ticket: ticket) else { throw CancellationError() }
+                conversationBox.setError(.validationFailed(issues: issues), ticket: ticket)
                 return .validationBlocked(draft, issues: rawIssues.map {
                     PlanValidationIssue(code: $0.code, path: $0.path, message: $0.message)
                 })
             }
+            guard conversationBox.accept(raw.conversation, ticket: ticket) else { throw CancellationError() }
             return mapSuccess(raw)
         case 400:
             let raw = try? JSONDecoder().decode(RawErrorBody.self, from: result.body)

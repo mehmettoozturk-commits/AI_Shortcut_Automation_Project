@@ -280,8 +280,8 @@ struct HomeView: View {
             return "Plan sunucusuna bağlanılamadı. İnternet bağlantını kontrol edip tekrar dene. Yerel geliştirme sunucusu kullanıyorsan ağ ve sertifika ayarını da kontrol et."
         case .requestTimedOut:
             return "Plan isteği zaman aşımına uğradı. Otomatik tekrar gönderilmedi; yeniden denemek için Gönder'e bas."
-        case .serverUnavailable:
-            return "Plan sunucusu isteği tamamlayamadı. Biraz sonra yeniden dene."
+        case .serverUnavailable(let status):
+            return PlanHTTPStatusMessage.localized(status)
         case nil:
             return "Anlayamadım, başka türlü ifade eder misin?"
         }

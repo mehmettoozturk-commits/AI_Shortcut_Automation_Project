@@ -20,6 +20,14 @@ import Combine
 public final class BuilderMachine: ObservableObject {
     @Published public private(set) var step: BuilderStep = .idle
     @Published public private(set) var plannerFailure: PlannerError?
+    private var planningGeneration = UUID()
+    private var activePlanning: UUID?
+    @discardableResult private func invalidatePlanning() -> UUID {
+        let superseding = activePlanning != nil
+        planningGeneration = UUID(); activePlanning = nil
+        if superseding, let http = planner as? HTTPBackedPlanner { http.invalidateInFlightRequest() }
+        return planningGeneration
+    }
     @Published public private(set) var persistenceMessage: String?
 
     private let registry: CapabilityRegistry
@@ -76,6 +84,7 @@ public final class BuilderMachine: ObservableObject {
     // MARK: - idle <-> capturing
 
     public func open(prefillText: String = "") async {
+        let ticket = invalidatePlanning()
         persistenceMessage = nil
         plannerFailure = nil
         currentAutomationId = nil
@@ -83,20 +92,23 @@ public final class BuilderMachine: ObservableObject {
         revisionSource = nil
         pendingHandoff = nil
         await planner.resetConversation()
+        guard planningGeneration == ticket else { return }
         step = .capturing(text: prefillText, draft: nil, notUnderstood: false)
     }
 
     /// Editing an installed record starts a new plan/setup attempt; the old
     /// record and any Shortcuts artifact remain untouched.
     public func openRevision(of id: String) async -> Bool {
+        let ticket = invalidatePlanning()
         guard let original = await repository.list().first(where: { $0.id == id }),
-              original.installStatus == .installed else { return false }
+              original.installStatus == .installed, planningGeneration == ticket else { return false }
         currentAutomationId = nil
         currentCreatedAt = nil
         pendingHandoff = nil
         revisionSource = (original.id, original.version)
         plannerFailure = nil
         await planner.resetConversation()
+        guard planningGeneration == ticket else { return false }
         let draft = DraftAutomationPlan(name: original.name, trigger: original.trigger, steps: original.workflow)
         step = .capturing(text: "", draft: draft, notUnderstood: false)
         return true
@@ -108,6 +120,7 @@ public final class BuilderMachine: ObservableObject {
     /// kendi bağlantısı (`currentAutomationId`) sıfırlanır ki bir
     /// sonraki `create()` YENİ bir kayıt üretsin.
     public func close() async {
+        let ticket = invalidatePlanning()
         persistenceMessage = nil
         plannerFailure = nil
         currentAutomationId = nil
@@ -115,11 +128,13 @@ public final class BuilderMachine: ObservableObject {
         revisionSource = nil
         pendingHandoff = nil
         await planner.resetConversation()
+        guard planningGeneration == ticket else { return }
         step = .idle
     }
 
     public func setText(_ text: String) {
-        guard case .capturing(_, let draft, _) = step else { return }
+        guard case .capturing(let previous, let draft, _) = step else { return }
+        if previous != text { invalidatePlanning() }
         step = .capturing(text: text, draft: draft, notUnderstood: false)
     }
 
@@ -130,10 +145,16 @@ public final class BuilderMachine: ObservableObject {
               !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { return }
 
+        let ticket = invalidatePlanning()
+        activePlanning = ticket
+        defer { if activePlanning == ticket { activePlanning = nil } }
         plannerFailure = nil
         let result = await planner.plan(text: text, existingDraft: existingDraft)
+        guard planningGeneration == ticket else { return }
         if case .notUnderstood = result, let httpPlanner = planner as? HTTPBackedPlanner {
-            plannerFailure = await httpPlanner.lastError
+            let error = await httpPlanner.lastError
+            guard planningGeneration == ticket else { return }
+            plannerFailure = error
         }
 
         let draft: DraftAutomationPlan
@@ -183,6 +204,7 @@ public final class BuilderMachine: ObservableObject {
         case .unsupported(let d, _, _, _): draft = d
         default: return
         }
+        invalidatePlanning()
         step = .capturing(text: "", draft: draft, notUnderstood: false)
     }
 

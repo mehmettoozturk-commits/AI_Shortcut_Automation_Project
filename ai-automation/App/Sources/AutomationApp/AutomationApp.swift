@@ -53,7 +53,15 @@ struct AutomationApp: App {
         let authURLString = ProcessInfo.processInfo.environment["AUTH_BACKEND_URL"]
             ?? Bundle.main.object(forInfoDictionaryKey: "AuthBackendURL") as? String
         let authOrigin = authURLString.flatMap(URL.init(string:))
-        let transport = URLSessionPlanTransport(url: backendURL, credentials: sessions, credentialOrigin: authOrigin)
+        #if DEBUG
+        let anonymousIdentityEnabled = ProcessInfo.processInfo.environment["ENABLE_ANONYMOUS_PLAN_IDENTITY"] == "1"
+        #else
+        let anonymousIdentityEnabled = false
+        #endif
+        let anonymousCredentials = anonymousIdentityEnabled
+            ? KeychainAnonymousCredentialStore(service: "com.aishortcut.AutomationApp.anonymous") : nil
+        let transport = URLSessionPlanTransport(url: backendURL, credentials: sessions, credentialOrigin: authOrigin,
+                                               anonymousIdentityEnabled: anonymousIdentityEnabled, anonymousCredentials: anonymousCredentials)
 
         let permissions = NoAppRuntimePermissionService()
         let planner = HTTPBackedPlanner(transport: transport, permissions: permissions)
