@@ -26,7 +26,10 @@ import { emptyContext, type ConversationContext } from "../nlu/types.js";
 import { runValidationPipeline } from "../validators/pipeline.js";
 import type { AutomationPlan } from "../dsl/schema.js";
 import type { DraftAutomationPlan } from "../builder/types.js";
-import { PlanRequestSchema, PlanResponseSchema, type PlanResponse } from "./contract.js";
+import { PlanRequestSchema, PlanResponseSchema, type PlanResponse, type PlanRequest } from "./contract.js";
+import { RequestDispatchGuard, type AuthoritativeBudgetGuard } from "../quota/dispatch-guard.js";
+import type { SqliteQuotaLedger } from "../quota/sqlite-ledger.js";
+import { OpenAICompatibleIntentProvider } from "../nlu/providers/openai-compatible-provider.js";
 import { AuthService } from "./auth/service.js";
 import type { AnonymousIdentityService } from "./auth/anonymous-identity.js";
 import { CreationTicketRejectedError } from "./auth/creation-tickets.js";
@@ -141,8 +144,9 @@ export async function handlePlanRequest(
   res: ServerResponse,
   pipeline: NluPipeline = defaultPipeline,
   signal?: AbortSignal,
-  requestPipeline?: () => NluPipeline,
+  requestPipeline?: (input: { validated: PlanRequest; raw: unknown }) => NluPipeline,
   identity?: PlanIdentityBinding,
+  getDispatchGuard?: () => RequestDispatchGuard | undefined,
 ): Promise<void> {
   let raw: unknown;
   try {
@@ -173,7 +177,7 @@ export async function handlePlanRequest(
   }
   // Only after existing HTTP admission and body/schema checks. The new
   // request pipeline still performs semantic/registry/safety validation below.
-  pipeline = requestPipeline?.() ?? pipeline;
+  pipeline = requestPipeline?.({ validated: parsedRequest.data, raw }) ?? pipeline;
 
   // Sunucu DURUMSUZ: istemci bir önceki `conversation`'ı aynen geri
   // gönderir. İlk turda (conversation yok) boş bir bağlamla başlanır.
@@ -191,6 +195,10 @@ export async function handlePlanRequest(
   if (signal?.aborted) return;
   const identityRejection = identity?.rejection();
   if (identityRejection) { sendPlanIdentityRejection(res, identityRejection); return; }
+  const dispatchGuard = getDispatchGuard?.();
+  try { dispatchGuard?.finish(outcome.status === "plan"); } catch { /* Guard retains safe rejection. */ }
+  const dispatchRejection = dispatchGuard?.rejection();
+  if (dispatchRejection) { sendJson(res, dispatchRejection.status, { error: dispatchRejection }); return; }
 
   // Phase 4B: sağlayıcı (LLM ağ hatası/geçersiz JSON) hiç çalışamadıysa
   // — bu bir "anlaşılamadı" veya "desteklenmiyor" değil, sunucunun ayrı
@@ -443,6 +451,8 @@ export function createPlanServer(options: {
   maxConcurrentAuth?: number;
   authRequestTimeoutMs?: number;
   routing?: ProviderRoutingOptions;
+  /** Explicit local opt-in only. serve.ts does not activate this mode. */
+  quota?: { enabled?: boolean; ledger?: SqliteQuotaLedger; budget?: AuthoritativeBudgetGuard; budgetTimeoutMs?: number };
 } = {}) {
   const pipeline = options.pipeline ?? defaultPipeline;
   const routing = options.routing?.enabled === true ? Object.freeze({
@@ -520,15 +530,37 @@ export function createPlanServer(options: {
       req.once("aborted", onAborted);
       res.once("finish", onFinish);
       res.once("close", onClose);
-      const guarded = (binding: ChannelBinding | undefined): ChannelBinding | undefined => binding ? { ...binding,
-        provider: { plan: (...args) => {
-          if (!identity.current()) throw new Error("Hesap doğrulaması şu anda kullanılamıyor.");
-          return binding.provider.plan(...args);
-        } } } : undefined;
-      const requestPipeline = routing ? () => new NluPipeline(undefined, undefined, undefined,
-        new LocalFirstProvider(new RequestProviderRouter({ free: guarded(routing.channels.free), premium: guarded(routing.channels.premium) },
-          bindAccessResolver(identity.current, routing.resolveAccess), routing.resolverTimeoutMs)), undefined, routing.onPlanningComplete) : undefined;
-      void handlePlanRequest(req, res, pipeline, controller.signal, requestPipeline, identity)
+      const quotaMode = options.quota?.enabled === true;
+      let dispatchGuard: RequestDispatchGuard | undefined;
+      const requestPipeline = routing || quotaMode ? (input: { validated: PlanRequest; raw: unknown }) => {
+        if (quotaMode) {
+          const value = req.headers["x-automation-operation-id"];
+          dispatchGuard = new RequestDispatchGuard({ ledger: options.quota!.ledger, budget: options.quota!.budget,
+            operationId: headerCount(req, "x-automation-operation-id") === 1 && typeof value === "string" ? value : null,
+            input: { ...input, validated: { ...input.validated, conversation: input.validated.conversation ?? emptyContext(input.validated.text) } },
+            identity: () => {
+              const current = identity.current();
+              return current?.kind === "account" ? { kind: "account", subject: current.userId }
+                : current?.kind === "anonymous" ? { kind: "anonymous", subject: current.subject } : null;
+            }, signal: controller.signal, budgetTimeoutMs: options.quota!.budgetTimeoutMs });
+        }
+        const guarded = (binding: ChannelBinding | undefined): ChannelBinding | undefined => {
+          if (!binding) return undefined;
+          let clone: OpenAICompatibleIntentProvider | undefined;
+          return { ...binding, provider: { plan: (...args) => {
+            if (!identity.current()) throw new Error("Kimlik doğrulaması şu anda kullanılamıyor.");
+            if (!dispatchGuard) return binding.provider.plan(...args);
+            if (Object.getPrototypeOf(binding.provider) !== OpenAICompatibleIntentProvider.prototype) dispatchGuard.block(503, "adapter_not_guardable");
+            clone ??= (binding.provider as OpenAICompatibleIntentProvider).withDispatchGuard(dispatchGuard, binding.configuration);
+            return clone.plan(...args);
+          } } };
+        };
+        const fallback = routing ? new RequestProviderRouter({ free: guarded(routing.channels.free), premium: guarded(routing.channels.premium) },
+          bindAccessResolver(identity.current, routing.resolveAccess), routing.resolverTimeoutMs)
+          : { plan: async () => dispatchGuard!.block(503, "guarded_router_required") };
+        return new NluPipeline(undefined, undefined, undefined, new LocalFirstProvider(fallback), undefined, routing?.onPlanningComplete);
+      } : undefined;
+      void handlePlanRequest(req, res, pipeline, controller.signal, requestPipeline, identity, () => dispatchGuard)
         .catch(() => {
           if (!res.headersSent && !res.destroyed) sendJson(res, 500, { error: "Beklenmeyen sunucu hatası." });
         })

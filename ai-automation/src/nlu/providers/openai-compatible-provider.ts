@@ -24,6 +24,7 @@ import type { ConversationContext, IntentResult } from "../types.js";
 import { LlmPlanOutputJsonSchema, LlmPlanOutputSchema, systemPrompt, toIntentResult, userPrompt } from "./llm-schema.js";
 import { LlmProviderError, type ProviderErrorDiagnostic } from "./errors.js";
 import { invokeProvider, type PlanningTrace } from "../planning-provenance.js";
+import type { RequestDispatchGuard, DispatchAffinity } from "../../quota/dispatch-guard.js";
 
 /** Inspect only SDK status/name/code. Never retain or log raw error details. */
 export function classifyOpenAICompatibleError(error: unknown): ProviderErrorDiagnostic {
@@ -76,6 +77,7 @@ function schemaInstruction(): string {
 
 /** `client.chat.completions.create`'in bu dosyanın ihtiyacı kadarı — testte sahte bir istemci enjekte edilebilsin diye. */
 export interface OpenAICompatibleChatClient {
+  readonly maxRetries?: number;
   chat: {
     completions: {
       create(params: Record<string, unknown>, options?: { signal?: AbortSignal }): Promise<{ choices: Array<{ message: { content?: string | null } }> }>;
@@ -97,12 +99,21 @@ export class OpenAICompatibleIntentProvider implements NluProvider {
   private client: OpenAICompatibleChatClient;
   private model: string;
   private providerLabel: string;
+  private dispatch?: { guard: RequestDispatchGuard; affinity: DispatchAffinity };
 
   constructor(options: OpenAICompatibleProviderOptions) {
     this.model = options.model;
     this.providerLabel = options.providerLabel;
     this.client =
       options.client ?? (new OpenAI({ apiKey: options.apiKey, baseURL: options.baseURL, timeout: options.timeoutMs ?? 20_000, maxRetries: 0 }) as unknown as OpenAICompatibleChatClient);
+  }
+
+  /** Server-only per-request clone. Never mutates the shared legacy adapter. */
+  withDispatchGuard(guard: RequestDispatchGuard, affinity: DispatchAffinity): OpenAICompatibleIntentProvider {
+    if (affinity.model !== this.model || !["groq", "nvidia"].includes(affinity.providerId)) guard.block(503, "provider_affinity_mismatch");
+    const clone = new OpenAICompatibleIntentProvider({ client: this.client, model: this.model, providerLabel: this.providerLabel, baseURL: "https://unused.invalid" });
+    clone.dispatch = { guard, affinity: Object.freeze({ ...affinity }) };
+    return clone;
   }
 
   async plan(input: string, context?: ConversationContext, repair?: RepairHint, signal?: AbortSignal, trace?: PlanningTrace): Promise<IntentResult> {
@@ -122,8 +133,15 @@ export class OpenAICompatibleIntentProvider implements NluProvider {
         // hiç üretilmeden kesilmesine (`content: null`) yol açabiliyor.
         max_tokens: 2000,
       };
-      response = await invokeProvider(trace, "openai_compatible", Boolean(repair),
-        () => this.client.chat.completions.create(params, { signal }));
+      const call = () => {
+        if (this.dispatch && this.client.maxRetries !== 0) this.dispatch.guard.block(503, "sdk_retry_policy_unverified");
+        return invokeProvider(trace, "openai_compatible", Boolean(repair),
+          () => this.client.chat.completions.create(params, { signal }));
+      };
+      if (this.dispatch) {
+        if (this.client.maxRetries !== 0) this.dispatch.guard.block(503, "sdk_retry_policy_unverified");
+        response = await this.dispatch.guard.invoke(this.dispatch.affinity, Boolean(repair), params.max_tokens, call);
+      } else response = await call();
     } catch (err) {
       // Ağ/istek hatası — Phase 4E-3: RETRY EDİLMEZ.
       throw new LlmProviderError(`${this.providerLabel} isteği başarısız oldu.`, err, false, classifyOpenAICompatibleError(err));

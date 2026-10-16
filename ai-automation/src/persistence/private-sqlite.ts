@@ -2,7 +2,6 @@ import { createRequire } from "node:module";
 import { closeSync, fsyncSync, lstatSync, openSync, realpathSync, statfsSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 export type SqliteConnection = import("node:sqlite").DatabaseSync;
-const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
 export class PrivateSqliteUnavailable extends Error {
   constructor() { super("Private storage unavailable"); }
 }
@@ -15,6 +14,8 @@ export class PrivateSqlite {
   private failed = false;
   constructor(path: string, initialize: (db: SqliteConnection) => void, busyTimeoutMs = 50) {
     try {
+      // Disabled HTTP/quota paths must not eagerly load an experimental builtin.
+      const { DatabaseSync } = createRequire(import.meta.url)("node:sqlite") as typeof import("node:sqlite");
       if (!isAbsolute(path) || path.includes("\0") || path !== resolve(path)) throw Error();
       const parent = dirname(path), uid = process.getuid?.(), stat = lstatSync(parent);
       if (realpathSync(parent) !== parent || uid === undefined || !stat.isDirectory() || stat.uid !== uid || (stat.mode & 0o022) !== 0) throw Error();
