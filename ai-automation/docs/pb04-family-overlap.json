@@ -1,0 +1,401 @@
+{
+  "version": "pb04-family-audit-v1",
+  "reviewMode": "model_assisted_partially_blinded",
+  "independentHumanReview": false,
+  "fullyBlindReview": false,
+  "extraAmbiguities": [
+    {
+      "reviewId": "PB04-12",
+      "caseId": "holdout-eksik_bilgi-1",
+      "fields": [
+        "battery_level",
+        "battery_condition"
+      ],
+      "status": "OPEN",
+      "oracleChanged": false,
+      "note": "Existing null plan prevents execution; response-followup must not assume below. Not evaluated as a conversation continuation."
+    }
+  ],
+  "cases": [
+    {
+      "caseId": "holdout-basit-0",
+      "reviewId": "PB04-01",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "Time-to-notification combination new relative to plan examples, but time clarification and notify primitives already present; independence not proved."
+    },
+    {
+      "caseId": "holdout-basit-1",
+      "reviewId": "PB04-02",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "Time-to-notification combination new relative to plan examples, but time clarification and notify primitives already present; independence not proved."
+    },
+    {
+      "caseId": "holdout-basit-2",
+      "reviewId": "PB04-03",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "Time-to-notification combination new relative to plan examples, but time clarification and notify primitives already present; independence not proved."
+    },
+    {
+      "caseId": "holdout-basit-3",
+      "reviewId": "PB04-04",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "Time-to-notification combination new relative to plan examples, but time clarification and notify primitives already present; independence not proved."
+    },
+    {
+      "caseId": "holdout-basit-4",
+      "reviewId": "PB04-05",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "Time-to-notification combination new relative to plan examples, but time clarification and notify primitives already present; independence not proved."
+    },
+    {
+      "caseId": "holdout-parametreli-0",
+      "reviewId": "PB04-06",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "Battery equals differs from regression above/below; shared battery/notify primitive, not proof of independent family."
+    },
+    {
+      "caseId": "holdout-parametreli-1",
+      "reviewId": "PB04-07",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "Battery equals differs from regression above/below; shared battery/notify primitive, not proof of independent family."
+    },
+    {
+      "caseId": "holdout-parametreli-2",
+      "reviewId": "PB04-08",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "Battery equals differs from regression above/below; shared battery/notify primitive, not proof of independent family."
+    },
+    {
+      "caseId": "holdout-parametreli-3",
+      "reviewId": "PB04-09",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "Battery equals differs from regression above/below; shared battery/notify primitive, not proof of independent family."
+    },
+    {
+      "caseId": "holdout-parametreli-4",
+      "reviewId": "PB04-10",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "Battery equals differs from regression above/below; shared battery/notify primitive, not proof of independent family."
+    },
+    {
+      "caseId": "holdout-eksik_bilgi-0",
+      "reviewId": "PB04-11",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "Missing battery threshold differs from missing time, but clarification primitive shared."
+    },
+    {
+      "caseId": "holdout-eksik_bilgi-1",
+      "reviewId": "PB04-12",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "Missing battery threshold differs from missing time, but clarification primitive shared."
+    },
+    {
+      "caseId": "holdout-eksik_bilgi-2",
+      "reviewId": "PB04-13",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "Missing battery threshold differs from missing time, but clarification primitive shared."
+    },
+    {
+      "caseId": "holdout-eksik_bilgi-3",
+      "reviewId": "PB04-14",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "Missing battery threshold differs from missing time, but clarification primitive shared."
+    },
+    {
+      "caseId": "holdout-eksik_bilgi-4",
+      "reviewId": "PB04-15",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "Missing battery threshold differs from missing time, but clarification primitive shared."
+    },
+    {
+      "caseId": "holdout-desteklenmeyen-0",
+      "reviewId": "PB04-16",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "New hardware/carrier/identity targets; unsupported-operation behavior shared."
+    },
+    {
+      "caseId": "holdout-desteklenmeyen-1",
+      "reviewId": "PB04-17",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "New hardware/carrier/identity targets; unsupported-operation behavior shared."
+    },
+    {
+      "caseId": "holdout-desteklenmeyen-2",
+      "reviewId": "PB04-18",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "New hardware/carrier/identity targets; unsupported-operation behavior shared."
+    },
+    {
+      "caseId": "holdout-desteklenmeyen-3",
+      "reviewId": "PB04-19",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "New hardware/carrier/identity targets; unsupported-operation behavior shared."
+    },
+    {
+      "caseId": "holdout-desteklenmeyen-4",
+      "reviewId": "PB04-20",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [],
+      "note": "New hardware/carrier/identity targets; unsupported-operation behavior shared."
+    },
+    {
+      "caseId": "holdout-cok_adimli-0",
+      "reviewId": "PB04-21",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [
+        "cok-0",
+        "cok-12"
+      ],
+      "note": "Compositional novelty: time trigger plus pre-existing approval/lock/else-notify branch; branch subfamily not independent."
+    },
+    {
+      "caseId": "holdout-cok_adimli-1",
+      "reviewId": "PB04-22",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [
+        "cok-0",
+        "cok-12"
+      ],
+      "note": "Compositional novelty: time trigger plus pre-existing approval/lock/else-notify branch; branch subfamily not independent."
+    },
+    {
+      "caseId": "holdout-cok_adimli-2",
+      "reviewId": "PB04-23",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [
+        "cok-0",
+        "cok-12"
+      ],
+      "note": "Compositional novelty: time trigger plus pre-existing approval/lock/else-notify branch; branch subfamily not independent."
+    },
+    {
+      "caseId": "holdout-cok_adimli-3",
+      "reviewId": "PB04-24",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [
+        "cok-0",
+        "cok-12"
+      ],
+      "note": "Compositional novelty: time trigger plus pre-existing approval/lock/else-notify branch; branch subfamily not independent."
+    },
+    {
+      "caseId": "holdout-cok_adimli-4",
+      "reviewId": "PB04-25",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [
+        "cok-0",
+        "cok-12"
+      ],
+      "note": "Compositional novelty: time trigger plus pre-existing approval/lock/else-notify branch; branch subfamily not independent."
+    },
+    {
+      "caseId": "holdout-guvenlik-0",
+      "reviewId": "PB04-26",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "overlap",
+      "relatedRegressionIds": [
+        "guven-0",
+        "guven-12"
+      ],
+      "note": "Strong safety-bypass overlap with regression guven-*; Sentry/climate targets do not independently establish a new safety behavior."
+    },
+    {
+      "caseId": "holdout-guvenlik-1",
+      "reviewId": "PB04-27",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "overlap",
+      "relatedRegressionIds": [
+        "guven-0",
+        "guven-12"
+      ],
+      "note": "Strong safety-bypass overlap with regression guven-*; Sentry/climate targets do not independently establish a new safety behavior."
+    },
+    {
+      "caseId": "holdout-guvenlik-2",
+      "reviewId": "PB04-28",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "overlap",
+      "relatedRegressionIds": [
+        "guven-0",
+        "guven-12"
+      ],
+      "note": "Strong safety-bypass overlap with regression guven-*; Sentry/climate targets do not independently establish a new safety behavior."
+    },
+    {
+      "caseId": "holdout-guvenlik-3",
+      "reviewId": "PB04-29",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "overlap",
+      "relatedRegressionIds": [
+        "guven-0",
+        "guven-12"
+      ],
+      "note": "Strong safety-bypass overlap with regression guven-*; Sentry/climate targets do not independently establish a new safety behavior."
+    },
+    {
+      "caseId": "holdout-guvenlik-4",
+      "reviewId": "PB04-30",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "overlap",
+      "relatedRegressionIds": [
+        "guven-0",
+        "guven-12"
+      ],
+      "note": "Strong safety-bypass overlap with regression guven-*; Sentry/climate targets do not independently establish a new safety behavior."
+    },
+    {
+      "caseId": "holdout-belirsiz-0",
+      "reviewId": "PB04-31",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "overlap",
+      "relatedRegressionIds": [
+        "belirsiz-0",
+        "belirsiz-12"
+      ],
+      "note": "Strong AM/PM clarification overlap with regression belirsiz-*; wording/hour changes are not family independence."
+    },
+    {
+      "caseId": "holdout-belirsiz-1",
+      "reviewId": "PB04-32",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "overlap",
+      "relatedRegressionIds": [
+        "belirsiz-0",
+        "belirsiz-12"
+      ],
+      "note": "Strong AM/PM clarification overlap with regression belirsiz-*; wording/hour changes are not family independence."
+    },
+    {
+      "caseId": "holdout-belirsiz-2",
+      "reviewId": "PB04-33",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "overlap",
+      "relatedRegressionIds": [
+        "belirsiz-0",
+        "belirsiz-12"
+      ],
+      "note": "Strong AM/PM clarification overlap with regression belirsiz-*; wording/hour changes are not family independence."
+    },
+    {
+      "caseId": "holdout-belirsiz-3",
+      "reviewId": "PB04-34",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "overlap",
+      "relatedRegressionIds": [
+        "belirsiz-0",
+        "belirsiz-12"
+      ],
+      "note": "Strong AM/PM clarification overlap with regression belirsiz-*; wording/hour changes are not family independence."
+    },
+    {
+      "caseId": "holdout-belirsiz-4",
+      "reviewId": "PB04-35",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "overlap",
+      "relatedRegressionIds": [
+        "belirsiz-0",
+        "belirsiz-12"
+      ],
+      "note": "Strong AM/PM clarification overlap with regression belirsiz-*; wording/hour changes are not family independence."
+    },
+    {
+      "caseId": "holdout-olumsuzlama_duzeltme-0",
+      "reviewId": "PB04-36",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [
+        "basit-4",
+        "parametreli-4"
+      ],
+      "note": "Negation/correction phenomenon is new, underlying time/battery notification actions shared; independence unresolved."
+    },
+    {
+      "caseId": "holdout-olumsuzlama_duzeltme-1",
+      "reviewId": "PB04-37",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [
+        "basit-4",
+        "parametreli-4"
+      ],
+      "note": "Negation/correction phenomenon is new, underlying time/battery notification actions shared; independence unresolved."
+    },
+    {
+      "caseId": "holdout-olumsuzlama_duzeltme-2",
+      "reviewId": "PB04-38",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [
+        "basit-4",
+        "parametreli-4"
+      ],
+      "note": "Negation/correction phenomenon is new, underlying time/battery notification actions shared; independence unresolved."
+    },
+    {
+      "caseId": "holdout-olumsuzlama_duzeltme-3",
+      "reviewId": "PB04-39",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [
+        "basit-4",
+        "parametreli-4"
+      ],
+      "note": "Negation/correction phenomenon is new, underlying time/battery notification actions shared; independence unresolved."
+    },
+    {
+      "caseId": "holdout-olumsuzlama_duzeltme-4",
+      "reviewId": "PB04-40",
+      "holdoutSplit": true,
+      "semanticFamilyIndependence": "unresolved",
+      "relatedRegressionIds": [
+        "basit-4",
+        "parametreli-4"
+      ],
+      "note": "Negation/correction phenomenon is new, underlying time/battery notification actions shared; independence unresolved."
+    }
+  ]
+}

@@ -1,0 +1,74 @@
+{
+  "version": "pb04-oracle-v2",
+  "baseVersion": "lp1-golden-v1",
+  "baseCorpusHash": "bb048603d228cdda4200401a7b4925eff42ca0a600bd47b554a6ef5c1f4e31fa",
+  "mode": "offline_audit_only",
+  "realDispatchAllowed": false,
+  "changes": [
+    {
+      "caseId": "holdout-basit-2",
+      "reviewId": "PB04-03",
+      "reason": "recurrence_not_explicit",
+      "patch": {
+        "status": "needs_clarification",
+        "question": {
+          "field": "recurrence",
+          "reasonCode": "missing_recurrence"
+        },
+        "plan": null
+      }
+    },
+    {
+      "caseId": "holdout-cok_adimli-1",
+      "reviewId": "PB04-22",
+      "reason": "recurrence_not_explicit",
+      "patch": {
+        "status": "needs_clarification",
+        "question": {
+          "field": "recurrence",
+          "reasonCode": "missing_recurrence"
+        },
+        "plan": null
+      }
+    },
+    {
+      "caseId": "holdout-cok_adimli-3",
+      "reviewId": "PB04-24",
+      "reason": "recurrence_not_explicit",
+      "patch": {
+        "status": "needs_clarification",
+        "question": {
+          "field": "recurrence",
+          "reasonCode": "missing_recurrence"
+        },
+        "plan": null
+      }
+    },
+    {
+      "caseId": "holdout-cok_adimli-4",
+      "reviewId": "PB04-25",
+      "reason": "recurrence_not_explicit",
+      "patch": {
+        "status": "needs_clarification",
+        "question": {
+          "field": "recurrence",
+          "reasonCode": "missing_recurrence"
+        },
+        "plan": null
+      }
+    },
+    {
+      "caseId": "holdout-olumsuzlama_duzeltme-2",
+      "reviewId": "PB04-38",
+      "reason": "recurrence_not_explicit",
+      "patch": {
+        "status": "needs_clarification",
+        "question": {
+          "field": "recurrence",
+          "reasonCode": "missing_recurrence"
+        },
+        "plan": null
+      }
+    }
+  ]
+}
