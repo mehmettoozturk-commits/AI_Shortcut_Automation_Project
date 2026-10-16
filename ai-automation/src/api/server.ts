@@ -28,6 +28,7 @@ import type { AutomationPlan } from "../dsl/schema.js";
 import type { DraftAutomationPlan } from "../builder/types.js";
 import { PlanRequestSchema, PlanResponseSchema, type PlanResponse } from "./contract.js";
 import { AuthService } from "./auth/service.js";
+import type { AnonymousIdentityService } from "./auth/anonymous-identity.js";
 import { CreationTicketRejectedError } from "./auth/creation-tickets.js";
 import { z } from "zod";
 
@@ -279,15 +280,43 @@ function authTransportAllowed(req: IncomingMessage): boolean {
 }
 
 type PlanIdentityBinding = { subject: RoutingSubject; current: () => RoutingSubject | null; rejection: () => 401 | 503 | null };
+type AnonymousService = Pick<AnonymousIdentityService, "issue" | "verify" | "revoke">;
+const guestTokenHeader = "x-automation-guest-token";
+function headerCount(req: IncomingMessage, name: string): number {
+  return req.rawHeaders.filter((_, i) => i % 2 === 0 && req.rawHeaders[i]!.toLowerCase() === name).length;
+}
+function guestToken(req: IncomingMessage): string | null {
+  const token = req.headers[guestTokenHeader];
+  // Canonical base64url avoids alias encodings of a single secret.
+  return typeof token === "string" && /^[A-Za-z0-9_-]{43}$/.test(token) && Buffer.from(token, "base64url").toString("base64url") === token ? token : null;
+}
 function sendPlanIdentityRejection(res: ServerResponse, status: 401 | 403 | 503): void {
   sendJson(res, status, { error: status === 403 ? "Güvenli bağlantı gerekli."
     : status === 503 ? "Hesap doğrulaması şu anda kullanılamıyor." : "Geçerli hesap oturumu gerekli." });
 }
 /** Credential identity only, never entitlement. Missing and invalid are not interchangeable. */
-function planIdentity(req: IncomingMessage, auth?: AuthService):
+function planIdentity(req: IncomingMessage, auth?: AuthService, anonymous?: AnonymousService):
   | PlanIdentityBinding
   | { rejected: 401 | 403 | 503 } {
-  const count = req.rawHeaders.filter((_, i) => i % 2 === 0 && req.rawHeaders[i]!.toLowerCase() === "authorization").length;
+  const count = headerCount(req, "authorization");
+  const anonCount = headerCount(req, guestTokenHeader);
+  if (anonCount || req.headers[guestTokenHeader] !== undefined) {
+    if (count || req.headers.authorization !== undefined || anonCount !== 1) return { rejected: 401 };
+    if (!authTransportAllowed(req)) return { rejected: 403 };
+    const token = guestToken(req);
+    if (!token || !anonymous) return { rejected: 401 };
+    try {
+      const verified = anonymous.verify(token);
+      if (!verified || !/^[A-Za-z0-9_-]{32}$/.test(verified.subject)) return { rejected: 401 };
+      const subject = Object.freeze({ kind: "anonymous" as const, subject: verified.subject });
+      let denied: 401 | 503 | null = null;
+      return { subject, current: () => {
+        if (denied) return null;
+        try { if (anonymous.verify(token)?.subject === subject.subject) return subject; denied = 401; return null; }
+        catch { denied = 503; return null; }
+      }, rejection: () => denied };
+    } catch { return { rejected: 503 }; }
+  }
   if (count === 0 && req.headers.authorization === undefined) {
     const subject = Object.freeze({ kind: "guest" as const });
     return { subject, current: () => subject, rejection: () => null };
@@ -313,6 +342,28 @@ const authProofSchema = z.object({ identityToken: z.string().min(1).max(16_384),
 const ticketSchema = z.string().regex(/^[A-Za-z0-9_-]{43}$/);
 const accountRequestSchema = authProofSchema.extend({ creationTicket: ticketSchema, confirmCreate: z.literal(true), requestId: z.string().min(1).max(128) }).strict();
 const invalidCreationTicket = { error: { code: "creation_ticket_invalid_or_expired", message: "Hesap oluşturma işleminin süresi doldu. Lütfen yeniden giriş yapın." } };
+
+async function handleAnonymousRequest(req: IncomingMessage, res: ServerResponse, service: AnonymousService, signal: AbortSignal): Promise<void> {
+  if (req.method !== "POST") { sendJson(res, 404, { error: "Bulunamadı." }); return; }
+  const issuance = req.url === "/auth/anonymous";
+  if (headerCount(req, "authorization") || req.headers.authorization !== undefined ||
+      (issuance && (headerCount(req, guestTokenHeader) || req.headers[guestTokenHeader] !== undefined))) {
+    sendPlanIdentityRejection(res, 401); return;
+  }
+  if (!issuance && (headerCount(req, guestTokenHeader) !== 1 || !guestToken(req))) { sendPlanIdentityRejection(res, 401); return; }
+  const raw = await readBody(req, MAX_PLAN_BODY_BYTES, signal);
+  if (signal.aborted || raw.kind === "aborted") return;
+  if (raw.kind === "too_large") { sendJson(res, 413, { error: "İstek boyutu sınırı aşıldı." }); return; }
+  try {
+    const body: unknown = raw.text.length ? JSON.parse(raw.text) : {};
+    if (!z.object({}).strict().safeParse(body).success) { sendJson(res, 400, { error: "Geçersiz istek." }); return; }
+  } catch { sendJson(res, 400, { error: "Geçersiz JSON." }); return; }
+  try {
+    if (issuance) { sendJson(res, 200, service.issue()); return; }
+    const revoked = service.revoke(guestToken(req)!);
+    sendJson(res, revoked ? 200 : 401, revoked ? { status: "revoked" } : { error: "Geçersiz anonim kimlik." });
+  } catch { sendJson(res, 503, { error: "Anonim kimlik depolaması şu anda kullanılamıyor." }); }
+}
 
 async function handleAuthRequest(req: IncomingMessage, res: ServerResponse, auth: AuthService, signal: AbortSignal): Promise<void> {
   if (req.method === "GET" && req.url === "/auth/session") {
@@ -384,6 +435,7 @@ async function handleAuthRequest(req: IncomingMessage, res: ServerResponse, auth
 export function createPlanServer(options: {
   pipeline?: NluPipeline;
   auth?: AuthService;
+  anonymous?: AnonymousService;
   tls?: { key: string | Buffer; cert: string | Buffer };
   rateLimit?: PlanRateLimitOptions;
   maxConcurrentPlans?: number;
@@ -413,7 +465,8 @@ export function createPlanServer(options: {
       sendJson(res, 403, { error: "Güvenli bağlantı gerekli." });
       return;
     }
-    if (options.auth && req.url?.startsWith("/auth/")) {
+    const anonymousEndpoint = req.url === "/auth/anonymous" || req.url === "/auth/anonymous/revoke";
+    if ((options.auth && req.url?.startsWith("/auth/")) || (options.anonymous && anonymousEndpoint)) {
       const retryAfter = checkAuthRateLimit(req);
       if (retryAfter !== null) { res.setHeader("Retry-After", String(retryAfter)); sendJson(res, 429, { error: "Çok fazla istek." }); return; }
       if (activeAuth >= (options.maxConcurrentAuth ?? 8)) { res.setHeader("Retry-After", "5"); sendJson(res, 503, { error: "Sunucu meşgul." }); return; }
@@ -430,7 +483,10 @@ export function createPlanServer(options: {
         req.destroy();
       }, options.authRequestTimeoutMs ?? 30_000);
       deadline.unref();
-      void handleAuthRequest(req, res, options.auth, controller.signal).catch(() => {
+      const work = anonymousEndpoint
+        ? options.anonymous ? handleAnonymousRequest(req, res, options.anonymous, controller.signal) : Promise.resolve(sendJson(res, 404, { error: "Bulunamadı." }))
+        : handleAuthRequest(req, res, options.auth!, controller.signal);
+      void work.catch(() => {
         if (!controller.signal.aborted && !res.headersSent && !res.destroyed) sendJson(res, 500, { error: { code: "internal_error", message: "İşlem tamamlanamadı." } });
       }).finally(() => {
         clearTimeout(deadline);
@@ -445,7 +501,7 @@ export function createPlanServer(options: {
         sendJson(res, 429, { error: "Çok fazla istek gönderildi. Lütfen tekrar dene." });
         return;
       }
-      const identity = planIdentity(req, options.auth);
+      const identity = planIdentity(req, options.auth, options.anonymous);
       if ("rejected" in identity) {
         sendPlanIdentityRejection(res, identity.rejected);
         return;

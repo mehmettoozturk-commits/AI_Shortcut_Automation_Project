@@ -8,6 +8,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { performance } from "node:perf_hooks";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SqliteQuotaLedger, type QuotaRequest } from "../src/quota/sqlite-ledger.js";
+import { PrivateSqlite } from "../src/persistence/private-sqlite.js";
 
 vi.mock("node:fs", async original => {
   const fs = await original<typeof import("node:fs")>(); return { ...fs, lstatSync: vi.fn(fs.lstatSync) };
@@ -34,6 +35,14 @@ afterEach(() => {
 });
 
 describe("P3 real SQLite DELETE/EXTRA quota persistence (not production activation)", () => {
+  it("shared storage cannot accept a quota DB as a different schema or weaken prior state", () => {
+    const p = fixture(); const r = open(p); r.reserve(req()); r.close();
+    expect(() => new PrivateSqlite(p, db => {
+      const rows = db.prepare("SELECT name FROM sqlite_schema WHERE sql IS NOT NULL").all();
+      if (rows.length) throw Error("schema mismatch");
+    })).toThrow("Private storage unavailable");
+    expect(open(p).reserve(req()).created).toBe(false);
+  });
   it("is disabled by default and does not create a DB", () => {
     const p = fixture(); expect(() => new SqliteQuotaLedger(p)).toThrow("disabled");
     expect(() => new DatabaseSync(p, { readOnly: true })).toThrow();
