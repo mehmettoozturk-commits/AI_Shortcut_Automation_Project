@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
+import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs";
+import { dirname, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import type { AuthChallengePurpose, AuthRepository, AuthSession, AuthUser, CreateAccountResult, DeletionCheckpoint, LoginGuard, DeletionReceipt, RevocationStatus } from "./types.js";
 import { LoginGuards } from "./login-guards.js";
@@ -45,19 +45,27 @@ export class AuthPersistenceNotCommittedError extends Error {
   constructor(cause: unknown) { super("Auth persistence did not commit.", { cause }); this.name = "AuthPersistenceNotCommittedError"; }
 }
 
+/** Rename occurred but durability acknowledgement failed. Never a confirmed retryable failure. */
+export class AuthPersistenceIndeterminateError extends Error {
+  constructor(cause?: unknown) { super("Auth persistence durability is indeterminate; recovery required.", { cause }); this.name = "AuthPersistenceIndeterminateError"; }
+}
+
 /** Synchronous transactions keep challenge consumption atomic on this single Node process. */
 export class InMemoryAuthRepository implements AuthRepository {
   protected data: AuthData = { users: [], sessions: [], challenges: [] };
   private readonly loginGuards = new LoginGuards();
-  beginLoginGuard(): LoginGuard { return this.loginGuards.begin(); }
-  validateLoginGuard(guard: LoginGuard, subject: string): void { this.loginGuards.validate(guard, subject); }
+  protected assertAvailable(): void {}
+  beginLoginGuard(): LoginGuard { this.assertAvailable(); return this.loginGuards.begin(); }
+  validateLoginGuard(guard: LoginGuard, subject: string): void { this.assertAvailable(); this.loginGuards.validate(guard, subject); }
+  // Cleanup only: must remain safe in AuthService.finally after uncertain persistence.
   releaseLoginGuard(guard: LoginGuard): void { this.loginGuards.release(guard); }
-  deletionCheckpoint(): DeletionCheckpoint { return this.loginGuards.checkpoint(); }
-  validateDeletionCheckpoint(checkpoint: DeletionCheckpoint, subject: string): void { this.loginGuards.validateCheckpoint(checkpoint, subject); }
-  findUserBySubject(subject: string): AuthUser | null { const user = this.data.users.find(user => user.appleSubject === subject); return user ? { ...user } : null; }
-  findUserById(id: string): AuthUser | null { const user = this.data.users.find(user => user.id === id); return user ? { ...user } : null; }
+  deletionCheckpoint(): DeletionCheckpoint { this.assertAvailable(); return this.loginGuards.checkpoint(); }
+  validateDeletionCheckpoint(checkpoint: DeletionCheckpoint, subject: string): void { this.assertAvailable(); this.loginGuards.validateCheckpoint(checkpoint, subject); }
+  findUserBySubject(subject: string): AuthUser | null { this.assertAvailable(); const user = this.data.users.find(user => user.appleSubject === subject); return user ? { ...user } : null; }
+  findUserById(id: string): AuthUser | null { this.assertAvailable(); const user = this.data.users.find(user => user.id === id); return user ? { ...user } : null; }
 
   createUserWithInitialSession(appleSubject: string, input: Omit<AuthSession, "userId">): CreateAccountResult {
+    this.assertAvailable();
     if (this.data.users.some(user => user.appleSubject === appleSubject)) return { status: "account_exists" };
     const user = { id: randomUUID(), appleSubject, createdAt: input.createdAt };
     const session: AuthSession = { ...input, userId: user.id };
@@ -69,6 +77,7 @@ export class InMemoryAuthRepository implements AuthRepository {
 
   /** One synchronous transaction; callers must use a single repository instance. */
   deleteUserAndSessions(userId: string, receipt?: DeletionReceipt): boolean {
+    this.assertAvailable();
     const user = this.data.users.find(user => user.id === userId);
     if (!user) return false;
     const subjectDigest = this.loginGuards.digest(user.appleSubject);
@@ -87,6 +96,7 @@ export class InMemoryAuthRepository implements AuthRepository {
   }
 
   pruneDeletionReceipts(now: string): void {
+    this.assertAvailable();
     const records = this.data.deletionReceipts ?? [];
     const retained = records.filter(item => item.expiresAt > now);
     if (retained.length === records.length) return;
@@ -107,6 +117,7 @@ export class InMemoryAuthRepository implements AuthRepository {
   }
 
   createChallenge(id: string, nonceHash: string, expiresAt: string, purpose: AuthChallengePurpose = "login", ticketHash?: string, accountId?: string): void {
+    this.assertAvailable();
     if (purpose !== "login" && (!ticketHash || !/^[a-f0-9]{64}$/.test(ticketHash))) throw new Error("Challenge binding required.");
     if (purpose === "account_deletion" && !accountId) throw new Error("Deletion account binding required.");
     const now = new Date().toISOString();
@@ -118,6 +129,7 @@ export class InMemoryAuthRepository implements AuthRepository {
   }
 
   consumeChallenge(id: string, nonceHash: string, now: string, purpose: AuthChallengePurpose = "login", ticketHash?: string): boolean {
+    this.assertAvailable();
     const challenge = this.data.challenges.find((item) => item.id === id);
     if (!challenge || challenge.usedAt || challenge.expiresAt <= now || challenge.nonceHash !== nonceHash) return false;
     if ((challenge.purpose ?? "login") !== purpose) return false;
@@ -129,15 +141,17 @@ export class InMemoryAuthRepository implements AuthRepository {
   }
 
   getOrCreateUser(appleSubject: string, now: string): AuthUser {
+    this.assertAvailable();
     const existing = this.data.users.find((user) => user.appleSubject === appleSubject);
     if (existing) return existing;
     const user = { id: randomUUID(), appleSubject, createdAt: now };
-    this.data.users.push(user);
-    this.persist();
+    const candidate = { ...this.data, users: [...this.data.users, user] };
+    this.persist(candidate); this.data = candidate;
     return user;
   }
 
   createSession(session: AuthSession): void {
+    this.assertAvailable();
     if (!this.data.users.some(user => user.id === session.userId)) throw new AuthUserNotFoundError();
     const candidate = { ...this.data, sessions: [...this.data.sessions, { ...session }] };
     this.persist(candidate);
@@ -145,6 +159,7 @@ export class InMemoryAuthRepository implements AuthRepository {
   }
 
   findSession(tokenHash: string, now: string): AuthSession | null {
+    this.assertAvailable();
     return this.data.sessions.find((session) => session.tokenHash === tokenHash && !session.revokedAt && session.expiresAt > now
       && this.data.users.some(user => user.id === session.userId)) ?? null;
   }
@@ -152,8 +167,8 @@ export class InMemoryAuthRepository implements AuthRepository {
   revokeSession(tokenHash: string, now: string): boolean {
     const session = this.findSession(tokenHash, now);
     if (!session) return false;
-    session.revokedAt = now;
-    this.persist();
+    const candidate = { ...this.data, sessions: this.data.sessions.map(item => item === session ? { ...item, revokedAt: now } : item) };
+    this.persist(candidate); this.data = candidate;
     return true;
   }
 
@@ -162,6 +177,7 @@ export class InMemoryAuthRepository implements AuthRepository {
 
 /** Development/P0 single-process persistence, not a production multi-instance database. */
 export class FileBackedAuthRepository extends InMemoryAuthRepository {
+  private recoveryRequired = false;
   constructor(private readonly filePath: string) {
     super();
     try {
@@ -176,16 +192,50 @@ export class FileBackedAuthRepository extends InMemoryAuthRepository {
     }
   }
 
+  protected override assertAvailable(): void {
+    if (this.recoveryRequired) throw new AuthPersistenceIndeterminateError();
+  }
+
+  private syncDirectory(path: string): void {
+    const fd = openSync(path, "r");
+    try { fsyncSync(fd); } finally { closeSync(fd); }
+  }
+
   protected override persist(candidate: AuthData = this.data): void {
+    this.assertAvailable();
     const temporary = `${this.filePath}.${randomUUID()}.tmp`;
+    let fd: number | undefined;
+    let owned = false;
+    let renamed = false;
     try {
-      mkdirSync(dirname(this.filePath), { recursive: true, mode: 0o700 });
-      writeFileSync(temporary, JSON.stringify(candidate), { mode: 0o600, flag: "wx" });
-      // Commit boundary: no fallible work follows a successful rename.
-      // This does not promise power-loss durability (no file/directory fsync).
+      const parent = resolve(dirname(this.filePath));
+      const firstCreated = mkdirSync(parent, { recursive: true, mode: 0o700 });
+      if (firstCreated !== undefined) {
+        const first = resolve(firstCreated);
+        const distance = relative(first, parent);
+        if (distance === ".." || distance.startsWith(`..${sep}`) || resolve(first, distance) !== parent) throw new Error("Invalid directory creation boundary.");
+        // Sync new directory entries bottom-up, including the first existing parent.
+        const anchor = dirname(first);
+        for (let current = parent; ; current = dirname(current)) {
+          this.syncDirectory(current);
+          if (current === anchor) break;
+          if (dirname(current) === current) throw new Error("Invalid directory synchronization boundary.");
+        }
+      }
+      fd = openSync(temporary, "wx", 0o600); owned = true;
+      writeFileSync(fd, JSON.stringify(candidate));
+      fsyncSync(fd);
+      const toClose = fd; fd = undefined; closeSync(toClose);
       renameSync(temporary, this.filePath);
+      renamed = true;
+      this.syncDirectory(parent);
     } catch (error) {
-      try { unlinkSync(temporary); } catch { /* Preserve the original failure. */ }
+      if (fd !== undefined) { try { closeSync(fd); } catch { /* Preserve original failure. */ } }
+      if (renamed) {
+        this.recoveryRequired = true;
+        throw new AuthPersistenceIndeterminateError(error);
+      }
+      if (owned) { try { unlinkSync(temporary); } catch { /* Only remove our own uncommitted temporary file. */ } }
       throw new AuthPersistenceNotCommittedError(error);
     }
   }
