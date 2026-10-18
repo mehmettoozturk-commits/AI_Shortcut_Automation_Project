@@ -72,6 +72,15 @@ export function resolveLocalPlan(input: string, context?: ConversationContext): 
       missing: normalized.ambiguous ? [{ field: "time_of_day", reason: "am_pm_ambiguous" }] : [],
     } };
   }
+  // Explicit clock only: no daypart, recurrence restriction or extra clause.
+  const dailyClock = text.match(/^(?:saat (\d{2}[.:]\d{2})(?:'?(?:de|da|te|ta))? (?:olduğunda |olunca )?|her gün (\d{2}[.:]\d{2})(?:'?(?:de|da|te|ta))? )(?:bildir|bildirim gönder|(?:bana )?haber ver|beni uyar)$/);
+  if (dailyClock) {
+    const normalized = normalizeTime(`saat ${dailyClock[1] ?? dailyClock[2]}`);
+    if (normalized) return { route: "local_template", template: "time_notification", intent: {
+      ...base, trigger: { type: "time", details: { time: normalized.value } },
+      entities: { time: normalized },
+    } };
+  }
   const vehicle = vehicleCorrectionTarget(input);
   if (vehicle && context?.currentPlan?.trigger.device?.startsWith("Tesla")) {
     return { route: "local_template", template: "vehicle_correction", intent: {

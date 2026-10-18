@@ -4,6 +4,7 @@ import { NluPipeline } from "../src/nlu/pipeline.js";
 import { emptyContext } from "../src/nlu/types.js";
 import { RuleBasedProvider } from "../src/nlu/providers/rule-based-provider.js";
 import { createPlanServer } from "../src/api/server.js";
+import { FreeTemplateProvider } from "../src/nlu/free-template-provider.js";
 
 function fixture() {
   const fallback = { plan: vi.fn(new RuleBasedProvider().plan.bind(new RuleBasedProvider())) };
@@ -11,6 +12,34 @@ function fixture() {
 }
 
 describe("local-first planning", () => {
+  it.each([
+    ["Saat 18.30 olduğunda haber ver", "18:30"],
+    ["Saat 14.00 olunca bana haber ver", "14:00"],
+    ["Her gün 06.30'da haber ver", "06:30"],
+    ["Her gün 08:15'te beni uyar", "08:15"],
+    ["Saat 00:00 olduğunda bildir", "00:00"],
+    ["Saat 23:59 olunca bildirim gönder", "23:59"],
+  ])("preserves explicit daily clock %s", async (input, clock) => {
+    const { pipeline, fallback } = fixture();
+    const result = await pipeline.planAsync(input, emptyContext());
+    expect(result.status).toBe("plan");
+    if (result.status === "plan") expect(result.plan.trigger).toMatchObject({ type: "ios.time_of_day.daily", params: { time: clock } });
+    expect(fallback.plan).not.toHaveBeenCalled();
+  });
+  it.each([
+    "Saat 24:00 olduğunda bildir", "Saat 12:60 olunca bildir", "Saat -1:00 olunca bildir",
+    "Saat 1:5 olunca bildir", "Akşam 9:30'da bildir", "Sabah 08:15'te bildir", "Gece 12:00'de bildir",
+    "Saat 18.30 olduğunda haber verme", "Her gün 08:15'te bildir ama hafta sonu yapma",
+    "Saat 14:00 olunca bildir ve kapıyı kilitle", "Saat 08:00 ve 09:00 olduğunda bildir",
+    'Saat 09:00 olduğunda "Toplantı zamanı" bildirimi gönder',
+    "Yarın saat 08:00 olduğunda bildir", "Bugün saat 08:00 olunca bildir",
+    "Hafta içi 08:00'de bildir", "Her pazartesi 08:00'de bildir", "Bir defa saat 08:00 olunca bildir",
+    "Her gün 9'da bildir",
+  ])("rejects non-reviewed clock input in resolver and free pipeline: %s", async input => {
+    expect(resolveLocalPlan(input).route).toBe("ai_required");
+    const pipeline = new NluPipeline(undefined, undefined, undefined, new FreeTemplateProvider(), undefined, undefined, { freeTemplateOnly: true });
+    expect((await pipeline.planAsync(input, emptyContext())).status).toBe("not_understood");
+  });
   const batteryPrefixes = ["Şarjım", "Pil seviyesi", "Pil seviyem", "Pilim", "Pili", "Bataryam", "Şarj seviyesi"];
   it.each(batteryPrefixes)("whole-input below coverage and adversarial counterparts for %s", async prefix => {
     const { pipeline, fallback } = fixture();
