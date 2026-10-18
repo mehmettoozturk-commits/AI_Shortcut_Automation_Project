@@ -50,6 +50,19 @@ export function resolveLocalPlan(input: string, context?: ConversationContext): 
       entities: { batteryLevel: { value: level, raw: battery[1]! }, condition: { value: condition, raw: battery[2]! } },
     } };
   }
+  // New coverage is deliberately below-only. Keep the earlier strict above
+  // grammar untouched; never infer direction from a keyword or partial match.
+  const batteryName = "(?:pil(?:i|im)?|şarj(?:ım)?|batarya(?:m)?)(?: seviye(?:si|m))?";
+  const percentageSuffix = "(?:'?(?:nin|nın|nun|nün|in|ın|un|ün|ye|ya|e|a))?";
+  const belowNotification = "(?:bildir|bildirim gönder|(?:beni )?uyar|(?:bana )?haber ver)";
+  const below = text.match(new RegExp(`^${batteryName} (?:%\\s*|yüzde )(\\d{1,3})${percentageSuffix} (?:altına )?(?:düşerse|düşünce|indiğinde|inince) ${belowNotification}$`));
+  if (below && Number(below[1]) <= 100) {
+    const level = Number(below[1]);
+    return { route: "local_template", template: "battery_notification", intent: {
+      ...base, trigger: { type: "battery_below", details: { level, condition: "below" } },
+      entities: { batteryLevel: { value: level, raw: below[1]! }, condition: { value: "below", raw: "below" } },
+    } };
+  }
   const time = text.match(new RegExp(`^saat (\\d{1,2}(?:[.:]\\d{2})?)(?:'?(?:de|da|te|ta))? ${notification}$`));
   if (time) {
     const normalized = normalizeTime(`saat ${time[1]}`);

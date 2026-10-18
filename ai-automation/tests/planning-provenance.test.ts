@@ -1,7 +1,7 @@
 import type { Server } from "node:http";
 import { describe, expect, it, vi } from "vitest";
 import { createPlanServer } from "../src/api/server.js";
-import { LocalFirstProvider } from "../src/nlu/local-first-provider.js";
+import { LocalFirstProvider, resolveLocalPlan } from "../src/nlu/local-first-provider.js";
 import { NluPipeline } from "../src/nlu/pipeline.js";
 import { type PlanningProvenance } from "../src/nlu/planning-provenance.js";
 import type { NluProvider } from "../src/nlu/ports.js";
@@ -80,8 +80,15 @@ describe("P2-A request-scoped planning provenance", () => {
   });
 
   it("the existing no-key rule-based fallback is not counted as an AI invocation", async () => {
+    const input = "Pil yüzde 20 seviyesine gelince bana haber ver";
+    expect(resolveLocalPlan(input).route).toBe("ai_required");
+    expect(await new RuleBasedProvider().plan(input, emptyContext())).toMatchObject({
+      trigger: { type: "battery_below", details: { level: 20, condition: "below" } },
+      entities: { batteryLevel: { value: 20 } },
+      steps: [{ type: "notify" }],
+    });
     const { pipeline, records } = fixture(new RuleBasedProvider());
-    await pipeline.planAsync("Pil yüzde 20'ye düşünce bana haber ver", emptyContext());
+    await pipeline.planAsync(input, emptyContext());
     expect(records[0]).toMatchObject({ aiRequired: true, providerUnavailable: true,
       resolutionSource: "rule_based", providerCallCount: 0, callAccounting: "known", aiPlanProduced: false });
   });
@@ -167,9 +174,16 @@ describe("P2-A request-scoped planning provenance", () => {
   });
 
   it("unknown custom provider results are not inferred to be AI calls", async () => {
+    const input = "Pil yüzde 20 seviyesine gelince bana haber ver";
+    expect(resolveLocalPlan(input).route).toBe("ai_required");
+    expect(await new RuleBasedProvider().plan(input, emptyContext())).toMatchObject({
+      trigger: { type: "battery_below", details: { level: 20, condition: "below" } },
+      entities: { batteryLevel: { value: 20 } },
+      steps: [{ type: "notify" }],
+    });
     const fake: NluProvider = { plan: async (input, context) => new RuleBasedProvider().plan(input, context) };
     const { pipeline, records } = fixture(fake);
-    await pipeline.planAsync("Pil yüzde 20'ye düşünce bana haber ver", emptyContext());
+    await pipeline.planAsync(input, emptyContext());
     expect(records[0]).toMatchObject({ aiRequired: true, providerCallCount: 0, callAccounting: "unknown", aiPlanProduced: false });
   });
 

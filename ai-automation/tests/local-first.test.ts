@@ -11,6 +11,35 @@ function fixture() {
 }
 
 describe("local-first planning", () => {
+  const batteryPrefixes = ["Şarjım", "Pil seviyesi", "Pil seviyem", "Pilim", "Pili", "Bataryam", "Şarj seviyesi"];
+  it.each(batteryPrefixes)("whole-input below coverage and adversarial counterparts for %s", async prefix => {
+    const { pipeline, fallback } = fixture();
+    const input = `${prefix} yüzde 20'nin altına düşünce haber ver`;
+    const result = await pipeline.planAsync(input, emptyContext());
+    expect(result.status).toBe("plan");
+    if (result.status === "plan") expect(result.plan.trigger.params).toEqual({ level: 20, condition: "below" });
+    expect(fallback.plan).not.toHaveBeenCalled();
+    for (const negative of [input.replace("haber ver", "haber verme"), input.replace("düşünce", "düşmesin"),
+      input.replace("altına düşünce", "üstüne çıkınca"), input.replace("20'nin", "20 değil yüzde 35'in"),
+      input + " ve kapıyı kilitle", input.replace("haber ver", "banka transferi yap"),
+      input.replace("haber ver", "'Özel mesaj' bildirimi gönder")]) {
+      expect(resolveLocalPlan(negative, emptyContext()).route).toBe("ai_required");
+    }
+  });
+  it.each(["düşerse", "düşünce", "indiğinde", "inince"])("accepts reviewed below verb %s without direction drift", async verb => {
+    const { pipeline, fallback } = fixture();
+    const result = await pipeline.planAsync(`Bataryam %30'un altına ${verb} beni uyar`, emptyContext());
+    expect(result.status).toBe("plan");
+    if (result.status === "plan") expect(result.plan.trigger.params).toEqual({ level: 30, condition: "below" });
+    expect(fallback.plan).not.toHaveBeenCalled();
+  });
+  it.each([0, 100])("preserves numeric boundary %s and rejects invalid ranges", async level => {
+    const result = resolveLocalPlan(`Şarjım yüzde ${level} altına düşünce bildir`);
+    expect(result.route).toBe("local_template");
+    for (const bad of ["101", "-1", "20.5", "yirmi", "20 ve 80"]) {
+      expect(resolveLocalPlan(`Şarjım yüzde ${bad} altına düşünce bildir`).route).toBe("ai_required");
+    }
+  });
   it.each(["08.00", "09.00", "23:59", "00:00"])("preserves clock %s without provider calls", async (time) => {
     const { pipeline, fallback } = fixture();
     const outcome = await pipeline.planAsync(`Saat ${time}'de bildirim gönder`, emptyContext());
