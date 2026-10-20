@@ -134,8 +134,15 @@ function resolveParameters(
   if (!cap.parameters || cap.parameters.length === 0) return undefined;
   const out: Record<string, unknown> = {};
   for (const param of cap.parameters) {
+    // Canonical action parameters come only from details, including message.
+    // Preserve invalid explicit values for validation, never trim or default them.
     const fromIntent = details?.[param.name];
-    if (fromIntent !== undefined) {
+    // Only the iOS notify message distinguishes absent from explicitly undefined.
+    // Use registry semantics rather than hardcoding capability IDs in NLU.
+    const explicitNotificationMessage = cap.platform === "ios" && cap.semantic === "notify"
+      && param.name === "message" && details !== undefined
+      && Object.prototype.hasOwnProperty.call(details, "message");
+    if (fromIntent !== undefined || explicitNotificationMessage) {
       out[param.name] = fromIntent;
       continue;
     }

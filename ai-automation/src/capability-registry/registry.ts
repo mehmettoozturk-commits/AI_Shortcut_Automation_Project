@@ -401,6 +401,9 @@ export const CAPABILITIES: Capability[] = [
     installMethod: "user_assisted_import",
     requiresUserSetupStep: true,
     semantic: "notify",
+    // Optional preserves generic notifications; custom text has no default.
+    // Application contract: 1..256 code points, nonblank, no controls/newlines.
+    parameters: [{ name: "message", type: "string", required: false }],
     nluKeywords: ["hatırlat", "haber ver", "bildir", "uyar", "bildirim"],
     riskLevel: "low",
     evidence: "apple_docs",

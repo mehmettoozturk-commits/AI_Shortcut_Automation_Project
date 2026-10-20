@@ -10,6 +10,12 @@ const ios26: DeviceContext = { osVersion: 26, hasCarPlay: false };
 const ios17NoCarPlay: DeviceContext = { osVersion: 17, hasCarPlay: false };
 const ios26CarPlay: DeviceContext = { osVersion: 26, hasCarPlay: true };
 
+it("notification message is an optional string with no invented default", () => {
+  expect(findCapability("ios.notification.show")!.parameters).toEqual([
+    { name: "message", type: "string", required: false },
+  ]);
+});
+
 it("Swift snapshot ve TS registry setup requirement alanında aynı kalır", () => {
   const snapshot = JSON.parse(readFileSync(
     new URL("../ios-bridge/Sources/AutomationCore/Resources/capability-registry-snapshot.json", import.meta.url),

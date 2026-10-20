@@ -105,6 +105,20 @@ export function validateCapabilities(
     // gerekli her parametreyi SOMUT bir değerle doldurmak zorunda —
     // "Ask Each Time"/eksik parametre, eylemin sessizce çalışmasını
     // engelliyor (gerçek cihazda gözlemlendi, bkz. docs/capabilities.md #4).
+    // This is the notification contract, not a global string-parameter policy.
+    if (cap.id === "ios.notification.show" && step.params !== undefined
+        && Object.prototype.hasOwnProperty.call(step.params, "message")) {
+      const message = step.params.message;
+      if (typeof message !== "string" || message.trim().length === 0
+          || [...message].length > 256 || /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(message)) {
+        issues.push({
+          code: "invalid_notification_message",
+          message: "Bildirim metni boş olmayan, kontrol karakteri içermeyen en fazla 256 karakterlik bir metin olmalı.",
+          path: `steps[${i}].params.message`,
+          severity: "error",
+        });
+      }
+    }
     for (const param of cap.parameters ?? []) {
       if (!param.required) continue;
       const value = step.params?.[param.name];

@@ -22,6 +22,38 @@ function parse(raw: unknown) {
   return r.plan;
 }
 
+describe("notification raw message contract", () => {
+  const notification = (params?: Record<string, unknown>) => parse({
+    name: "Message contract", trigger: { type: "ios.time_of_day.daily", params: { time: "09:00" } },
+    steps: [{ type: "ios.notification.show", ...(params === undefined ? {} : { params }) }],
+  });
+  it.each([undefined, {}])("preserves generic notification without a message: %j", params => {
+    expect(validateCapabilities(notification(params), { platform: "ios" }).ok).toBe(true);
+  });
+  it.each(["Toplantı zamanı", "  İĞüş: 09:30!  ", "😀".repeat(256), "e\u0301"])("preserves valid raw message", message => {
+    const plan = notification({ message });
+    expect(validateCapabilities(plan, { platform: "ios" }).ok).toBe(true);
+    expect(plan.steps[0]).toEqual({ type: "ios.notification.show", params: { message } });
+  });
+  it.each(["", "   ", null, 123, true, {}, [], "a".repeat(257), "😀".repeat(257), undefined])("rejects invalid explicit message %j", message => {
+    const plan = notification({ message });
+    const result = validateCapabilities(plan, { platform: "ios" });
+    expect(result.ok).toBe(false);
+    expect(result.issues).toContainEqual(expect.objectContaining({ code: "invalid_notification_message", severity: "error" }));
+    expect(plan.steps[0]).toEqual({ type: "ios.notification.show", params: { message } });
+  });
+  it.each([...Array.from({ length: 32 }, (_, i) => i), ...Array.from({ length: 33 }, (_, i) => 127 + i), 0x2028, 0x2029])("rejects control/separator U+%i", code => {
+    expect(validateCapabilities(notification({ message: `A${String.fromCodePoint(code)}B` }), { platform: "ios" }).ok).toBe(false);
+  });
+  it("checks messages inside conditional branches", () => {
+    const plan = parse({ name: "Nested", trigger: { type: "ios.time_of_day.daily" }, steps: [
+      { type: "ask_confirmation", message: "Devam?" },
+      { type: "conditional", condition: "answer == yes", then: [{ type: "ios.notification.show", params: { message: "" } }], else: [] },
+    ] });
+    expect(validateCapabilities(plan, { platform: "ios" }).ok).toBe(false);
+  });
+});
+
 describe("validateCapabilities", () => {
   it("accepts a plan using only registered capabilities", () => {
     const result = validateCapabilities(parse(VALID_PLAN), { platform: "ios" });

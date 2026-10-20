@@ -124,7 +124,17 @@ it.each(["vehicle_lock", "vehicle_climate", "ask_confirmation"])("%s never gains
   const w = wire(); w.steps[0]!.semantic = semantic;
   expect(validatePB01Plan(JSON.stringify(w), source)).toMatchObject({ status: "unsupported_by_offline_bridge", reason: "approval_branch_not_representable_no_auto_approval" });
 });
-it.each([{ details: [] }, { details: [{ key: "ignored", value: text("keep me") }] },
+it("empty decoded details are rejected when the builder omits empty params", () => {
+  const w = wire(); w.steps[0]!.details = [];
+  // Wire [] decodes to {}; optional registry parameters pass the name check,
+  // but resolveParameters returns undefined for no values. The lossless
+  // bridge must still reject that {} -> undefined representation change.
+  expect(validatePB01Plan(JSON.stringify(w), source)).toMatchObject({
+    status: "unsupported_by_offline_bridge", reason: "builder_changed_details",
+    realDispatchAllowed: false, installationVerified: false,
+  });
+});
+it.each([{ details: [{ key: "ignored", value: text("keep me") }] },
   { details: [{ key: "nested", value: { kind: "null", value: null } }] }])("unmapped action details %j are rejected, not silently lost", ({ details }) => {
   const w = wire(); w.steps[0]!.details = details;
   expect(validatePB01Plan(JSON.stringify(w), source)).toMatchObject({ status: "unsupported_by_offline_bridge", reason: "details_not_losslessly_mapped_to_dsl" });

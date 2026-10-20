@@ -9,6 +9,69 @@ import { RuleBasedIntentExtractor } from "../src/nlu/rule-based.js";
 import { emptyContext, bandFor, type PlanningOutcome } from "../src/nlu/types.js";
 import { normalizeTime, normalizeRecurrence, parseTurkishNumber } from "../src/nlu/turkish.js";
 import { runValidationPipeline } from "../src/validators/pipeline.js";
+import { buildPlan } from "../src/nlu/plan-builder.js";
+import type { IntentResult } from "../src/nlu/types.js";
+
+describe("plan builder notification message mapping", () => {
+  function build(details?: Record<string, unknown>) {
+    const intent: IntentResult = { intent: "create_automation", confidence: 1, sourceText: "Synthetic contract fixture",
+      trigger: { type: "time", details: { time: "09:00" } }, steps: [{ type: "notify", ...(details === undefined ? {} : { details }) }], entities: {}, missing: [] };
+    return buildPlan(intent);
+  }
+  it.each(["Toplantı Zamanı: 09:30!", "  İĞüş: 08:00!  ", "e\u0301", "😀".repeat(256)])("maps raw details.message without changing the trigger", message => {
+    const result = build({ message });
+    expect(result.status).toBe("plan");
+    if (result.status !== "plan") throw Error("Expected plan");
+    expect(result.plan.steps).toEqual([{ type: "ios.notification.show", params: { message } }]);
+    expect(result.plan.trigger.params).toEqual({ time: "09:00" });
+    const { device: _device, ...trigger } = result.plan.trigger;
+    expect(runValidationPipeline({ ...result.plan, trigger }, { platform: "ios", grantedPermissions: [] }).ok).toBe(true);
+  });
+  it("does not invent a message for generic notifications", () => {
+    const result = build();
+    expect(result.status).toBe("plan");
+    if (result.status === "plan") expect(result.plan.steps).toEqual([{ type: "ios.notification.show" }]);
+  });
+  it("does not introduce mapping from legacy message fields", () => {
+    const result = buildPlan({ intent: "create_automation", confidence: 1, sourceText: "Synthetic fixture",
+      trigger: { type: "time", details: { time: "09:00" } },
+      steps: [{ type: "notify", message: "Legacy step field" }],
+      entities: { message: { value: "Legacy entity field", raw: "Legacy entity field" } }, missing: [] });
+    expect(result.status).toBe("plan");
+    if (result.status === "plan") expect(result.plan.steps).toEqual([{ type: "ios.notification.show" }]);
+  });
+  it("keeps absent own message generic but preserves explicitly undefined for validation", () => {
+    for (const details of [{}, Object.create({ message: undefined })]) {
+      const result = build(details);
+      expect(result.status).toBe("plan");
+      if (result.status === "plan") expect(result.plan.steps).toEqual([{ type: "ios.notification.show" }]);
+    }
+    const result = build({ message: undefined });
+    if (result.status !== "plan") throw Error("Expected unvalidated draft");
+    const step = result.plan.steps[0];
+    expect(step && "params" in step && Object.hasOwn(step.params!, "message")).toBe(true);
+    // JSON cannot represent undefined: validate the in-memory draft first.
+    expect(JSON.stringify({ message: undefined })).toBe("{}");
+    expect(JSON.stringify({ message: null })).toBe('{"message":null}');
+  });
+  it("does not change undefined/default behavior for other capability parameters", () => {
+    const result = buildPlan({ intent: "create_automation", confidence: 1, sourceText: "Synthetic fixture",
+      trigger: { type: "vehicle_departure" }, steps: [{ type: "vehicle_sentry_mode", details: { mode: undefined } }],
+      entities: {}, missing: [] });
+    expect(result.status).toBe("plan");
+    if (result.status === "plan") expect(JSON.stringify(result.plan.steps)).toContain('"mode":"enable"');
+  });
+  it.each([undefined, "", " ", null, 123, true, "a".repeat(257), "A\nB"])("preserves invalid custom text for explicit validation failure %j", message => {
+    const result = build({ message });
+    expect(result.status).toBe("plan");
+    if (result.status !== "plan") throw Error("Expected unvalidated draft");
+    expect(result.plan.steps).toEqual([{ type: "ios.notification.show", params: { message } }]);
+    const { device: _device, ...trigger } = result.plan.trigger;
+    const checked = runValidationPipeline({ ...result.plan, trigger }, { platform: "ios", grantedPermissions: [] });
+    expect(checked.ok).toBe(false);
+    expect(checked.issues).toContainEqual(expect.objectContaining({ code: "invalid_notification_message" }));
+  });
+});
 
 function plan(input: string, ctx = emptyContext()): PlanningOutcome {
   return new NluPipeline().plan(input, ctx);
